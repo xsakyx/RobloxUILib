@@ -33,28 +33,29 @@ local ASSETS = {
 }
 
 --// ROOT LIBRARY //--
-local Library = {
-    Version = "3.0.0",
-    Title = "Domination",
-    Process = {}, -- For RenderStepped connections
-    Theme = {
-        Main = Color3.fromRGB(25, 25, 30),
-        Secondary = Color3.fromRGB(15, 15, 20),
-        Stroke = Color3.fromRGB(45, 45, 50),
-        Divider = Color3.fromRGB(50, 50, 55),
-        Text = Color3.fromRGB(240, 240, 240),
-        SubText = Color3.fromRGB(160, 160, 160),
-        Hover = Color3.fromRGB(35, 35, 40),
-        Click = Color3.fromRGB(30, 30, 35),
-        Accent = Color3.fromRGB(0, 150, 255),
-        Success = Color3.fromRGB(60, 220, 120),
-        Warn = Color3.fromRGB(240, 200, 60),
-        Error = Color3.fromRGB(240, 60, 60)
-    },
-    Connections = {}, -- Stored connections
-    Flags = {}, -- Config flags
-    Unloaded = false,
-    Keybinds = {} -- Keybind registry
+--// ROOT LIBRARY //--
+local Library = {}
+Library.Version = "3.0.0"
+Library.Title = "Domination"
+Library.Process = {}
+Library.Connections = {}
+Library.Flags = {}
+Library.Unloaded = false
+Library.Keybinds = {}
+
+Library.Theme = {
+    Main = Color3.fromRGB(25, 25, 30),
+    Secondary = Color3.fromRGB(15, 15, 20),
+    Stroke = Color3.fromRGB(45, 45, 50),
+    Divider = Color3.fromRGB(50, 50, 55),
+    Text = Color3.fromRGB(240, 240, 240),
+    SubText = Color3.fromRGB(160, 160, 160),
+    Hover = Color3.fromRGB(35, 35, 40),
+    Click = Color3.fromRGB(30, 30, 35),
+    Accent = Color3.fromRGB(0, 150, 255),
+    Success = Color3.fromRGB(60, 220, 120),
+    Warn = Color3.fromRGB(240, 200, 60),
+    Error = Color3.fromRGB(240, 60, 60)
 }
 
 --------------------------------------------------------------------------------
