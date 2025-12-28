@@ -1,43 +1,28 @@
 local function LoadLibrary()
-    local GithubURL = "https://raw.githubusercontent.com/renardiusse/RenLib/main/RenLib.lua"
+    -- Ensure we don't crash if HttpGet fails (returns nil)
+    local URL = "https://raw.githubusercontent.com/renardiusse/RenLib/main/RenLib.lua"
     
-    -- Attempt 1: GitHub
-    local success, result = pcall(function()
-        return game:HttpGet(GithubURL)
+    local success, response = pcall(function()
+        return game:HttpGet(URL)
     end)
-    
-    if success and type(result) == "string" and #result > 100 then
-        print("Success: Loaded RenLib from GitHub.")
-        local chunk, err = loadstring(result)
-        if chunk then
-            return chunk()
-        else
-            warn("GitHub Load Error (Syntax):", err)
-        end
-    else
-        warn("GitHub Load Failed. Status:", success)
-        warn("Result/Error:", result)
-        warn("URL might be wrong. Falling back to local file.")
+
+    if not success or type(response) ~= "string" then
+        warn("RenLib Error: Failed to fetch library from GitHub.")
+        warn("URL:", URL)
+        return nil
+    end
+
+    local loader, syntaxErr = loadstring(response)
+    if not loader then
+        warn("RenLib Syntax Error:", syntaxErr)
+        return nil
     end
     
-    -- Attempt 2: Local File
-    if isfile("RenLib.lua") then
-        print("Fallback: Loading local RenLib.lua...")
-        return loadfile("RenLib.lua")()
-    elseif isfile("RobloxUILib/RenLib.lua") then
-        print("Fallback: Loading local RobloxUILib/RenLib.lua...")
-        return loadfile("RobloxUILib/RenLib.lua")()
-    end
-    
-    warn("CRITICAL: RenLib not found on GitHub or locally!")
-    return nil
+    return loader()
 end
 
 local Library = LoadLibrary()
-if not Library then 
-    warn("Library failed to load. Script execution stopped.")
-    return 
-end
+if not Library then return end
 
 local Window = Library:CreateWindow({
     Name = "RenLib Hub | v2.0"
