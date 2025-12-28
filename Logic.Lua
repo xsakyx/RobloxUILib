@@ -1,18 +1,17 @@
-
-local Library = loadfile("RobloxUILib/RenLib")()
+local Library = loadfile("RobloxUILib/RenLib.lua")()
 
 local Window = Library:CreateWindow({
-    Name = "Universal Hub | v2.0"
+    Name = "RenLib Hub | v2.0"
 })
 
-local MainTab = Window:AddTab({ Name = "Main", Icon = "rbxassetid://4483345998" })
-local VisualsTab = Window:AddTab({ Name = "Visuals", Icon = "rbxassetid://4483345998" })
-local SettingsTab = Window:AddTab({ Name = "Settings", Icon = "rbxassetid://4483345998" })
+local MainTab = Window:CreateTab({ Name = "Main", Icon = "rbxassetid://4483345998" })
+local VisualsTab = Window:CreateTab({ Name = "Visuals", Icon = "rbxassetid://4483345998" })
+local SettingsTab = Window:CreateTab({ Name = "Settings", Icon = "rbxassetid://4483345998" })
 
 --// Main Section
-local Combat = MainTab:AddSection({ Name = "Combat" })
+local Combat = MainTab:CreateSection({ Name = "Combat" })
 
-Combat:AddToggle({
+Combat:CreateToggle({
     Name = "Silent Aim",
     Default = false,
     Callback = function(state)
@@ -20,7 +19,7 @@ Combat:AddToggle({
     end
 })
 
-Combat:AddButton({
+Combat:CreateButton({
     Name = "Kill All",
     Callback = function()
         Library:Notify({
@@ -32,7 +31,7 @@ Combat:AddButton({
     end
 })
 
-Combat:AddSlider({
+Combat:CreateSlider({
     Name = "FOV Radius",
     Min = 0, 
     Max = 360, 
@@ -42,7 +41,7 @@ Combat:AddSlider({
     end
 })
 
-Combat:AddDropdown({
+Combat:CreateDropdown({
     Name = "Target Part",
     Values = {"Head", "Torso", "HumanoidRootPart"},
     Default = "Head",
@@ -52,9 +51,9 @@ Combat:AddDropdown({
 })
 
 --// Visuals Section
-local ESP = VisualsTab:AddSection({ Name = "ESP Settings" })
+local ESP = VisualsTab:CreateSection({ Name = "ESP Settings" })
 
-ESP:AddColorPicker({
+ESP:CreateColorPicker({
     Name = "Enemy Color",
     Default = Color3.fromRGB(255, 0, 0),
     Callback = function(color)
@@ -62,7 +61,7 @@ ESP:AddColorPicker({
     end
 })
 
-ESP:AddKeybind({
+ESP:CreateKeybind({
     Name = "Toggle Menu",
     Default = Enum.KeyCode.RightShift,
     Mode = "Toggle",
@@ -73,7 +72,7 @@ ESP:AddKeybind({
 
 --// Notification Test
 Library:Notify({
-    Title = "Welcome",
-    Content = "Universal UI Library v2.0 Loaded",
+    Title = "RenLib",
+    Content = "Library Loaded Successfully",
     Duration = 5
 })
