@@ -369,7 +369,7 @@ local function loadMainHub()
         print("[SCRIPT HUB] Access granted. Loading main hub...")
         
         -- GitHub URL for the hub
-        local hubUrl = "https://raw.githubusercontent.com/renardiusse/RobloxUILib/main/Loaders/MainHub"
+        local hubUrl = "https://raw.githubusercontent.com/renardiusse/RobloxUILib/refs/heads/main/Loaders/MainHub"
         
         print("[SCRIPT HUB] Fetching from: " .. hubUrl)
         
