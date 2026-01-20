@@ -361,50 +361,43 @@ onMessage = function(message)
 	end
 end
 
---! MAIN SCRIPT LOADER (FIXED)
+--! MAIN SCRIPT LOADER (ACTUALLY FIXED THIS TIME)
 local function loadMainHub()
     onMessage("Loading script hub...")
     
-    local success, err = pcall(function()
-        print("[SCRIPT HUB] Access granted. Loading main hub...")
-        
-        -- GitHub URL for the hub (NO .lua extension based on your structure)
-        local hubUrl = "https://raw.githubusercontent.com/renardiusse/RobloxUILib/main/Loaders/MainHub"
-        
-        print("[SCRIPT HUB] Fetching from: " .. hubUrl)
-        
-        -- Fetch the script content
-        local fetchSuccess, scriptContent = pcall(function()
-            return game:HttpGet(hubUrl)
+    task.spawn(function()
+        local success, err = pcall(function()
+            print("[SCRIPT HUB] Access granted. Loading main hub...")
+            
+            local hubUrl = "https://raw.githubusercontent.com/renardiusse/RobloxUILib/main/Loaders/MainHub"
+            
+            print("[SCRIPT HUB] Fetching from: " .. hubUrl)
+            
+            local scriptContent = game:HttpGet(hubUrl)
+            
+            if not scriptContent or scriptContent == "" then
+                error("MainHub script is empty")
+            end
+            
+            print("[SCRIPT HUB] Script fetched (" .. #scriptContent .. " bytes)")
+            print("[SCRIPT HUB] Executing MainHub...")
+            
+            -- THE FIX: Call loadstring then immediately execute with ()
+            local func = loadstring(scriptContent)
+            if func then
+                func()
+                print("[SCRIPT HUB] MainHub loaded successfully!")
+            else
+                error("loadstring returned nil")
+            end
         end)
         
-        if not fetchSuccess then
-            error("Failed to fetch MainHub from GitHub. Error: " .. tostring(scriptContent))
+        if not success then
+            local errorMsg = "Hub load error: " .. tostring(err)
+            onMessage(errorMsg)
+            warn("[SCRIPT HUB] " .. errorMsg)
         end
-        
-        if not scriptContent or scriptContent == "" or scriptContent:find("404") or scriptContent:find("Not Found") then
-            error("MainHub not found on GitHub (404). Check the file exists at: " .. hubUrl)
-        end
-        
-        print("[SCRIPT HUB] Script fetched successfully (" .. #scriptContent .. " bytes)")
-        
-        -- Execute the hub
-        local loadSuccess, loadErr = pcall(function()
-            loadstring(scriptContent)()
-        end)
-        
-        if not loadSuccess then
-            error("Failed to execute MainHub. Error: " .. tostring(loadErr))
-        end
-        
-        print("[SCRIPT HUB] MainHub loaded successfully!")
     end)
-    
-    if not success then
-        local errorMsg = "Failed to load hub: " .. tostring(err)
-        onMessage(errorMsg)
-        warn("[SCRIPT HUB] " .. errorMsg)
-    end
 end
 
 --! KEY SYSTEM UI
