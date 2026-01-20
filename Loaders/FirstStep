@@ -368,8 +368,8 @@ local function loadMainHub()
 	local success, err = pcall(function()
 		print("[SCRIPT HUB] Access granted. Loading main hub...")
 		
-		-- REPLACE WITH YOUR ACTUAL SCRIPT HUB
-		-- Example: loadstring(game:HttpGet("your_hub_url"))()
+       loadstring(game:HttpGet("https://raw.githubusercontent.com/renardiusse/RobloxUILib/refs/heads/main/Loaders/MainHub"))()
+
 	end)
 	
 	if not success then
