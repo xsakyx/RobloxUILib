@@ -363,20 +363,18 @@ end
 
 --! MAIN SCRIPT LOADER
 local function loadMainHub()
-	onMessage("Access granted! Loading script hub...")
-	
-	local success, err = pcall(function()
-		print("[SCRIPT HUB] Access granted. Loading main hub...")
-		
-       loadstring(game:HttpGet("https://raw.githubusercontent.com/renardiusse/RobloxUILib/refs/heads/main/Loaders/MainHub"))()
-
-	end)
-	
-	if not success then
-		onMessage("Failed to load hub: " .. tostring(err))
-	end
+    onMessage("Loading script hub...")
+    
+    local success, err = pcall(function()
+        print("[SCRIPT HUB] Access granted. Loading main hub...")
+        
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/renardiusse/RobloxUILib/main/Loaders/MainHub.lua"))()
+    end)
+    
+    if not success then
+        onMessage("Failed to load hub: " .. tostring(err))
+    end
 end
-
 --! KEY SYSTEM UI
 local function showKeySystemUI()
 	local ScreenGui = Instance.new("ScreenGui")
