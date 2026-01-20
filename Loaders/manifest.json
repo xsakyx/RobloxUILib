@@ -1,25 +1,25 @@
 {
   "scripts": [
     {
-      "name": "Blox Fruits Auto-Farm",
-      "placeId": "2753915549",
-      "universal": false,
-      "description": "Advanced auto-farming with ESP",
-      "loadstring": "https://raw.githubusercontent.com/USERNAME/REPO/main/scripts/bloxfruits.lua"
-    },
-    {
-      "name": "Universal ESP",
+      "name": "RenU V3",
       "placeId": "universal",
       "universal": true,
-      "description": "Works on all games",
-      "loadstring": "https://raw.githubusercontent.com/USERNAME/REPO/main/scripts/universal_esp.lua"
+      "description": "Universal script with ESP and utilities",
+      "loadstring": "https://raw.githubusercontent.com/renardiusse/RobloxUILib/main/Scripts/RenU-V3.lua"
     },
     {
-      "name": "Da Hood Silent Aim",
-      "placeId": "2788229376",
+      "name": "Blox Fruits",
+      "placeId": "2753915549",
       "universal": false,
-      "description": "Silent aim + aimbot",
-      "loadstring": "https://raw.githubusercontent.com/USERNAME/REPO/main/scripts/dahood.lua"
+      "description": "Auto-farm for Blox Fruits",
+      "loadstring": "https://raw.githubusercontent.com/renardiusse/RobloxUILib/main/Scripts/BloxFruits.lua"
+    },
+    {
+      "name": "Arsenal Aimbot",
+      "placeId": "286090429",
+      "universal": false,
+      "description": "Silent aim and ESP for Arsenal",
+      "loadstring": "https://raw.githubusercontent.com/renardiusse/RobloxUILib/main/Scripts/Arsenal.lua"
     }
   ]
 }
