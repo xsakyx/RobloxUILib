@@ -476,3 +476,25 @@ SafeNotify("Script Hub", "Loaded " .. #ScriptDatabase .. " scripts!", 3)
 print("[Script Hub] Initialized successfully")
 print("[Script Hub] Total Scripts: " .. #ScriptDatabase)
 print("[Script Hub] Total Favorites: " .. #Favorites)
+
+
+
+
+-------------------------------------------------------------------------------
+--// AUTO-CLOSE ON SCRIPT EXECUTION
+-------------------------------------------------------------------------------
+local OriginalExecuteScript = ExecuteScript
+
+ExecuteScript = function(scriptData)
+    OriginalExecuteScript(scriptData)
+    
+    -- Wait a bit to ensure script loads
+    task.wait(1)
+    
+    -- Close and destroy the hub
+    if Library and Library.ScreenGui then
+        Library.ScreenGui:Destroy()
+    end
+    
+    print("[Script Hub] Closed after script execution")
+end
