@@ -368,8 +368,8 @@ local function loadMainHub()
     local success, err = pcall(function()
         print("[SCRIPT HUB] Access granted. Loading main hub...")
         
-        -- GitHub URL for the hub
-        local hubUrl = "https://raw.githubusercontent.com/renardiusse/RobloxUILib/refs/heads/main/Loaders/MainHub"
+        -- GitHub URL for the hub (NO .lua extension based on your structure)
+        local hubUrl = "https://raw.githubusercontent.com/renardiusse/RobloxUILib/main/Loaders/MainHub"
         
         print("[SCRIPT HUB] Fetching from: " .. hubUrl)
         
@@ -382,8 +382,8 @@ local function loadMainHub()
             error("Failed to fetch MainHub from GitHub. Error: " .. tostring(scriptContent))
         end
         
-        if not scriptContent or scriptContent == "" or scriptContent == "404: Not Found" then
-            error("MainHub.lua not found on GitHub or is empty. Please upload it to /Loaders/MainHub.lua")
+        if not scriptContent or scriptContent == "" or scriptContent:find("404") or scriptContent:find("Not Found") then
+            error("MainHub not found on GitHub (404). Check the file exists at: " .. hubUrl)
         end
         
         print("[SCRIPT HUB] Script fetched successfully (" .. #scriptContent .. " bytes)")
