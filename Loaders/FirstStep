@@ -361,20 +361,52 @@ onMessage = function(message)
 	end
 end
 
---! MAIN SCRIPT LOADER
+--! MAIN SCRIPT LOADER (FIXED)
 local function loadMainHub()
     onMessage("Loading script hub...")
     
     local success, err = pcall(function()
         print("[SCRIPT HUB] Access granted. Loading main hub...")
         
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/renardiusse/RobloxUILib/main/Loaders/MainHub.lua"))()
+        -- GitHub URL for the hub
+        local hubUrl = "https://raw.githubusercontent.com/renardiusse/RobloxUILib/main/Loaders/MainHub.lua"
+        
+        print("[SCRIPT HUB] Fetching from: " .. hubUrl)
+        
+        -- Fetch the script content
+        local fetchSuccess, scriptContent = pcall(function()
+            return game:HttpGet(hubUrl)
+        end)
+        
+        if not fetchSuccess then
+            error("Failed to fetch MainHub from GitHub. Error: " .. tostring(scriptContent))
+        end
+        
+        if not scriptContent or scriptContent == "" or scriptContent == "404: Not Found" then
+            error("MainHub.lua not found on GitHub or is empty. Please upload it to /Loaders/MainHub.lua")
+        end
+        
+        print("[SCRIPT HUB] Script fetched successfully (" .. #scriptContent .. " bytes)")
+        
+        -- Execute the hub
+        local loadSuccess, loadErr = pcall(function()
+            loadstring(scriptContent)()
+        end)
+        
+        if not loadSuccess then
+            error("Failed to execute MainHub. Error: " .. tostring(loadErr))
+        end
+        
+        print("[SCRIPT HUB] MainHub loaded successfully!")
     end)
     
     if not success then
-        onMessage("Failed to load hub: " .. tostring(err))
+        local errorMsg = "Failed to load hub: " .. tostring(err)
+        onMessage(errorMsg)
+        warn("[SCRIPT HUB] " .. errorMsg)
     end
 end
+
 --! KEY SYSTEM UI
 local function showKeySystemUI()
 	local ScreenGui = Instance.new("ScreenGui")
