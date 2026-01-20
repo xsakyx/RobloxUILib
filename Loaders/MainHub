@@ -1,1 +1,447 @@
+-------------------------------------------------------------------------------
+--! SCRIPT HUB - DOMINATION UI
+-------------------------------------------------------------------------------
 
+local Library = loadstring(game:HttpGet("YOUR_UI_LIBRARY_URL_HERE"))()
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+
+--// CONFIGURATION
+local GITHUB_MANIFEST = "https://raw.githubusercontent.com/USERNAME/REPO/main/manifest.json"
+local FAVORITES_FILE = "ScriptHub_Favorites.json"
+
+--// CURRENT GAME INFO
+local CurrentPlaceId = tostring(game.PlaceId)
+local LocalPlayer = Players.LocalPlayer
+
+--// STATE
+local ScriptDatabase = {}
+local Favorites = {}
+local CurrentSelection = nil
+
+-------------------------------------------------------------------------------
+--// FAVORITES SYSTEM
+-------------------------------------------------------------------------------
+local function LoadFavorites()
+    if not readfile or not isfile then return end
+    
+    local success, result = pcall(function()
+        if isfile(FAVORITES_FILE) then
+            return HttpService:JSONDecode(readfile(FAVORITES_FILE))
+        end
+        return {}
+    end)
+    
+    Favorites = success and result or {}
+end
+
+local function SaveFavorites()
+    if not writefile then return end
+    
+    pcall(function()
+        writefile(FAVORITES_FILE, HttpService:JSONEncode(Favorites))
+    end)
+end
+
+local function IsFavorite(scriptName)
+    for _, name in pairs(Favorites) do
+        if name == scriptName then return true end
+    end
+    return false
+end
+
+local function AddFavorite(scriptName)
+    if not IsFavorite(scriptName) then
+        table.insert(Favorites, scriptName)
+        SaveFavorites()
+        return true
+    end
+    return false
+end
+
+local function RemoveFavorite(scriptName)
+    for i, name in pairs(Favorites) do
+        if name == scriptName then
+            table.remove(Favorites, i)
+            SaveFavorites()
+            return true
+        end
+    end
+    return false
+end
+
+-------------------------------------------------------------------------------
+--// SCRIPT FETCHING
+-------------------------------------------------------------------------------
+local function FetchManifest()
+    local success, response = pcall(function()
+        return game:HttpGet(GITHUB_MANIFEST)
+    end)
+    
+    if not success then
+        Library:Notify({
+            Title = "Connection Error",
+            Content = "Failed to fetch scripts from GitHub",
+            Duration = 5
+        })
+        return false
+    end
+    
+    local parseSuccess, data = pcall(function()
+        return HttpService:JSONDecode(response)
+    end)
+    
+    if not parseSuccess or not data.scripts then
+        Library:Notify({
+            Title = "Parse Error",
+            Content = "Invalid manifest format",
+            Duration = 5
+        })
+        return false
+    end
+    
+    ScriptDatabase = data.scripts
+    return true
+end
+
+-------------------------------------------------------------------------------
+--// SCRIPT EXECUTION
+-------------------------------------------------------------------------------
+local function ExecuteScript(scriptData)
+    if not scriptData or not scriptData.loadstring then
+        Library:Notify({
+            Title = "Error",
+            Content = "Invalid script data",
+            Duration = 3
+        })
+        return
+    end
+    
+    Library:Notify({
+        Title = "Executing...",
+        Content = "Loading: " .. scriptData.name,
+        Duration = 2
+    })
+    
+    task.spawn(function()
+        local success, err = pcall(function()
+            local scriptContent = game:HttpGet(scriptData.loadstring)
+            loadstring(scriptContent)()
+        end)
+        
+        if success then
+            Library:Notify({
+                Title = "Success",
+                Content = scriptData.name .. " executed successfully!",
+                Duration = 3
+            })
+        else
+            Library:Notify({
+                Title = "Execution Error",
+                Content = "Failed: " .. tostring(err),
+                Duration = 5
+            })
+        end
+    end)
+end
+
+-------------------------------------------------------------------------------
+--// AUTO-LAUNCH
+-------------------------------------------------------------------------------
+local function AutoLaunchCurrentGame()
+    for _, script in pairs(ScriptDatabase) do
+        if script.placeId == CurrentPlaceId then
+            Library:Notify({
+                Title = "Auto-Launch",
+                Content = "Found: " .. script.name,
+                Duration = 2
+            })
+            task.wait(0.5)
+            ExecuteScript(script)
+            return true
+        end
+    end
+    
+    -- Check for universal scripts
+    for _, script in pairs(ScriptDatabase) do
+        if script.universal then
+            Library:Notify({
+                Title = "Universal Script",
+                Content = "Launching: " .. script.name,
+                Duration = 2
+            })
+            task.wait(0.5)
+            ExecuteScript(script)
+            return true
+        end
+    end
+    
+    Library:Notify({
+        Title = "No Script Found",
+        Content = "No script available for PlaceId: " .. CurrentPlaceId,
+        Duration = 4
+    })
+    return false
+end
+
+-------------------------------------------------------------------------------
+--// BUILD SCRIPT LIST
+-------------------------------------------------------------------------------
+local function GetScriptList()
+    local list = {}
+    for _, script in pairs(ScriptDatabase) do
+        local displayName = script.name
+        if script.universal then
+            displayName = displayName .. " [Universal]"
+        end
+        table.insert(list, displayName)
+    end
+    return list
+end
+
+local function GetFavoritesList()
+    local list = {}
+    for _, favName in pairs(Favorites) do
+        for _, script in pairs(ScriptDatabase) do
+            if script.name == favName then
+                local displayName = script.name
+                if script.universal then
+                    displayName = displayName .. " [Universal]"
+                end
+                table.insert(list, displayName)
+                break
+            end
+        end
+    end
+    return list
+end
+
+local function GetScriptByDisplayName(displayName)
+    local cleanName = displayName:gsub(" %[Universal%]", "")
+    for _, script in pairs(ScriptDatabase) do
+        if script.name == cleanName then
+            return script
+        end
+    end
+    return nil
+end
+
+-------------------------------------------------------------------------------
+--// INITIALIZE
+-------------------------------------------------------------------------------
+LoadFavorites()
+local fetchSuccess = FetchManifest()
+
+if not fetchSuccess then
+    warn("[Script Hub] Failed to fetch manifest. Check your GitHub URL.")
+end
+
+-------------------------------------------------------------------------------
+--! UI CREATION
+-------------------------------------------------------------------------------
+local Window = Library:CreateWindow({
+    Name = "Script Hub",
+    LoadingTitle = "Initializing Script Hub...",
+    ConfigurationSaving = {
+        Enabled = false
+    }
+})
+
+local MainTab = Window:CreateTab({
+    Name = "Scripts",
+    Icon = "rbxassetid://4483345998"
+})
+
+--// QUICK LAUNCH SECTION
+local QuickLaunchSection = MainTab:CreateSection({
+    Name = "Quick Launch",
+    Side = "Left"
+})
+
+QuickLaunchSection:CreateLabel("Current Game: " .. game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name)
+QuickLaunchSection:CreateLabel("PlaceId: " .. CurrentPlaceId)
+
+QuickLaunchSection:CreateButton({
+    Name = "🚀 Auto-Launch for Current Game",
+    Callback = function()
+        AutoLaunchCurrentGame()
+    end
+})
+
+--// ALL SCRIPTS SECTION
+local AllScriptsSection = MainTab:CreateSection({
+    Name = "All Available Scripts",
+    Side = "Left"
+})
+
+local SelectedScript = nil
+local ScriptInfoLabel = AllScriptsSection:CreateLabel("Select a script to view details")
+
+local ScriptDropdown = AllScriptsSection:CreateDropdown({
+    Name = "Select Script",
+    Values = GetScriptList(),
+    Default = GetScriptList()[1] or "No scripts",
+    Callback = function(selected)
+        SelectedScript = GetScriptByDisplayName(selected)
+        if SelectedScript then
+            local info = string.format(
+                "📝 %s\n🎮 %s\n📄 %s",
+                SelectedScript.name,
+                SelectedScript.universal and "Universal" or "Game-Specific (PlaceId: " .. SelectedScript.placeId .. ")",
+                SelectedScript.description or "No description available"
+            )
+            ScriptInfoLabel:SetText(info)
+        end
+    end
+})
+
+AllScriptsSection:CreateButton({
+    Name = "▶ Launch Selected Script",
+    Callback = function()
+        if SelectedScript then
+            ExecuteScript(SelectedScript)
+        else
+            Library:Notify({
+                Title = "Error",
+                Content = "Please select a script first",
+                Duration = 3
+            })
+        end
+    end
+})
+
+AllScriptsSection:CreateButton({
+    Name = "⭐ Add to Favorites",
+    Callback = function()
+        if SelectedScript then
+            if AddFavorite(SelectedScript.name) then
+                Library:Notify({
+                    Title = "Favorites",
+                    Content = "Added: " .. SelectedScript.name,
+                    Duration = 2
+                })
+                -- Refresh favorites dropdown
+                if FavDropdown then
+                    FavDropdown:Refresh(GetFavoritesList())
+                end
+            else
+                Library:Notify({
+                    Title = "Info",
+                    Content = "Already in favorites",
+                    Duration = 2
+                })
+            end
+        else
+            Library:Notify({
+                Title = "Error",
+                Content = "Please select a script first",
+                Duration = 3
+            })
+        end
+    end
+})
+
+--// FAVORITES SECTION
+local FavoritesSection = MainTab:CreateSection({
+    Name = "Favorite Scripts",
+    Side = "Right"
+})
+
+FavoritesSection:CreateLabel("Quick access to your favorite scripts")
+
+local SelectedFavorite = nil
+local FavInfoLabel = FavoritesSection:CreateLabel("Select a favorite to view details")
+
+local FavDropdown = FavoritesSection:CreateDropdown({
+    Name = "Select Favorite",
+    Values = GetFavoritesList(),
+    Default = GetFavoritesList()[1] or "No favorites",
+    Callback = function(selected)
+        SelectedFavorite = GetScriptByDisplayName(selected)
+        if SelectedFavorite then
+            local info = string.format(
+                "📝 %s\n🎮 %s\n📄 %s",
+                SelectedFavorite.name,
+                SelectedFavorite.universal and "Universal" or "Game-Specific",
+                SelectedFavorite.description or "No description"
+            )
+            FavInfoLabel:SetText(info)
+        end
+    end
+})
+
+FavoritesSection:CreateButton({
+    Name = "▶ Launch Favorite",
+    Callback = function()
+        if SelectedFavorite then
+            ExecuteScript(SelectedFavorite)
+        else
+            Library:Notify({
+                Title = "Error",
+                Content = "Please select a favorite first",
+                Duration = 3
+            })
+        end
+    end
+})
+
+FavoritesSection:CreateButton({
+    Name = "🗑 Remove from Favorites",
+    Callback = function()
+        if SelectedFavorite then
+            if RemoveFavorite(SelectedFavorite.name) then
+                Library:Notify({
+                    Title = "Favorites",
+                    Content = "Removed: " .. SelectedFavorite.name,
+                    Duration = 2
+                })
+                FavDropdown:Refresh(GetFavoritesList())
+                FavInfoLabel:SetText("Select a favorite to view details")
+                SelectedFavorite = nil
+            end
+        else
+            Library:Notify({
+                Title = "Error",
+                Content = "Please select a favorite first",
+                Duration = 3
+            })
+        end
+    end
+})
+
+--// INFO SECTION
+local InfoSection = MainTab:CreateSection({
+    Name = "Information",
+    Side = "Right"
+})
+
+InfoSection:CreateLabel("Total Scripts: " .. #ScriptDatabase)
+InfoSection:CreateLabel("Favorites: " .. #Favorites)
+InfoSection:CreateLabel("User: " .. LocalPlayer.Name)
+
+InfoSection:CreateButton({
+    Name = "🔄 Refresh Script List",
+    Callback = function()
+        Library:Notify({
+            Title = "Refreshing...",
+            Content = "Fetching latest scripts",
+            Duration = 2
+        })
+        
+        if FetchManifest() then
+            ScriptDropdown:Refresh(GetScriptList())
+            FavDropdown:Refresh(GetFavoritesList())
+            Library:Notify({
+                Title = "Success",
+                Content = "Script list updated!",
+                Duration = 3
+            })
+        end
+    end
+})
+
+Library:Notify({
+    Title = "Script Hub Loaded",
+    Content = "Ready to launch scripts!",
+    Duration = 3
+})
