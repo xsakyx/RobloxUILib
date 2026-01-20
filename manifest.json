@@ -1,1 +1,25 @@
-
+{
+  "scripts": [
+    {
+      "name": "Blox Fruits Auto-Farm",
+      "placeId": "2753915549",
+      "universal": false,
+      "description": "Advanced auto-farming with ESP",
+      "loadstring": "https://raw.githubusercontent.com/USERNAME/REPO/main/scripts/bloxfruits.lua"
+    },
+    {
+      "name": "Universal ESP",
+      "placeId": "universal",
+      "universal": true,
+      "description": "Works on all games",
+      "loadstring": "https://raw.githubusercontent.com/USERNAME/REPO/main/scripts/universal_esp.lua"
+    },
+    {
+      "name": "Da Hood Silent Aim",
+      "placeId": "2788229376",
+      "universal": false,
+      "description": "Silent aim + aimbot",
+      "loadstring": "https://raw.githubusercontent.com/USERNAME/REPO/main/scripts/dahood.lua"
+    }
+  ]
+}
