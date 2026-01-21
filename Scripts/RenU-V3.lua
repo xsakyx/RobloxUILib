@@ -41,7 +41,7 @@ local Window = Rayfield:CreateWindow({
    Name = "RenD Hub",
    Icon = 0,
    LoadingTitle = "RenD Hub",
-   LoadingSubtitle = "by SoLoIsTe_Cry",
+   LoadingSubtitle = "by xsakyx",
    ShowText = "RenD Hub",
    Theme = selectedTheme,
    
@@ -62,7 +62,7 @@ local Window = Rayfield:CreateWindow({
       RememberJoins = true
    },
    
-   KeySystem = true,
+   KeySystem = false,
    KeySettings = {
       Title = "RenD Hub key system",
       Subtitle = "easy key system",
