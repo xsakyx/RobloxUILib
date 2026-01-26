@@ -9,7 +9,7 @@ local Players = game:GetService("Players")
 --// LOAD UI LIBRARY
 local Library = nil
 local libSuccess, libErr = pcall(function()
-    local libContent = game:HttpGet("https://raw.githubusercontent.com/renardiusse/RobloxUILib/main/RenLib.lua")
+    local libContent = game:HttpGet("https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/RenLib.lua")
     Library = loadstring(libContent)()
 end)
 
@@ -24,7 +24,7 @@ if not libSuccess or not Library then
 end
 
 --// CONFIGURATION
-local GITHUB_BASE = "https://raw.githubusercontent.com/renardiusse/RobloxUILib/main"
+local GITHUB_BASE = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main"
 local GITHUB_MANIFEST = GITHUB_BASE .. "/Loaders/manifest.json"
 
 --// CURRENT GAME INFO
