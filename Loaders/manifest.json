@@ -5,21 +5,21 @@
       "placeId": "universal",
       "universal": true,
       "description": "Universal script with ESP and utilities",
-      "loadstring": "https://raw.githubusercontent.com/renardiusse/RobloxUILib/main/Scripts/RenU-V3.lua"
+      "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/RenU-V3.lua"
     },
     {
       "name": "Blox Fruits",
       "placeId": "2753915549",
       "universal": false,
       "description": "Auto-farm for Blox Fruits",
-      "loadstring": "https://raw.githubusercontent.com/renardiusse/RobloxUILib/main/Scripts/BloxFruits.lua"
+      "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/BloxFruits.lua"
     },
     {
       "name": "Arsenal Aimbot",
       "placeId": "286090429",
       "universal": false,
       "description": "Silent aim and ESP for Arsenal",
-      "loadstring": "https://raw.githubusercontent.com/renardiusse/RobloxUILib/main/Scripts/Arsenal.lua"
+      "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/Arsenal.lua"
     }
   ]
 }
