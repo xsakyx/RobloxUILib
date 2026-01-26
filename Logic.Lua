@@ -2,7 +2,7 @@
 -- Tests all components and features
 
 local function LoadLibrary()
-    local URL = "https://raw.githubusercontent.com/renardiusse/RenLib/main/RenLib.lua"
+    local URL = "https://raw.githubusercontent.com/xsakyx/RenLib/main/RenLib.lua"
     
     local success, response = pcall(function()
         return game:HttpGet(URL)
