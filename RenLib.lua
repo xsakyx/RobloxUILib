@@ -553,7 +553,7 @@ function Library:CreateWindow(options)
     function Window:CreateTab(options)
         options = options or {}
         local Name = options.Name or "Tab"
-        local Icon = options.Icon or "rbxassetid://4483345998"
+        local Icon = options.Icon or "rbxassetid://73350721735790"
         
         local Tab = {
             Name = Name,
