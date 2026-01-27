@@ -272,7 +272,7 @@ local winSuccess, winErr = pcall(function()
     Window = Library:CreateWindow({
         Name = "Script Hub",
         LoadingTitle = "Initializing...",
-        UseCustomIcons = false, -- Set to true to use your own icons instead of GitHub icons
+        Icon = "rbxassetid://73350721735790", -- Set to true to use your own icons instead of GitHub icons
         ConfigurationSaving = {
             Enabled = false
         }
