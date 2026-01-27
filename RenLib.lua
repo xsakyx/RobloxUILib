@@ -1,4 +1,4 @@
--- Domination UI Library (Titan Build) - FIXED VERSION
+-- Domination UI Library (Titan Build) - Made for RenHub
 
 --// SERVICES //--
 local UserInputService = game:GetService("UserInputService")
@@ -17,8 +17,8 @@ local Mouse = Plr:GetMouse()
 local Camera = workspace.CurrentCamera
 
 --// CONSTANTS //--
-local HUD_NAME = "DominationLibrary"
-local CONFIG_FOLDER = "DominationConfig"
+local HUD_NAME = "RenLib"
+local CONFIG_FOLDER = "RenHubConfig"
 local ASSETS = {
     Shadow = "rbxassetid://6014261993",
     Blur = "rbxassetid://6014261993",
@@ -35,7 +35,7 @@ local ASSETS = {
 --// ROOT LIBRARY //--
 local Library = {}
 Library.Version = "3.0.0"
-Library.Title = "Domination"
+Library.Title = "RenLib"
 Library.Process = {}
 Library.Connections = {}
 Library.Flags = {}
