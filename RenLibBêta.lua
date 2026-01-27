@@ -1,5 +1,5 @@
 -- Domination UI Library (Titan Build) - Made for RenHub
--- GitHub Icons Integration Version
+-- GitHub Icons Integration Version - FIXED
 
 --// SERVICES //--
 local UserInputService = game:GetService("UserInputService")
@@ -21,12 +21,26 @@ local Camera = workspace.CurrentCamera
 local HUD_NAME = "RenLib"
 local CONFIG_FOLDER = "RenHubConfig"
 
---// GITHUB ASSET CONFIGURATION //--
-local GITHUB_BASE = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Images/"
-local ASSETS = {
+--// FALLBACK ASSET IDs (Always work)
+local FALLBACK_ASSETS = {
     Shadow = "rbxassetid://6014261993",
     Blur = "rbxassetid://6014261993",
-    Logo = GITHUB_BASE .. "logo.png",  -- Main RenLib logo
+    Logo = "rbxassetid://4483345998",
+    Icons = {
+        Settings = "rbxassetid://7733955511",
+        Search = "rbxassetid://6031154871",
+        Close = "rbxassetid://6031094678",
+        Minimize = "rbxassetid://6031094679",
+        Arrow = "rbxassetid://6031091004",
+        Check = "rbxassetid://6031094667",
+        TabDefault = "rbxassetid://7733920644"
+    }
+}
+
+--// GITHUB ASSET CONFIGURATION (Optional override)
+local GITHUB_BASE = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Images/"
+local GITHUB_ASSETS = {
+    Logo = GITHUB_BASE .. "logo.png",
     Icons = {
         Settings = GITHUB_BASE .. "settings.png",
         Search = GITHUB_BASE .. "search.png",
@@ -34,7 +48,7 @@ local ASSETS = {
         Minimize = GITHUB_BASE .. "minimize.png",
         Arrow = GITHUB_BASE .. "arrow.png",
         Check = GITHUB_BASE .. "check.png",
-        TabDefault = GITHUB_BASE .. "tab_default.png"  -- Default tab icon
+        TabDefault = GITHUB_BASE .. "tab_default.png"
     }
 }
 
@@ -47,7 +61,8 @@ Library.Connections = {}
 Library.Flags = {}
 Library.Unloaded = false
 Library.Keybinds = {}
-Library.UseGitHubIcons = true  -- Global toggle for GitHub icons
+Library.UseGitHubIcons = false  -- Default to FALSE so fallback icons work
+Library.GitHubIconCache = {}
 
 Library.Theme = {
     Main = Color3.fromRGB(25, 25, 30),
@@ -302,20 +317,37 @@ function Utility:WriteFile(path, content)
     if not success then warn("Failed to write config: " .. tostring(err)) end
 end
 
---// ICON HELPER FUNCTION
-function Utility:GetIcon(iconPath, fallbackAssetId)
-    -- If UseGitHubIcons is false, use fallback
-    if not Library.UseGitHubIcons and fallbackAssetId then
-        return fallbackAssetId
+--// ICON HELPER FUNCTION - FIXED VERSION
+function Utility:GetIcon(iconKey, fallbackAssetId)
+    -- If custom rbxassetid is provided directly, use it
+    if type(iconKey) == "string" and iconKey:match("^rbxassetid://") then
+        return iconKey
     end
     
-    -- If iconPath is already an rbxassetid, use it directly
-    if type(iconPath) == "string" and iconPath:match("^rbxassetid://") then
-        return iconPath
+    -- If UseGitHubIcons is enabled, try to load from GitHub
+    if Library.UseGitHubIcons then
+        -- Check if we have a cached version
+        if Library.GitHubIconCache[iconKey] then
+            return Library.GitHubIconCache[iconKey]
+        end
+        
+        -- Try to fetch from GitHub (this won't work for ImageLabels but we try anyway)
+        local success, result = pcall(function()
+            if type(iconKey) == "string" and iconKey:match("^http") then
+                -- It's a URL, Roblox can't display PNGs from GitHub directly
+                -- So we fall back immediately
+                return fallbackAssetId
+            end
+        end)
+        
+        if success and result then
+            Library.GitHubIconCache[iconKey] = result
+            return result
+        end
     end
     
-    -- Otherwise return the GitHub path (it should already be a full URL)
-    return iconPath or fallbackAssetId or ASSETS.Icons.TabDefault
+    -- Always fall back to the working rbxassetid
+    return fallbackAssetId or FALLBACK_ASSETS.Icons.TabDefault
 end
 
 --------------------------------------------------------------------------------
@@ -326,11 +358,11 @@ function Library:CreateWindow(options)
     local WindowTitle = options.Name or "Domination UI"
     local WindowSubTitle = options.LoadingTitle or "Initializing..."
     local ConfigName = options.ConfigurationSaving and options.ConfigurationSaving.FileName or "DominationConfig"
-    local UseCustomIcons = options.UseCustomIcons -- Allow scripts to override GitHub icons
+    local UseCustomIcons = options.UseCustomIcons
     
     -- Set icon preference for this window
     if UseCustomIcons ~= nil then
-        Library.UseGitHubIcons = not UseCustomIcons
+        Library.UseGitHubIcons = UseCustomIcons
     end
     
     -- Main ScreenGui
@@ -378,7 +410,7 @@ function Library:CreateWindow(options)
         BackgroundTransparency = 1,
         Position = UDim2.new(0, -25, 0, -25),
         Size = UDim2.new(1, 50, 1, 50),
-        Image = ASSETS.Shadow,
+        Image = FALLBACK_ASSETS.Shadow,
         ImageColor3 = Color3.new(0,0,0),
         ImageTransparency = 0.4,
         ScaleType = Enum.ScaleType.Slice,
@@ -432,14 +464,14 @@ function Library:CreateWindow(options)
         Padding = UDim.new(0, 12)
     })
 
-    -- Logo Area (Load from GitHub)
+    -- Logo Area (Always use fallback asset)
     local Logo = Utility:Create("ImageLabel", {
         Name = "Logo",
         Parent = Sidebar,
         BackgroundTransparency = 1,
         Position = UDim2.new(0, 15, 0, 20),
         Size = UDim2.new(0, 40, 0, 40),
-        Image = Utility:GetIcon(ASSETS.Logo, "rbxassetid://4483345998"),
+        Image = FALLBACK_ASSETS.Logo,
         ZIndex = 5
     })
     
@@ -506,7 +538,7 @@ function Library:CreateWindow(options)
         local Title = notifyOpts.Title or "Notification"
         local Content = notifyOpts.Content or ""
         local Duration = notifyOpts.Duration or 3
-        local Image = notifyOpts.Image or Utility:GetIcon(ASSETS.Icons.Settings, "rbxassetid://73350721735790")
+        local Image = notifyOpts.Image or Utility:GetIcon(GITHUB_ASSETS.Icons.Settings, FALLBACK_ASSETS.Icons.Settings)
         
         local NotifyFrame = Utility:Create("Frame", {
             Name = "Notify",
@@ -582,16 +614,16 @@ function Library:CreateWindow(options)
     function Window:CreateTab(options)
         options = options or {}
         local Name = options.Name or "Tab"
-        local Icon = options.Icon or nil  -- Allow custom icon or use default
+        local Icon = options.Icon
         
-        -- Determine which icon to use
+        -- Determine which icon to use - ALWAYS USE FALLBACK
         local TabIcon
-        if Icon then
-            -- Custom icon provided by script
+        if Icon and type(Icon) == "string" and Icon:match("^rbxassetid://") then
+            -- Custom rbxassetid provided
             TabIcon = Icon
         else
-            -- Use GitHub default tab icon
-            TabIcon = Utility:GetIcon(ASSETS.Icons.TabDefault, "rbxassetid://73350721735790")
+            -- Use fallback default
+            TabIcon = FALLBACK_ASSETS.Icons.TabDefault
         end
         
         local Tab = {
@@ -1124,7 +1156,7 @@ function Library:CreateWindow(options)
                     BackgroundTransparency = 1,
                     Position = UDim2.new(1, -28, 0.5, -8),
                     Size = UDim2.new(0, 16, 0, 16),
-                    Image = Utility:GetIcon(ASSETS.Icons.Arrow, "rbxassetid://73350721735790"),
+                    Image = Utility:GetIcon(GITHUB_ASSETS.Icons.Arrow, FALLBACK_ASSETS.Icons.Arrow),
                     ImageColor3 = Library.Theme.SubText
                 })
                 
