@@ -27,7 +27,7 @@ local ASSETS = {
         Search = "rbxassetid://6031154871",
         Close = "rbxassetid://6031094678",
         Minimize = "rbxassetid://6031094679",
-        Arrow = "rbxassetid://6031091004",
+        Arrow = "rbxassetid://73350721735790",
         Check = "rbxassetid://6031094667"
     }
 }
