@@ -1,5 +1,5 @@
--- Domination UI Library (Titan Build) - Made for RenHub
--- COMPLETE VERSION - ALL FEATURES WORKING + CUSTOM TAB ICONS
+-- Domination UI Library (Titan Build) - EMOJI EDITION
+-- NO ASSET IDs NEEDED - EMOJIS ONLY!
 
 --// SERVICES //--
 local UserInputService = game:GetService("UserInputService")
@@ -9,8 +9,6 @@ local HttpService = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
 local TextService = game:GetService("TextService")
-local TeleportService = game:GetService("TeleportService")
-local StarterGui = game:GetService("StarterGui")
 
 --// LOCAL SHORTCUTS //--
 local Plr = Players.LocalPlayer
@@ -21,25 +19,34 @@ local Camera = workspace.CurrentCamera
 local HUD_NAME = "RenLib"
 local CONFIG_FOLDER = "RenHubConfig"
 
---// ASSET IDs - YOUR LOGO HERE
-local ASSETS = {
-    Shadow = "rbxassetid://6014261993",
-    Blur = "rbxassetid://6014261993",
-    Logo = "rbxassetid://73350721735790", -- YOUR </> LOGO - CHANGE THIS IF NEEDED
-    Icons = {
-        Settings = "rbxassetid://7733955511",
-        Search = "rbxassetid://6031154871",
-        Close = "rbxassetid://6031094678",
-        Minimize = "rbxassetid://6031094679",
-        Arrow = "rbxassetid://6031091004",
-        Check = "rbxassetid://6031094667",
-        TabDefault = "rbxassetid://7733920644"
-    }
+--// EMOJI ICONS - CHANGE THESE TO WHATEVER YOU WANT
+local EMOJIS = {
+    Logo = "⚡", -- MAIN LOGO
+    Settings = "⚙️",
+    Search = "🔍",
+    Close = "❌",
+    Minimize = "➖",
+    Arrow = "▼",
+    Check = "✓",
+    Star = "⭐",
+    Play = "▶",
+    Trash = "🗑️",
+    Refresh = "🔄",
+    Info = "ℹ️",
+    Warning = "⚠️",
+    Success = "✅",
+    Error = "❌",
+    Home = "🏠",
+    Code = "</>", -- CODING LOGO
+    Terminal = "💻",
+    User = "👤",
+    Lock = "🔒",
+    Unlock = "🔓"
 }
 
 --// ROOT LIBRARY //--
 local Library = {}
-Library.Version = "3.2.0"
+Library.Version = "3.3.0"
 Library.Title = "RenLib"
 Library.Process = {}
 Library.Connections = {}
@@ -349,14 +356,14 @@ function Library:CreateWindow(options)
         Transparency = 0
     })
 
-    -- Shadow
+    -- Shadow Effect
     local Shadow = Utility:Create("ImageLabel", {
         Name = "Shadow",
         Parent = MainFrame,
         BackgroundTransparency = 1,
         Position = UDim2.new(0, -25, 0, -25),
         Size = UDim2.new(1, 50, 1, 50),
-        Image = ASSETS.Shadow,
+        Image = "rbxassetid://6014261993",
         ImageColor3 = Color3.new(0,0,0),
         ImageTransparency = 0.4,
         ScaleType = Enum.ScaleType.Slice,
@@ -416,28 +423,39 @@ function Library:CreateWindow(options)
         TabContainer.CanvasSize = UDim2.new(0, 0, 0, TabLayout.AbsoluteContentSize.Y + 20)
     end)
 
-    -- Logo Area - FIXED TO SHOW UP
+    -- EMOJI LOGO - WORKS 100%
     local LogoContainer = Utility:Create("Frame", {
         Name = "LogoContainer",
         Parent = Sidebar,
-        BackgroundTransparency = 1,
-        Position = UDim2.new(0, 0, 0, 10),
-        Size = UDim2.new(1, 0, 0, 60),
+        BackgroundColor3 = Library.Theme.Main,
+        Position = UDim2.new(0, 15, 0, 15),
+        Size = UDim2.new(0, 40, 0, 40),
         ZIndex = 100,
         BorderSizePixel = 0
     })
     
-    local Logo = Utility:Create("ImageLabel", {
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = LogoContainer})
+    Utility:Create("UIStroke", {
+        Parent = LogoContainer,
+        Color = Library.Theme.Accent,
+        Thickness = 2
+    })
+    
+    local Logo = Utility:Create("TextLabel", {
         Name = "Logo",
         Parent = LogoContainer,
         BackgroundTransparency = 1,
-        Position = UDim2.new(0.5, -20, 0.5, -20),
-        Size = UDim2.new(0, 40, 0, 40),
-        Image = ASSETS.Logo,
-        ImageColor3 = Library.Theme.Accent,
-        ZIndex = 101,
-        BorderSizePixel = 0
+        Size = UDim2.new(1, 0, 1, 0),
+        Font = Enum.Font.GothamBold,
+        Text = EMOJIS.Logo, -- EMOJI LOGO HERE
+        TextColor3 = Library.Theme.Accent,
+        TextSize = 20,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        TextYAlignment = Enum.TextYAlignment.Center,
+        ZIndex = 101
     })
+    
+    print("[RenLib] Emoji Logo Created: " .. EMOJIS.Logo)
     
     -- Content Area
     local Pages = Utility:Create("Frame", {
@@ -501,13 +519,13 @@ function Library:CreateWindow(options)
         Main = MainFrame
     }
     
-    --// NOTIFICATION SYSTEM
+    --// NOTIFICATION SYSTEM (WITH EMOJIS)
     function Library:Notify(notifyOpts)
         notifyOpts = notifyOpts or {}
         local Title = notifyOpts.Title or "Notification"
         local Content = notifyOpts.Content or ""
         local Duration = notifyOpts.Duration or 3
-        local Image = notifyOpts.Image or ASSETS.Icons.Settings
+        local Emoji = notifyOpts.Emoji or EMOJIS.Info
         
         local NotifyFrame = Utility:Create("Frame", {
             Name = "Notify",
@@ -526,15 +544,19 @@ function Library:CreateWindow(options)
             Thickness = 1
         })
         
-        Utility:Create("ImageLabel", {
+        -- EMOJI ICON
+        Utility:Create("TextLabel", {
             Parent = NotifyFrame,
             BackgroundTransparency = 1,
             Position = UDim2.new(0, 12, 0, 12),
             Size = UDim2.new(0, 36, 0, 36),
-            Image = Image,
-            ImageColor3 = Library.Theme.Accent,
-            ZIndex = 202,
-            BorderSizePixel = 0
+            Font = Enum.Font.GothamBold,
+            Text = Emoji,
+            TextColor3 = Library.Theme.Accent,
+            TextSize = 24,
+            TextXAlignment = Enum.TextXAlignment.Center,
+            TextYAlignment = Enum.TextYAlignment.Center,
+            ZIndex = 202
         })
         
         Utility:Create("TextLabel", {
@@ -585,11 +607,11 @@ function Library:CreateWindow(options)
         task.delay(Duration, Close)
     end
     
-    --// COMPONENT: TAB (WITH CUSTOM ICON SUPPORT)
+    --// COMPONENT: TAB (WITH EMOJI SUPPORT)
     function Window:CreateTab(options)
         options = options or {}
         local Name = options.Name or "Tab"
-        local Icon = options.Icon or ASSETS.Icons.TabDefault -- CUSTOM ICON SUPPORT
+        local Emoji = options.Emoji or EMOJIS.Home -- EMOJI INSTEAD OF ICON
         
         local Tab = {
             Name = Name,
@@ -597,7 +619,7 @@ function Library:CreateWindow(options)
             Sections = {}
         }
         
-        -- Tab Button
+        -- Tab Button with EMOJI
         local TabBtn = Utility:Create("TextButton", {
             Name = Name,
             Parent = TabContainer,
@@ -611,16 +633,19 @@ function Library:CreateWindow(options)
         })
         Utility:Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = TabBtn})
         
-        local TabIconImage = Utility:Create("ImageLabel", {
+        local TabEmoji = Utility:Create("TextLabel", {
             Parent = TabBtn,
             AnchorPoint = Vector2.new(0.5, 0.5),
             Position = UDim2.new(0.5, 0, 0.5, 0),
-            Size = UDim2.new(0, 24, 0, 24),
+            Size = UDim2.new(1, 0, 1, 0),
             BackgroundTransparency = 1,
-            Image = Icon,
-            ImageColor3 = Library.Theme.SubText,
-            ZIndex = 6,
-            BorderSizePixel = 0
+            Font = Enum.Font.GothamBold,
+            Text = Emoji,
+            TextColor3 = Library.Theme.SubText,
+            TextSize = 20,
+            TextXAlignment = Enum.TextXAlignment.Center,
+            TextYAlignment = Enum.TextYAlignment.Center,
+            ZIndex = 6
         })
         
         local Indicator = Utility:Create("Frame", {
@@ -696,7 +721,7 @@ function Library:CreateWindow(options)
             Tab.Active = true
             Window.ActiveTab = Tab
             
-            Utility:Tween(TabIconImage, TweenInfo.new(0.3), {ImageColor3 = Library.Theme.Accent})
+            Utility:Tween(TabEmoji, TweenInfo.new(0.3), {TextColor3 = Library.Theme.Accent})
             Utility:Tween(Indicator, TweenInfo.new(0.3), {Transparency = 0, Position = UDim2.new(0, -12, 0.5, -10)})
             Page.Visible = true
             Page.CanvasPosition = Vector2.new(0,0)
@@ -704,7 +729,7 @@ function Library:CreateWindow(options)
         
         function Tab:Deactivate()
             Tab.Active = false
-            Utility:Tween(TabIconImage, TweenInfo.new(0.3), {ImageColor3 = Library.Theme.SubText})
+            Utility:Tween(TabEmoji, TweenInfo.new(0.3), {TextColor3 = Library.Theme.SubText})
             Utility:Tween(Indicator, TweenInfo.new(0.3), {Transparency = 1, Position = UDim2.new(0, 0, 0.5, -10)})
             Page.Visible = false
         end
@@ -782,10 +807,6 @@ function Library:CreateWindow(options)
                 })
             end)
 
-            function Section:Add(object)
-                object.Parent = ContentContainer
-            end
-            
             --// COMPONENT: BUTTON
             function Section:CreateButton(options)
                 options = options or {}
@@ -1132,15 +1153,18 @@ function Library:CreateWindow(options)
                     ZIndex = 7
                 })
                 
-                local Arrow = Utility:Create("ImageLabel", {
+                -- EMOJI ARROW
+                local Arrow = Utility:Create("TextLabel", {
                     Parent = Header,
                     BackgroundTransparency = 1,
-                    Position = UDim2.new(1, -28, 0.5, -8),
-                    Size = UDim2.new(0, 16, 0, 16),
-                    Image = ASSETS.Icons.Arrow,
-                    ImageColor3 = Library.Theme.SubText,
-                    ZIndex = 7,
-                    BorderSizePixel = 0
+                    Position = UDim2.new(1, -28, 0.5, -10),
+                    Size = UDim2.new(0, 16, 0, 20),
+                    Font = Enum.Font.GothamBold,
+                    Text = EMOJIS.Arrow,
+                    TextColor3 = Library.Theme.SubText,
+                    TextSize = 12,
+                    TextXAlignment = Enum.TextXAlignment.Center,
+                    ZIndex = 7
                 })
                 
                 local ListFrame = Utility:Create("ScrollingFrame", {
@@ -1247,326 +1271,6 @@ function Library:CreateWindow(options)
                 }
             end
 
-            --// COMPONENT: KEYBIND
-            function Section:CreateKeybind(options)
-                options = options or {}
-                local Name = options.Name or "Keybind"
-                local Default = options.Default or Enum.KeyCode.RightShift
-                local Mode = options.Mode or "Toggle"
-                local Callback = options.Callback or function() end
-                local Flag = options.Flag or Name
-                
-                local CurrentKey = Default
-                if Library.Flags[Flag] ~= nil then CurrentKey = Library.Flags[Flag] end
-                
-                local Container = Utility:Create("Frame", {
-                    Name = Name,
-                    Parent = ContentContainer,
-                    BackgroundColor3 = Library.Theme.Main,
-                    Size = UDim2.new(1, 0, 0, 40),
-                    ZIndex = 5,
-                    BorderSizePixel = 0
-                })
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = Container})
-                Utility:Create("UIStroke", {Parent = Container, Color = Library.Theme.Stroke, Thickness = 1})
-                
-                Utility:Create("TextLabel", {
-                    Parent = Container,
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 12, 0, 0),
-                    Size = UDim2.new(0.5, 0, 1, 0),
-                    Font = Enum.Font.Gotham,
-                    Text = Name,
-                    TextColor3 = Library.Theme.Text,
-                    TextSize = 13,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    ZIndex = 6
-                })
-                
-                local BindBtn = Utility:Create("TextButton", {
-                    Parent = Container,
-                    BackgroundColor3 = Color3.fromRGB(40, 40, 45),
-                    Position = UDim2.new(1, -70, 0.5, -10),
-                    Size = UDim2.new(0, 60, 0, 20),
-                    Font = Enum.Font.Gotham,
-                    Text = CurrentKey.Name,
-                    TextColor3 = Library.Theme.SubText,
-                    TextSize = 12,
-                    AutoButtonColor = false,
-                    ZIndex = 6,
-                    BorderSizePixel = 0
-                })
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = BindBtn})
-                
-                local Listening = false
-                local Connection
-                
-                BindBtn.MouseButton1Click:Connect(function()
-                    Listening = true
-                    BindBtn.Text = "..."
-                    BindBtn.TextColor3 = Library.Theme.Accent
-                    
-                    if Connection then Connection:Disconnect() end
-                    Connection = UserInputService.InputBegan:Connect(function(input)
-                        if input.UserInputType == Enum.UserInputType.Keyboard or input.UserInputType == Enum.UserInputType.MouseButton1 then
-                            local k = (input.UserInputType == Enum.UserInputType.Keyboard) and input.KeyCode or input.UserInputType
-                            if k.Name ~= "Unknown" then
-                                CurrentKey = k
-                                BindBtn.Text = k.Name
-                                BindBtn.TextColor3 = Library.Theme.SubText
-                                Library.Flags[Flag] = CurrentKey
-                                Library.Keybinds[Flag].Key = CurrentKey
-                                Listening = false
-                                Connection:Disconnect()
-                            end
-                        end
-                    end)
-                end)
-                
-                if not Library.Keybinds[Flag] then
-                    Library.Keybinds[Flag] = {
-                        Key = CurrentKey,
-                        Mode = Mode,
-                        Callback = Callback,
-                        Active = false
-                    }
-                end
-                
-                return {
-                    Set = function(self, key)
-                        CurrentKey = key
-                        BindBtn.Text = key.Name
-                        Library.Flags[Flag] = CurrentKey
-                        Library.Keybinds[Flag].Key = CurrentKey
-                    end
-                }
-            end
-            
-            --// COMPONENT: COLORPICKER
-            function Section:CreateColorPicker(options)
-                options = options or {}
-                local Name = options.Name or "ColorPicker"
-                local Default = options.Default or Color3.fromRGB(255, 0, 0)
-                local Transparency = options.Transparency or 0
-                local Callback = options.Callback or function() end
-                local Flag = options.Flag or Name
-                
-                local CurrentColor = Default
-                local CurrentAlpha = Transparency
-                local Hue, Sat, Val = Color3.toHSV(CurrentColor)
-                
-                if Library.Flags[Flag] ~= nil then 
-                    CurrentColor = Library.Flags[Flag] 
-                end
-                
-                local Container = Utility:Create("Frame", {
-                    Name = Name,
-                    Parent = ContentContainer,
-                    BackgroundColor3 = Library.Theme.Main,
-                    Size = UDim2.new(1, 0, 0, 40),
-                    ClipsDescendants = true,
-                    ZIndex = 5,
-                    BorderSizePixel = 0
-                })
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = Container})
-                Utility:Create("UIStroke", {Parent = Container, Color = Library.Theme.Stroke, Thickness = 1})
-                
-                Utility:Create("TextLabel", {
-                    Parent = Container,
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 12, 0, 0),
-                    Size = UDim2.new(0.5, 0, 0, 40),
-                    Font = Enum.Font.Gotham,
-                    Text = Name,
-                    TextColor3 = Library.Theme.Text,
-                    TextSize = 13,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    ZIndex = 6
-                })
-                
-                local PreviewBtn = Utility:Create("TextButton", {
-                    Parent = Container,
-                    BackgroundColor3 = CurrentColor,
-                    Position = UDim2.new(1, -45, 0.5, -10),
-                    Size = UDim2.new(0, 35, 0, 20),
-                    AutoButtonColor = false,
-                    Text = "",
-                    ZIndex = 6,
-                    BorderSizePixel = 0
-                })
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = PreviewBtn})
-                Utility:Create("UIStroke", {Parent = PreviewBtn, Color = Library.Theme.Stroke, Thickness = 1})
-                
-                local Expanded = false
-                local Palette = Utility:Create("Frame", {
-                    Parent = Container,
-                    BackgroundColor3 = Library.Theme.Secondary,
-                    Position = UDim2.new(0, 10, 0, 45),
-                    Size = UDim2.new(1, -20, 0, 170),
-                    Visible = false,
-                    ZIndex = 10,
-                    BorderSizePixel = 0
-                })
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = Palette})
-                
-                local SVImage = Utility:Create("ImageButton", {
-                    Parent = Palette,
-                    Position = UDim2.new(0, 10, 0, 10),
-                    Size = UDim2.new(0, 160, 0, 120),
-                    Image = "rbxassetid://4155801252",
-                    AutoButtonColor = false,
-                    ZIndex = 11,
-                    BorderSizePixel = 0
-                })
-                
-                local HueImage = Utility:Create("ImageButton", {
-                    Parent = Palette,
-                    Position = UDim2.new(0, 180, 0, 10),
-                    Size = UDim2.new(0, 20, 0, 120),
-                    Image = "rbxassetid://6523286724",
-                    AutoButtonColor = false,
-                    ZIndex = 11,
-                    BorderSizePixel = 0
-                })
-                
-                local function UpdateColor(newHue, newSat, newVal)
-                    Hue = newHue or Hue
-                    Sat = newSat or Sat
-                    Val = newVal or Val
-                    CurrentColor = Color3.fromHSV(Hue, Sat, Val)
-                    
-                    PreviewBtn.BackgroundColor3 = CurrentColor
-                    SVImage.BackgroundColor3 = Color3.fromHSV(Hue, 1, 1)
-                    
-                    Library.Flags[Flag] = CurrentColor
-                    Callback(CurrentColor)
-                end
-                
-                local DraggingSV, DraggingHue = false, false
-                
-                SVImage.InputBegan:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                        DraggingSV = true
-                    end
-                end)
-                
-                HueImage.InputBegan:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                        DraggingHue = true
-                    end
-                end)
-                
-                UserInputService.InputEnded:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                        DraggingSV, DraggingHue = false, false
-                    end
-                end)
-                
-                UserInputService.InputChanged:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseMovement then
-                        if DraggingSV then
-                            local SizeX = math.clamp((input.Position.X - SVImage.AbsolutePosition.X) / SVImage.AbsoluteSize.X, 0, 1)
-                            local SizeY = math.clamp((input.Position.Y - SVImage.AbsolutePosition.Y) / SVImage.AbsoluteSize.Y, 0, 1)
-                            UpdateColor(nil, SizeX, 1 - SizeY)
-                        elseif DraggingHue then
-                            local SizeY = math.clamp((input.Position.Y - HueImage.AbsolutePosition.Y) / HueImage.AbsoluteSize.Y, 0, 1)
-                            UpdateColor(1 - SizeY, nil, nil)
-                        end
-                    end
-                end)
-                
-                PreviewBtn.MouseButton1Click:Connect(function()
-                    Expanded = not Expanded
-                    Utility:Tween(Container, TweenInfo.new(0.2), {Size = UDim2.new(1, 0, 0, Expanded and 225 or 40)})
-                    Palette.Visible = Expanded
-                end)
-                
-                return {
-                    Set = function(self, col)
-                        CurrentColor = col
-                        Hue, Sat, Val = Color3.toHSV(col)
-                        UpdateColor()
-                    end
-                }
-            end
-
-            --// COMPONENT: TEXTBOX
-            function Section:CreateTextbox(options)
-                options = options or {}
-                local Name = options.Name or "Textbox"
-                local Default = options.Default or ""
-                local Placeholder = options.Placeholder or "Type here..."
-                local ClearOnFocus = options.ClearOnFocus or false
-                local Callback = options.Callback or function() end
-                local Flag = options.Flag or Name
-                
-                local Container = Utility:Create("Frame", {
-                    Name = Name,
-                    Parent = ContentContainer,
-                    BackgroundColor3 = Library.Theme.Main,
-                    Size = UDim2.new(1, 0, 0, 65),
-                    ZIndex = 5,
-                    BorderSizePixel = 0
-                })
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = Container})
-                Utility:Create("UIStroke", {Parent = Container, Color = Library.Theme.Stroke, Thickness = 1})
-                
-                Utility:Create("TextLabel", {
-                    Parent = Container,
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 12, 0, 5),
-                    Size = UDim2.new(1, -24, 0, 20),
-                    Font = Enum.Font.Gotham,
-                    Text = Name,
-                    TextColor3 = Library.Theme.Text,
-                    TextSize = 13,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    ZIndex = 6
-                })
-                
-                local InputBg = Utility:Create("Frame", {
-                    Parent = Container,
-                    BackgroundColor3 = Library.Theme.Secondary,
-                    Position = UDim2.new(0, 12, 0, 28),
-                    Size = UDim2.new(1, -24, 0, 30),
-                    ZIndex = 6,
-                    BorderSizePixel = 0
-                })
-                
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = InputBg})
-                
-                local Input = Utility:Create("TextBox", {
-                    Parent = InputBg,
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 8, 0, 0),
-                    Size = UDim2.new(1, -16, 1, 0),
-                    Font = Enum.Font.Gotham,
-                    Text = Default,
-                    PlaceholderText = Placeholder,
-                    TextColor3 = Library.Theme.Text,
-                    PlaceholderColor3 = Library.Theme.SubText,
-                    TextSize = 13,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    ClearTextOnFocus = ClearOnFocus,
-                    ZIndex = 7
-                })
-                
-                Input.FocusLost:Connect(function(enter)
-                    Library.Flags[Flag] = Input.Text
-                    Callback(Input.Text, enter)
-                end)
-                
-                return {
-                    Set = function(self, txt)
-                        Input.Text = txt
-                        Library.Flags[Flag] = txt
-                    end,
-                    Get = function(self)
-                        return Input.Text
-                    end
-                }
-            end
-            
             --// COMPONENT: LABEL
             function Section:CreateLabel(Text)
                 local Container = Utility:Create("Frame", {
@@ -1615,7 +1319,7 @@ end
 function Library:SaveConfig(name)
     local json = HttpService:JSONEncode(Library.Flags)
     writefile("RenLib/Configs/" .. name .. ".json", json)
-    Library:Notify({Title = "Config Saved", Content = "Saved config: " .. name})
+    Library:Notify({Title = "Config Saved", Content = "Saved config: " .. name, Emoji = EMOJIS.Success})
 end
 
 function Library:LoadConfig(name)
@@ -1625,9 +1329,9 @@ function Library:LoadConfig(name)
         for i, v in pairs(data) do
             Library.Flags[i] = v
         end
-        Library:Notify({Title = "Config Loaded", Content = "Loaded config: " .. name})
+        Library:Notify({Title = "Config Loaded", Content = "Loaded config: " .. name, Emoji = EMOJIS.Success})
     else
-        Library:Notify({Title = "Error", Content = "Config not found: " .. name})
+        Library:Notify({Title = "Error", Content = "Config not found: " .. name, Emoji = EMOJIS.Error})
     end
 end
 
