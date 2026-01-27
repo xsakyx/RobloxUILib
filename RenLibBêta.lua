@@ -1,4 +1,5 @@
--- Domination UI Library (Titan Build) - ENHANCED VERSION v3.5
+-- Domination UI Library (Titan Build) - Made for RenHub
+-- GitHub Icons Integration Version
 
 --// SERVICES //--
 local UserInputService = game:GetService("UserInputService")
@@ -17,33 +18,36 @@ local Mouse = Plr:GetMouse()
 local Camera = workspace.CurrentCamera
 
 --// CONSTANTS //--
-local HUD_NAME = "DominationLibrary"
-local CONFIG_FOLDER = "DominationConfig"
+local HUD_NAME = "RenLib"
+local CONFIG_FOLDER = "RenHubConfig"
+
+--// GITHUB ASSET CONFIGURATION //--
+local GITHUB_BASE = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Images/"
 local ASSETS = {
     Shadow = "rbxassetid://6014261993",
     Blur = "rbxassetid://6014261993",
+    Logo = GITHUB_BASE .. "logo.png",  -- Main RenLib logo
     Icons = {
-        Settings = "rbxassetid://6031280882",
-        Search = "rbxassetid://6031154871",
-        Close = "rbxassetid://6031094678",
-        Minimize = "rbxassetid://6031094679",
-        Arrow = "rbxassetid://6031091004",
-        Check = "rbxassetid://6031094667",
-        Info = "rbxassetid://6031763426"
+        Settings = GITHUB_BASE .. "settings.png",
+        Search = GITHUB_BASE .. "search.png",
+        Close = GITHUB_BASE .. "close.png",
+        Minimize = GITHUB_BASE .. "minimize.png",
+        Arrow = GITHUB_BASE .. "arrow.png",
+        Check = GITHUB_BASE .. "check.png",
+        TabDefault = GITHUB_BASE .. "tab_default.png"  -- Default tab icon
     }
 }
 
 --// ROOT LIBRARY //--
 local Library = {}
-Library.Version = "3.5.0"
-Library.Title = "Domination"
+Library.Version = "3.1.0"
+Library.Title = "RenLib"
 Library.Process = {}
 Library.Connections = {}
 Library.Flags = {}
 Library.Unloaded = false
 Library.Keybinds = {}
-Library.UIToggleKey = Enum.KeyCode.K
-Library.IsMinimized = false
+Library.UseGitHubIcons = true  -- Global toggle for GitHub icons
 
 Library.Theme = {
     Main = Color3.fromRGB(25, 25, 30),
@@ -58,76 +62,6 @@ Library.Theme = {
     Success = Color3.fromRGB(60, 220, 120),
     Warn = Color3.fromRGB(240, 200, 60),
     Error = Color3.fromRGB(240, 60, 60)
-}
-
---// THEME PRESETS
-Library.ThemePresets = {
-    ["Default"] = {
-        Main = Color3.fromRGB(25, 25, 30),
-        Secondary = Color3.fromRGB(15, 15, 20),
-        Stroke = Color3.fromRGB(45, 45, 50),
-        Divider = Color3.fromRGB(50, 50, 55),
-        Text = Color3.fromRGB(240, 240, 240),
-        SubText = Color3.fromRGB(160, 160, 160),
-        Hover = Color3.fromRGB(35, 35, 40),
-        Click = Color3.fromRGB(30, 30, 35),
-        Accent = Color3.fromRGB(0, 150, 255)
-    },
-    ["Dark Red"] = {
-        Main = Color3.fromRGB(20, 20, 25),
-        Secondary = Color3.fromRGB(15, 15, 20),
-        Stroke = Color3.fromRGB(60, 30, 30),
-        Divider = Color3.fromRGB(70, 35, 35),
-        Text = Color3.fromRGB(240, 240, 240),
-        SubText = Color3.fromRGB(160, 160, 160),
-        Hover = Color3.fromRGB(30, 25, 25),
-        Click = Color3.fromRGB(25, 20, 20),
-        Accent = Color3.fromRGB(220, 50, 50)
-    },
-    ["Purple Dream"] = {
-        Main = Color3.fromRGB(25, 20, 35),
-        Secondary = Color3.fromRGB(20, 15, 30),
-        Stroke = Color3.fromRGB(60, 45, 80),
-        Divider = Color3.fromRGB(70, 55, 90),
-        Text = Color3.fromRGB(240, 240, 240),
-        SubText = Color3.fromRGB(160, 160, 160),
-        Hover = Color3.fromRGB(35, 30, 45),
-        Click = Color3.fromRGB(30, 25, 40),
-        Accent = Color3.fromRGB(160, 80, 255)
-    },
-    ["Green Matrix"] = {
-        Main = Color3.fromRGB(15, 25, 20),
-        Secondary = Color3.fromRGB(10, 20, 15),
-        Stroke = Color3.fromRGB(30, 60, 40),
-        Divider = Color3.fromRGB(35, 70, 45),
-        Text = Color3.fromRGB(240, 240, 240),
-        SubText = Color3.fromRGB(160, 160, 160),
-        Hover = Color3.fromRGB(25, 35, 30),
-        Click = Color3.fromRGB(20, 30, 25),
-        Accent = Color3.fromRGB(50, 220, 100)
-    },
-    ["Ocean Blue"] = {
-        Main = Color3.fromRGB(15, 20, 30),
-        Secondary = Color3.fromRGB(10, 15, 25),
-        Stroke = Color3.fromRGB(30, 45, 70),
-        Divider = Color3.fromRGB(35, 55, 80),
-        Text = Color3.fromRGB(240, 240, 240),
-        SubText = Color3.fromRGB(160, 160, 160),
-        Hover = Color3.fromRGB(25, 30, 40),
-        Click = Color3.fromRGB(20, 25, 35),
-        Accent = Color3.fromRGB(50, 150, 255)
-    },
-    ["Sunset Orange"] = {
-        Main = Color3.fromRGB(30, 20, 15),
-        Secondary = Color3.fromRGB(25, 15, 10),
-        Stroke = Color3.fromRGB(70, 45, 30),
-        Divider = Color3.fromRGB(80, 55, 35),
-        Text = Color3.fromRGB(240, 240, 240),
-        SubText = Color3.fromRGB(160, 160, 160),
-        Hover = Color3.fromRGB(40, 30, 25),
-        Click = Color3.fromRGB(35, 25, 20),
-        Accent = Color3.fromRGB(255, 140, 50)
-    }
 }
 
 --------------------------------------------------------------------------------
@@ -368,6 +302,22 @@ function Utility:WriteFile(path, content)
     if not success then warn("Failed to write config: " .. tostring(err)) end
 end
 
+--// ICON HELPER FUNCTION
+function Utility:GetIcon(iconPath, fallbackAssetId)
+    -- If UseGitHubIcons is false, use fallback
+    if not Library.UseGitHubIcons and fallbackAssetId then
+        return fallbackAssetId
+    end
+    
+    -- If iconPath is already an rbxassetid, use it directly
+    if type(iconPath) == "string" and iconPath:match("^rbxassetid://") then
+        return iconPath
+    end
+    
+    -- Otherwise return the GitHub path (it should already be a full URL)
+    return iconPath or fallbackAssetId or ASSETS.Icons.TabDefault
+end
+
 --------------------------------------------------------------------------------
 --// CORE UI: WINDOW
 --------------------------------------------------------------------------------
@@ -376,6 +326,12 @@ function Library:CreateWindow(options)
     local WindowTitle = options.Name or "Domination UI"
     local WindowSubTitle = options.LoadingTitle or "Initializing..."
     local ConfigName = options.ConfigurationSaving and options.ConfigurationSaving.FileName or "DominationConfig"
+    local UseCustomIcons = options.UseCustomIcons -- Allow scripts to override GitHub icons
+    
+    -- Set icon preference for this window
+    if UseCustomIcons ~= nil then
+        Library.UseGitHubIcons = not UseCustomIcons
+    end
     
     -- Main ScreenGui
     local ScreenGui = Utility:Create("ScreenGui", {
@@ -408,7 +364,7 @@ function Library:CreateWindow(options)
     })
     
     Utility:Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = MainFrame})
-    local MainStroke = Utility:Create("UIStroke", {
+    Utility:Create("UIStroke", {
         Parent = MainFrame,
         Color = Library.Theme.Stroke,
         Thickness = 1,
@@ -429,83 +385,6 @@ function Library:CreateWindow(options)
         SliceCenter = Rect.new(49, 49, 450, 450),
         ZIndex = -1
     })
-
-    -- Top Control Bar (Close, Minimize, Settings)
-    local ControlBar = Utility:Create("Frame", {
-        Name = "ControlBar",
-        Parent = MainFrame,
-        BackgroundTransparency = 1,
-        Position = UDim2.new(1, -150, 0, 10),
-        Size = UDim2.new(0, 140, 0, 30),
-        ZIndex = 100
-    })
-
-    local function CreateControlButton(icon, position, callback)
-        local btn = Utility:Create("TextButton", {
-            Parent = ControlBar,
-            BackgroundColor3 = Library.Theme.Secondary,
-            Position = position,
-            Size = UDim2.new(0, 30, 0, 30),
-            AutoButtonColor = false,
-            Text = ""
-        })
-        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = btn})
-        Utility:Create("UIStroke", {Parent = btn, Color = Library.Theme.Stroke, Thickness = 1})
-        
-        local ico = Utility:Create("ImageLabel", {
-            Parent = btn,
-            BackgroundTransparency = 1,
-            AnchorPoint = Vector2.new(0.5, 0.5),
-            Position = UDim2.new(0.5, 0, 0.5, 0),
-            Size = UDim2.new(0, 16, 0, 16),
-            Image = icon,
-            ImageColor3 = Library.Theme.SubText
-        })
-        
-        btn.MouseEnter:Connect(function()
-            Utility:Tween(btn, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.Hover})
-            Utility:Tween(ico, TweenInfo.new(0.2), {ImageColor3 = Library.Theme.Accent})
-        end)
-        
-        btn.MouseLeave:Connect(function()
-            Utility:Tween(btn, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.Secondary})
-            Utility:Tween(ico, TweenInfo.new(0.2), {ImageColor3 = Library.Theme.SubText})
-        end)
-        
-        btn.MouseButton1Click:Connect(callback)
-        return btn
-    end
-
-    -- Close Button
-    CreateControlButton(ASSETS.Icons.Close, UDim2.new(0, 0, 0, 0), function()
-        Library:Unload()
-    end)
-
-    -- Minimize Button
-    CreateControlButton(ASSETS.Icons.Minimize, UDim2.new(0, 38, 0, 0), function()
-        Library.IsMinimized = not Library.IsMinimized
-        if Library.IsMinimized then
-            Utility:Tween(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
-                Size = UDim2.new(0, 0, 0, 0),
-                Position = UDim2.new(0.5, 0, 0.5, 0)
-            })
-        else
-            Utility:Tween(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
-                Size = UDim2.new(0, 800, 0, 550),
-                Position = UDim2.new(0.5, -400, 0.5, -275)
-            })
-        end
-    end)
-
-    -- Settings Button (UI Settings)
-    local SettingsBtn = CreateControlButton(ASSETS.Icons.Settings, UDim2.new(0, 76, 0, 0), function()
-        -- Will open settings panel
-    end)
-
-    -- Info/Readme Button
-    local InfoBtn = CreateControlButton(ASSETS.Icons.Info, UDim2.new(0, 114, 0, 0), function()
-        -- Will open readme tab
-    end)
 
     -- Sidebar
     local Sidebar = Utility:Create("Frame", {
@@ -553,14 +432,14 @@ function Library:CreateWindow(options)
         Padding = UDim.new(0, 12)
     })
 
-    -- Logo Area
+    -- Logo Area (Load from GitHub)
     local Logo = Utility:Create("ImageLabel", {
         Name = "Logo",
         Parent = Sidebar,
         BackgroundTransparency = 1,
         Position = UDim2.new(0, 15, 0, 20),
         Size = UDim2.new(0, 40, 0, 40),
-        Image = "rbxassetid://4483345998",
+        Image = Utility:GetIcon(ASSETS.Logo, "rbxassetid://4483345998"),
         ZIndex = 5
     })
     
@@ -588,7 +467,7 @@ function Library:CreateWindow(options)
         Parent = Pages,
         BackgroundTransparency = 1,
         Position = UDim2.new(0, 24, 0, 20),
-        Size = UDim2.new(1, -200, 0, 30),
+        Size = UDim2.new(1, -48, 0, 30),
         Font = Enum.Font.GothamBold,
         Text = WindowTitle,
         TextColor3 = Library.Theme.Text,
@@ -618,30 +497,8 @@ function Library:CreateWindow(options)
         Tabs = {},
         ActiveTab = nil,
         Gui = ScreenGui,
-        Main = MainFrame,
-        SettingsTab = nil,
-        ReadmeTab = nil
+        Main = MainFrame
     }
-
-    --// UPDATE THEME FUNCTION
-    function Library:UpdateTheme(newTheme)
-        for key, value in pairs(newTheme) do
-            Library.Theme[key] = value
-        end
-        
-        -- Update all UI elements
-        MainFrame.BackgroundColor3 = Library.Theme.Main
-        MainStroke.Color = Library.Theme.Stroke
-        Sidebar.BackgroundColor3 = Library.Theme.Secondary
-        SidebarDivider.BackgroundColor3 = Library.Theme.Divider
-        TitleLabel.TextColor3 = Library.Theme.Text
-        
-        Library:Notify({
-            Title = "Theme Updated",
-            Content = "UI theme has been refreshed!",
-            Duration = 2
-        })
-    end
     
     --// NOTIFICATION SYSTEM
     function Library:Notify(notifyOpts)
@@ -649,7 +506,7 @@ function Library:CreateWindow(options)
         local Title = notifyOpts.Title or "Notification"
         local Content = notifyOpts.Content or ""
         local Duration = notifyOpts.Duration or 3
-        local Image = notifyOpts.Image or ASSETS.Icons.Settings
+        local Image = notifyOpts.Image or Utility:GetIcon(ASSETS.Icons.Settings, "rbxassetid://73350721735790")
         
         local NotifyFrame = Utility:Create("Frame", {
             Name = "Notify",
@@ -720,222 +577,22 @@ function Library:CreateWindow(options)
         
         task.delay(Duration, Close)
     end
-
-    --// CREATE SETTINGS TAB (Special internal tab)
-    local function CreateSettingsTab()
-        local SettingsTab = Window:CreateTab({
-            Name = "UI Settings",
-            Icon = ASSETS.Icons.Settings
-        })
-        
-        Window.SettingsTab = SettingsTab
-        
-        local GeneralSection = SettingsTab:CreateSection({Name = "General Settings", Side = "Left"})
-        
-        -- Toggle Key Setting
-        GeneralSection:CreateLabel("UI Toggle Keybind")
-        local toggleKeyDisplay = GeneralSection:CreateTextbox({
-            Name = "Toggle Key",
-            Default = Library.UIToggleKey.Name,
-            Placeholder = "Press a key...",
-            Callback = function() end
-        })
-        
-        local listeningForKey = false
-        local keyConn
-        
-        local listenBtn = GeneralSection:CreateButton({
-            Name = "Click to Set Keybind",
-            Callback = function()
-                if listeningForKey then return end
-                listeningForKey = true
-                listenBtn:SetText("Press any key...")
-                
-                keyConn = UserInputService.InputBegan:Connect(function(input, gpe)
-                    if input.UserInputType == Enum.UserInputType.Keyboard then
-                        Library.UIToggleKey = input.KeyCode
-                        toggleKeyDisplay:Set(input.KeyCode.Name)
-                        listenBtn:SetText("Click to Set Keybind")
-                        listeningForKey = false
-                        keyConn:Disconnect()
-                        Library:Notify({
-                            Title = "Keybind Updated",
-                            Content = "UI Toggle: " .. input.KeyCode.Name,
-                            Duration = 2
-                        })
-                    end
-                end)
-            end
-        })
-        
-        -- Theme Section
-        local ThemeSection = SettingsTab:CreateSection({Name = "Theme Settings", Side = "Right"})
-        
-        ThemeSection:CreateLabel("Preset Themes")
-        local themeNames = {}
-        for name, _ in pairs(Library.ThemePresets) do
-            table.insert(themeNames, name)
-        end
-        
-        ThemeSection:CreateDropdown({
-            Name = "Theme Preset",
-            Values = themeNames,
-            Default = "Default",
-            Callback = function(selected)
-                if Library.ThemePresets[selected] then
-                    Library:UpdateTheme(Library.ThemePresets[selected])
-                end
-            end
-        })
-        
-        ThemeSection:CreateLabel("Custom Accent Color")
-        ThemeSection:CreateColorPicker({
-            Name = "Accent Color",
-            Default = Library.Theme.Accent,
-            Callback = function(color)
-                Library.Theme.Accent = color
-                Library:UpdateTheme(Library.Theme)
-            end
-        })
-        
-        -- Advanced Section
-        local AdvancedSection = SettingsTab:CreateSection({Name = "Advanced", Side = "Left"})
-        
-        AdvancedSection:CreateToggle({
-            Name = "Silent Mode (Beta)",
-            Default = false,
-            Callback = function(enabled)
-                if enabled then
-                    Library:Notify({
-                        Title = "Silent Mode",
-                        Content = "This feature is in beta!",
-                        Duration = 3
-                    })
-                end
-            end
-        })
-        
-        AdvancedSection:CreateLabel("Silent mode will suppress all script prints")
-    end
-    
-    --// CREATE README TAB
-    local function CreateReadmeTab()
-        local ReadmeTab = Window:CreateTab({
-            Name = "UI Readme",
-            Icon = ASSETS.Icons.Info
-        })
-        
-        Window.ReadmeTab = ReadmeTab
-        
-        local IntroSection = ReadmeTab:CreateSection({Name = "Introduction", Side = "Left"})
-        IntroSection:CreateLabel("Welcome to Domination UI Library v" .. Library.Version)
-        IntroSection:CreateLabel("This guide will help you create your own UI")
-        
-        local BasicSection = ReadmeTab:CreateSection({Name = "Basic Usage", Side = "Left"})
-        BasicSection:CreateLabel("-- Load the library:")
-        BasicSection:CreateLabel('local Library = loadstring(game:HttpGet("..."))()')
-        BasicSection:CreateLabel("")
-        BasicSection:CreateLabel("-- Create a window:")
-        BasicSection:CreateLabel('local Window = Library:CreateWindow({')
-        BasicSection:CreateLabel('    Name = "My Script"')
-        BasicSection:CreateLabel('})')
-        
-        local TabSection = ReadmeTab:CreateSection({Name = "Creating Tabs", Side = "Right"})
-        TabSection:CreateLabel("-- Create a tab:")
-        TabSection:CreateLabel('local Tab = Window:CreateTab({')
-        TabSection:CreateLabel('    Name = "Main",')
-        TabSection:CreateLabel('    Icon = "rbxassetid://..."')
-        TabSection:CreateLabel('})')
-        TabSection:CreateLabel("")
-        TabSection:CreateLabel("-- Create a section:")
-        TabSection:CreateLabel('local Section = Tab:CreateSection({')
-        TabSection:CreateLabel('    Name = "Features",')
-        TabSection:CreateLabel('    Side = "Left" -- or "Right"')
-        TabSection:CreateLabel('})')
-        
-        local ComponentsSection = ReadmeTab:CreateSection({Name = "Components", Side = "Left"})
-        ComponentsSection:CreateLabel("Available components:")
-        ComponentsSection:CreateLabel("• Button - Simple clickable button")
-        ComponentsSection:CreateLabel("• Toggle - On/Off switch")
-        ComponentsSection:CreateLabel("• Slider - Range selector")
-        ComponentsSection:CreateLabel("• Dropdown - Multi-choice selector")
-        ComponentsSection:CreateLabel("• Textbox - Text input field")
-        ComponentsSection:CreateLabel("• Keybind - Keyboard key selector")
-        ComponentsSection:CreateLabel("• ColorPicker - Color selector")
-        ComponentsSection:CreateLabel("• Label - Static text display")
-        
-        local ExampleSection = ReadmeTab:CreateSection({Name = "Button Example", Side = "Right"})
-        ExampleSection:CreateLabel("-- Create a button:")
-        ExampleSection:CreateLabel('Section:CreateButton({')
-        ExampleSection:CreateLabel('    Name = "Click Me",')
-        ExampleSection:CreateLabel('    Callback = function()')
-        ExampleSection:CreateLabel('        print("Button clicked!")')
-        ExampleSection:CreateLabel('    end')
-        ExampleSection:CreateLabel('})')
-        
-        local ToggleExample = ReadmeTab:CreateSection({Name = "Toggle Example", Side = "Left"})
-        ToggleExample:CreateLabel("-- Create a toggle:")
-        ToggleExample:CreateLabel('Section:CreateToggle({')
-        ToggleExample:CreateLabel('    Name = "Enable Feature",')
-        ToggleExample:CreateLabel('    Default = false,')
-        ToggleExample:CreateLabel('    Flag = "MyToggle",')
-        ToggleExample:CreateLabel('    Callback = function(value)')
-        ToggleExample:CreateLabel('        print("Toggle:", value)')
-        ToggleExample:CreateLabel('    end')
-        ToggleExample:CreateLabel('})')
-        
-        local SliderExample = ReadmeTab:CreateSection({Name = "Slider Example", Side = "Right"})
-        SliderExample:CreateLabel("-- Create a slider:")
-        SliderExample:CreateLabel('Section:CreateSlider({')
-        SliderExample:CreateLabel('    Name = "Speed",')
-        SliderExample:CreateLabel('    Min = 0,')
-        SliderExample:CreateLabel('    Max = 100,')
-        SliderExample:CreateLabel('    Default = 50,')
-        SliderExample:CreateLabel('    Callback = function(value)')
-        SliderExample:CreateLabel('        print("Speed:", value)')
-        SliderExample:CreateLabel('    end')
-        SliderExample:CreateLabel('})')
-        
-        local NotifySection = ReadmeTab:CreateSection({Name = "Notifications", Side = "Left"})
-        NotifySection:CreateLabel("-- Send a notification:")
-        NotifySection:CreateLabel('Library:Notify({')
-        NotifySection:CreateLabel('    Title = "Success",')
-        NotifySection:CreateLabel('    Content = "Script loaded!",')
-        NotifySection:CreateLabel('    Duration = 3')
-        NotifySection:CreateLabel('})')
-        
-        local ConfigSection = ReadmeTab:CreateSection({Name = "Config System", Side = "Right"})
-        ConfigSection:CreateLabel("-- Save configuration:")
-        ConfigSection:CreateLabel('Library:SaveConfig("myconfig")')
-        ConfigSection:CreateLabel("")
-        ConfigSection:CreateLabel("-- Load configuration:")
-        ConfigSection:CreateLabel('Library:LoadConfig("myconfig")')
-        ConfigSection:CreateLabel("")
-        ConfigSection:CreateLabel("-- Access flags:")
-        ConfigSection:CreateLabel('local toggleValue = Library.Flags["MyToggle"]')
-    end
-    
-    -- Settings button callback
-    SettingsBtn.MouseButton1Click:Connect(function()
-        if not Window.SettingsTab then
-            CreateSettingsTab()
-        end
-        Window.SettingsTab:Activate()
-    end)
-    
-    -- Info button callback
-    InfoBtn.MouseButton1Click:Connect(function()
-        if not Window.ReadmeTab then
-            CreateReadmeTab()
-        end
-        Window.ReadmeTab:Activate()
-    end)
     
     --// COMPONENT: TAB
     function Window:CreateTab(options)
         options = options or {}
         local Name = options.Name or "Tab"
-        local Icon = options.Icon or "rbxassetid://4483345998"
+        local Icon = options.Icon or nil  -- Allow custom icon or use default
+        
+        -- Determine which icon to use
+        local TabIcon
+        if Icon then
+            -- Custom icon provided by script
+            TabIcon = Icon
+        else
+            -- Use GitHub default tab icon
+            TabIcon = Utility:GetIcon(ASSETS.Icons.TabDefault, "rbxassetid://73350721735790")
+        end
         
         local Tab = {
             Name = Name,
@@ -956,13 +613,13 @@ function Library:CreateWindow(options)
         })
         Utility:Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = TabBtn})
         
-        local TabIcon = Utility:Create("ImageLabel", {
+        local TabIconImage = Utility:Create("ImageLabel", {
             Parent = TabBtn,
             AnchorPoint = Vector2.new(0.5, 0.5),
             Position = UDim2.new(0.5, 0, 0.5, 0),
             Size = UDim2.new(0, 24, 0, 24),
             BackgroundTransparency = 1,
-            Image = Icon,
+            Image = TabIcon,
             ImageColor3 = Library.Theme.SubText,
             ZIndex = 6
         })
@@ -1032,7 +689,7 @@ function Library:CreateWindow(options)
             Tab.Active = true
             Window.ActiveTab = Tab
             
-            Utility:Tween(TabIcon, TweenInfo.new(0.3), {ImageColor3 = Library.Theme.Accent})
+            Utility:Tween(TabIconImage, TweenInfo.new(0.3), {ImageColor3 = Library.Theme.Accent})
             Utility:Tween(Indicator, TweenInfo.new(0.3), {Transparency = 0, Position = UDim2.new(0, -12, 0.5, -10)})
             Page.Visible = true
             Page.CanvasPosition = Vector2.new(0,0)
@@ -1040,7 +697,7 @@ function Library:CreateWindow(options)
         
         function Tab:Deactivate()
             Tab.Active = false
-            Utility:Tween(TabIcon, TweenInfo.new(0.3), {ImageColor3 = Library.Theme.SubText})
+            Utility:Tween(TabIconImage, TweenInfo.new(0.3), {ImageColor3 = Library.Theme.SubText})
             Utility:Tween(Indicator, TweenInfo.new(0.3), {Transparency = 1, Position = UDim2.new(0, 0, 0.5, -10)})
             Page.Visible = false
         end
@@ -1441,8 +1098,8 @@ function Library:CreateWindow(options)
                 local Title = Utility:Create("TextLabel", {
                     Parent = Header,
                     BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 12, 0, 0),
-                    Size = UDim2.new(1, -60, 1, 0),
+                    Position = UDim2.new(0, 12, 0, 12),
+                    Size = UDim2.new(0.5, 0, 0, 20),
                     Font = Enum.Font.Gotham,
                     Text = Name,
                     TextColor3 = Library.Theme.Text,
@@ -1450,13 +1107,13 @@ function Library:CreateWindow(options)
                     TextXAlignment = Enum.TextXAlignment.Left
                 })
                 
-                local ValueText = Utility:Create("TextLabel", {
+                local Status = Utility:Create("TextLabel", {
                     Parent = Header,
                     BackgroundTransparency = 1,
-                    Position = UDim2.new(1, -48, 0, 0),
-                    Size = UDim2.new(0, 100, 1, 0),
+                    Position = UDim2.new(0.5, 0, 0, 12),
+                    Size = UDim2.new(0.5, -30, 0, 20),
                     Font = Enum.Font.GothamBold,
-                    Text = Multi and "..." or tostring(CurrentValue),
+                    Text = (Multi and "..." or tostring(CurrentValue)),
                     TextColor3 = Library.Theme.SubText,
                     TextSize = 13,
                     TextXAlignment = Enum.TextXAlignment.Right
@@ -1465,146 +1122,362 @@ function Library:CreateWindow(options)
                 local Arrow = Utility:Create("ImageLabel", {
                     Parent = Header,
                     BackgroundTransparency = 1,
-                    Position = UDim2.new(1, -30, 0.5, -6),
-                    Size = UDim2.new(0, 12, 0, 12),
-                    Image = ASSETS.Icons.Arrow,
-                    ImageColor3 = Library.Theme.SubText,
-                    Rotation = 0
+                    Position = UDim2.new(1, -28, 0.5, -8),
+                    Size = UDim2.new(0, 16, 0, 16),
+                    Image = Utility:GetIcon(ASSETS.Icons.Arrow, "rbxassetid://73350721735790"),
+                    ImageColor3 = Library.Theme.SubText
                 })
                 
                 local ListFrame = Utility:Create("ScrollingFrame", {
                     Parent = DropdownContainer,
                     BackgroundTransparency = 1,
                     Position = UDim2.new(0, 0, 0, 44),
-                    Size = UDim2.new(1, 0, 0, 0),
-                    ScrollBarThickness = 2,
-                    ScrollBarImageColor3 = Library.Theme.Accent,
+                    Size = UDim2.new(1, 0, 1, -44),
                     CanvasSize = UDim2.new(0, 0, 0, 0),
-                    BorderSizePixel = 0
+                    ScrollBarThickness = 2,
+                    ScrollBarImageColor3 = Library.Theme.Accent
                 })
-                
-                local ListLayout = Utility:Create("UIListLayout", {
+                Utility:Create("UIListLayout", {
                     Parent = ListFrame,
                     SortOrder = Enum.SortOrder.LayoutOrder,
                     Padding = UDim.new(0, 4)
                 })
+                Utility:Create("UIPadding", {Parent = ListFrame, PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 4)})
+
+                local function Refresh()
+                    if Multi then
+                        local Count = 0
+                        for k, v in pairs(CurrentValue) do if v then Count = Count + 1 end end
+                        Status.Text = Count .. " Selected"
+                    else
+                        Status.Text = tostring(CurrentValue)
+                    end
+                    
+                    Library.Flags[Flag] = CurrentValue
+                    Callback(CurrentValue)
+                end
+
+                local function BuildList()
+                    ListFrame:ClearAllChildren()
+                    Utility:Create("UIListLayout", {
+                        Parent = ListFrame,
+                        SortOrder = Enum.SortOrder.LayoutOrder,
+                        Padding = UDim.new(0, 4)
+                    })
+                    Utility:Create("UIPadding", {Parent = ListFrame, PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 4)})
+                    
+                    for _, val in pairs(Values) do
+                        local Item = Utility:Create("TextButton", {
+                            Parent = ListFrame,
+                            BackgroundColor3 = Library.Theme.Secondary,
+                            Size = UDim2.new(1, 0, 0, 26),
+                            AutoButtonColor = false,
+                            Font = Enum.Font.Gotham,
+                            Text = tostring(val),
+                            TextColor3 = Library.Theme.SubText,
+                            TextSize = 13
+                        })
+                        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = Item})
+                        
+                        local IsSelected = Multi and CurrentValue[val] or (not Multi and CurrentValue == val)
+                        if IsSelected then
+                            Item.TextColor3 = Library.Theme.Accent
+                            Item.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+                        end
+                        
+                        Item.MouseButton1Click:Connect(function()
+                            if Multi then
+                                CurrentValue[val] = not CurrentValue[val]
+                                BuildList()
+                            else
+                                CurrentValue = val
+                                Expanded = false
+                                Utility:Tween(DropdownContainer, TweenInfo.new(0.2), {Size = UDim2.new(1, 0, 0, 44)})
+                                Utility:Tween(Arrow, TweenInfo.new(0.2), {Rotation = 0})
+                                BuildList()
+                            end
+                            Refresh()
+                        end)
+                    end
+                    
+                    ListFrame.CanvasSize = UDim2.new(0, 0, 0, #Values * 30 + 10)
+                end
                 
-                ListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-                    ListFrame.CanvasSize = UDim2.new(0, 0, 0, ListLayout.AbsoluteContentSize.Y + 8)
+                Header.MouseButton1Click:Connect(function()
+                    Expanded = not Expanded
+                    Utility:Tween(Arrow, TweenInfo.new(0.2), {Rotation = Expanded and 180 or 0})
+                    
+                    local ListHeight = math.min(#Values * 30 + 10, 150)
+                    Utility:Tween(DropdownContainer, TweenInfo.new(0.2), {
+                        Size = UDim2.new(1, 0, 0, Expanded and (44 + ListHeight) or 44)
+                    })
                 end)
                 
-                local function Toggle()
-                    Expanded = not Expanded
-                    if Expanded then
-                        Utility:Tween(Arrow, TweenInfo.new(0.2), {Rotation = 180})
-                        Utility:Tween(DropdownContainer, TweenInfo.new(0.3), {
-                            Size = UDim2.new(1, 0, 0, math.min(44 + ListLayout.AbsoluteContentSize.Y + 12, 200))
-                        })
-                        Utility:Tween(ListFrame, TweenInfo.new(0.3), {
-                            Size = UDim2.new(1, 0, 0, math.min(ListLayout.AbsoluteContentSize.Y + 8, 150))
-                        })
-                    else
-                        Utility:Tween(Arrow, TweenInfo.new(0.2), {Rotation = 0})
-                        Utility:Tween(DropdownContainer, TweenInfo.new(0.3), {Size = UDim2.new(1, 0, 0, 44)})
-                        Utility:Tween(ListFrame, TweenInfo.new(0.3), {Size = UDim2.new(1, 0, 0, 0)})
-                    end
-                end
-                
-                Header.MouseButton1Click:Connect(Toggle)
-                
-                for i, value in ipairs(Values) do
-                    local Option = Utility:Create("TextButton", {
-                        Parent = ListFrame,
-                        BackgroundColor3 = Library.Theme.Secondary,
-                        Size = UDim2.new(1, -8, 0, 30),
-                        AutoButtonColor = false,
-                        Text = value,
-                        Font = Enum.Font.Gotham,
-                        TextColor3 = Library.Theme.Text,
-                        TextSize = 12
-                    })
-                    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = Option})
-                    
-                    Option.MouseEnter:Connect(function()
-                        Utility:Tween(Option, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.Hover})
-                    end)
-                    Option.MouseLeave:Connect(function()
-                        Utility:Tween(Option, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.Secondary})
-                    end)
-                    
-                    Option.MouseButton1Click:Connect(function()
-                        if Multi then
-                            if not CurrentValue then CurrentValue = {} end
-                            local found = false
-                            for k, v in pairs(CurrentValue) do
-                                if v == value then
-                                    table.remove(CurrentValue, k)
-                                    found = true
-                                    break
-                                end
-                            end
-                            if not found then
-                                table.insert(CurrentValue, value)
-                            end
-                            ValueText.Text = #CurrentValue > 0 and table.concat(CurrentValue, ", ") or "..."
-                        else
-                            CurrentValue = value
-                            ValueText.Text = tostring(value)
-                            Toggle()
-                        end
-                        Library.Flags[Flag] = CurrentValue
-                        Callback(CurrentValue)
-                    end)
-                end
+                BuildList()
                 
                 return {
                     Set = function(self, val)
                         CurrentValue = val
-                        ValueText.Text = Multi and (type(val) == "table" and table.concat(val, ", ") or "...") or tostring(val)
-                        Library.Flags[Flag] = CurrentValue
-                        Callback(CurrentValue)
+                        Refresh()
+                        BuildList()
                     end,
-                    Refresh = function(self, values)
-                        Values = values
-                        for _, child in pairs(ListFrame:GetChildren()) do
-                            if child:IsA("TextButton") then child:Destroy() end
+                    Refresh = function(self, newVals)
+                        Values = newVals
+                        BuildList()
+                    end
+                }
+            end
+
+            --// COMPONENT: KEYBIND
+            function Section:CreateKeybind(options)
+                options = options or {}
+                local Name = options.Name or "Keybind"
+                local Default = options.Default or Enum.KeyCode.RightShift
+                local Mode = options.Mode or "Toggle"
+                local Callback = options.Callback or function() end
+                local Flag = options.Flag or Name
+                
+                local CurrentKey = Default
+                if Library.Flags[Flag] ~= nil then CurrentKey = Library.Flags[Flag] end
+                
+                local Container = Utility:Create("Frame", {
+                    Name = Name,
+                    Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Main,
+                    Size = UDim2.new(1, 0, 0, 40)
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = Container})
+                Utility:Create("UIStroke", {Parent = Container, Color = Library.Theme.Stroke, Thickness = 1})
+                
+                Utility:Create("TextLabel", {
+                    Parent = Container,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 12, 0, 0),
+                    Size = UDim2.new(0.5, 0, 1, 0),
+                    Font = Enum.Font.Gotham,
+                    Text = Name,
+                    TextColor3 = Library.Theme.Text,
+                    TextSize = 13,
+                    TextXAlignment = Enum.TextXAlignment.Left
+                })
+                
+                local BindBtn = Utility:Create("TextButton", {
+                    Parent = Container,
+                    BackgroundColor3 = Color3.fromRGB(40, 40, 45),
+                    Position = UDim2.new(1, -70, 0.5, -10),
+                    Size = UDim2.new(0, 60, 0, 20),
+                    Font = Enum.Font.Gotham,
+                    Text = CurrentKey.Name,
+                    TextColor3 = Library.Theme.SubText,
+                    TextSize = 12,
+                    AutoButtonColor = false
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = BindBtn})
+                
+                local Listening = false
+                local Connection
+                
+                BindBtn.MouseButton1Click:Connect(function()
+                    Listening = true
+                    BindBtn.Text = "..."
+                    BindBtn.TextColor3 = Library.Theme.Accent
+                    
+                    if Connection then Connection:Disconnect() end
+                    Connection = UserInputService.InputBegan:Connect(function(input)
+                        if input.UserInputType == Enum.UserInputType.Keyboard or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                            local k = (input.UserInputType == Enum.UserInputType.Keyboard) and input.KeyCode or input.UserInputType
+                            if k.Name ~= "Unknown" then
+                                CurrentKey = k
+                                BindBtn.Text = k.Name
+                                BindBtn.TextColor3 = Library.Theme.SubText
+                                Library.Flags[Flag] = CurrentKey
+                                Library.Keybinds[Flag].Key = CurrentKey
+                                Listening = false
+                                Connection:Disconnect()
+                            end
                         end
-                        -- Recreate options (omitted for brevity, same as above)
+                    end)
+                end)
+                
+                if not Library.Keybinds[Flag] then
+                    Library.Keybinds[Flag] = {
+                        Key = CurrentKey,
+                        Mode = Mode,
+                        Callback = Callback,
+                        Active = false
+                    }
+                end
+                
+                return {
+                    Set = function(self, key)
+                        CurrentKey = key
+                        BindBtn.Text = key.Name
+                        Library.Flags[Flag] = CurrentKey
+                        Library.Keybinds[Flag].Key = CurrentKey
                     end
                 }
             end
             
+            --// COMPONENT: COLORPICKER
+            function Section:CreateColorPicker(options)
+                options = options or {}
+                local Name = options.Name or "ColorPicker"
+                local Default = options.Default or Color3.fromRGB(255, 0, 0)
+                local Transparency = options.Transparency or 0
+                local Callback = options.Callback or function() end
+                local Flag = options.Flag or Name
+                
+                local CurrentColor = Default
+                local CurrentAlpha = Transparency
+                local Hue, Sat, Val = Color3.toHSV(CurrentColor)
+                
+                if Library.Flags[Flag] ~= nil then 
+                    CurrentColor = Library.Flags[Flag] 
+                end
+                
+                local Container = Utility:Create("Frame", {
+                    Name = Name,
+                    Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Main,
+                    Size = UDim2.new(1, 0, 0, 40),
+                    ClipsDescendants = true
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = Container})
+                Utility:Create("UIStroke", {Parent = Container, Color = Library.Theme.Stroke, Thickness = 1})
+                
+                Utility:Create("TextLabel", {
+                    Parent = Container,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 12, 0, 0),
+                    Size = UDim2.new(0.5, 0, 0, 40),
+                    Font = Enum.Font.Gotham,
+                    Text = Name,
+                    TextColor3 = Library.Theme.Text,
+                    TextSize = 13,
+                    TextXAlignment = Enum.TextXAlignment.Left
+                })
+                
+                local PreviewBtn = Utility:Create("TextButton", {
+                    Parent = Container,
+                    BackgroundColor3 = CurrentColor,
+                    Position = UDim2.new(1, -45, 0.5, -10),
+                    Size = UDim2.new(0, 35, 0, 20),
+                    AutoButtonColor = false,
+                    Text = ""
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = PreviewBtn})
+                Utility:Create("UIStroke", {Parent = PreviewBtn, Color = Library.Theme.Stroke, Thickness = 1})
+                
+                local Expanded = false
+                local Palette = Utility:Create("Frame", {
+                    Parent = Container,
+                    BackgroundColor3 = Library.Theme.Secondary,
+                    Position = UDim2.new(0, 10, 0, 45),
+                    Size = UDim2.new(1, -20, 0, 170),
+                    Visible = false
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = Palette})
+                
+                local SVImage = Utility:Create("ImageButton", {
+                    Parent = Palette,
+                    Position = UDim2.new(0, 10, 0, 10),
+                    Size = UDim2.new(0, 160, 0, 120),
+                    Image = "rbxassetid://4155801252",
+                    AutoButtonColor = false
+                })
+                
+                local HueImage = Utility:Create("ImageButton", {
+                    Parent = Palette,
+                    Position = UDim2.new(0, 180, 0, 10),
+                    Size = UDim2.new(0, 20, 0, 120),
+                    Image = "rbxassetid://6523286724",
+                    AutoButtonColor = false
+                })
+                
+                local function UpdateColor(newHue, newSat, newVal)
+                    Hue = newHue or Hue
+                    Sat = newSat or Sat
+                    Val = newVal or Val
+                    CurrentColor = Color3.fromHSV(Hue, Sat, Val)
+                    
+                    PreviewBtn.BackgroundColor3 = CurrentColor
+                    SVImage.BackgroundColor3 = Color3.fromHSV(Hue, 1, 1)
+                    
+                    Library.Flags[Flag] = CurrentColor
+                    Callback(CurrentColor)
+                end
+                
+                local DraggingSV, DraggingHue = false, false
+                
+                SVImage.InputBegan:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                        DraggingSV = true
+                    end
+                end)
+                
+                HueImage.InputBegan:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                        DraggingHue = true
+                    end
+                end)
+                
+                UserInputService.InputEnded:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                        DraggingSV, DraggingHue = false, false
+                    end
+                end)
+                
+                UserInputService.InputChanged:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseMovement then
+                        if DraggingSV then
+                            local SizeX = math.clamp((input.Position.X - SVImage.AbsolutePosition.X) / SVImage.AbsoluteSize.X, 0, 1)
+                            local SizeY = math.clamp((input.Position.Y - SVImage.AbsolutePosition.Y) / SVImage.AbsoluteSize.Y, 0, 1)
+                            UpdateColor(nil, SizeX, 1 - SizeY)
+                        elseif DraggingHue then
+                            local SizeY = math.clamp((input.Position.Y - HueImage.AbsolutePosition.Y) / HueImage.AbsoluteSize.Y, 0, 1)
+                            UpdateColor(1 - SizeY, nil, nil)
+                        end
+                    end
+                end)
+                
+                PreviewBtn.MouseButton1Click:Connect(function()
+                    Expanded = not Expanded
+                    Utility:Tween(Container, TweenInfo.new(0.2), {Size = UDim2.new(1, 0, 0, Expanded and 225 or 40)})
+                    Palette.Visible = Expanded
+                end)
+                
+                return {
+                    Set = function(self, col)
+                        CurrentColor = col
+                        Hue, Sat, Val = Color3.toHSV(col)
+                        UpdateColor()
+                    end
+                }
+            end
+
             --// COMPONENT: TEXTBOX
             function Section:CreateTextbox(options)
                 options = options or {}
                 local Name = options.Name or "Textbox"
                 local Default = options.Default or ""
-                local Placeholder = options.Placeholder or "Enter text..."
+                local Placeholder = options.Placeholder or "Type here..."
+                local ClearOnFocus = options.ClearOnFocus or false
                 local Callback = options.Callback or function() end
                 local Flag = options.Flag or Name
                 
-                local CurrentValue = Default
-                if Library.Flags[Flag] ~= nil then CurrentValue = Library.Flags[Flag] end
-                
-                local TextboxContainer = Utility:Create("Frame", {
+                local Container = Utility:Create("Frame", {
                     Name = Name,
                     Parent = ContentContainer,
                     BackgroundColor3 = Library.Theme.Main,
-                    Size = UDim2.new(1, 0, 0, 70),
-                    ClipsDescendants = true
+                    Size = UDim2.new(1, 0, 0, 65)
                 })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = Container})
+                Utility:Create("UIStroke", {Parent = Container, Color = Library.Theme.Stroke, Thickness = 1})
                 
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = TextboxContainer})
-                Utility:Create("UIStroke", {
-                    Parent = TextboxContainer,
-                    Color = Library.Theme.Stroke,
-                    Thickness = 1
-                })
-                
-                local Title = Utility:Create("TextLabel", {
-                    Parent = TextboxContainer,
+                Utility:Create("TextLabel", {
+                    Parent = Container,
                     BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 12, 0, 8),
+                    Position = UDim2.new(0, 12, 0, 5),
                     Size = UDim2.new(1, -24, 0, 20),
                     Font = Enum.Font.Gotham,
                     Text = Name,
@@ -1613,400 +1486,141 @@ function Library:CreateWindow(options)
                     TextXAlignment = Enum.TextXAlignment.Left
                 })
                 
-                local InputBox = Utility:Create("TextBox", {
-                    Parent = TextboxContainer,
+                local InputBg = Utility:Create("Frame", {
+                    Parent = Container,
                     BackgroundColor3 = Library.Theme.Secondary,
-                    Position = UDim2.new(0, 12, 0, 36),
-                    Size = UDim2.new(1, -24, 0, 26),
+                    Position = UDim2.new(0, 12, 0, 28),
+                    Size = UDim2.new(1, -24, 0, 30)
+                })
+                
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = InputBg})
+                
+                local Input = Utility:Create("TextBox", {
+                    Parent = InputBg,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 8, 0, 0),
+                    Size = UDim2.new(1, -16, 1, 0),
                     Font = Enum.Font.Gotham,
+                    Text = Default,
                     PlaceholderText = Placeholder,
-                    PlaceholderColor3 = Library.Theme.SubText,
-                    Text = CurrentValue,
                     TextColor3 = Library.Theme.Text,
+                    PlaceholderColor3 = Library.Theme.SubText,
                     TextSize = 13,
                     TextXAlignment = Enum.TextXAlignment.Left,
-                    ClearTextOnFocus = false
+                    ClearTextOnFocus = ClearOnFocus
                 })
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = InputBox})
-                Utility:Create("UIPadding", {Parent = InputBox, PaddingLeft = UDim.new(0, 8)})
                 
-                InputBox.FocusLost:Connect(function()
-                    CurrentValue = InputBox.Text
-                    Library.Flags[Flag] = CurrentValue
-                    Callback(CurrentValue)
+                Input.FocusLost:Connect(function(enter)
+                    Library.Flags[Flag] = Input.Text
+                    Callback(Input.Text, enter)
                 end)
                 
                 return {
-                    Set = function(self, text)
-                        InputBox.Text = text
-                        CurrentValue = text
-                        Library.Flags[Flag] = CurrentValue
-                        Callback(CurrentValue)
-                    end
-                }
-            end
-            
-            --// COMPONENT: KEYBIND
-            function Section:CreateKeybind(options)
-                options = options or {}
-                local Name = options.Name or "Keybind"
-                local Default = options.Default or Enum.KeyCode.E
-                local Callback = options.Callback or function() end
-                local Flag = options.Flag or Name
-                
-                local CurrentKey = Default
-                if Library.Flags[Flag] ~= nil then CurrentKey = Library.Flags[Flag] end
-                Library.Flags[Flag] = CurrentKey
-                
-                local Listening = false
-                local Connection
-                
-                local KeybindContainer = Utility:Create("Frame", {
-                    Name = Name,
-                    Parent = ContentContainer,
-                    BackgroundColor3 = Library.Theme.Main,
-                    Size = UDim2.new(1, 0, 0, 36),
-                    ClipsDescendants = true
-                })
-                
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = KeybindContainer})
-                local Stroke = Utility:Create("UIStroke", {
-                    Parent = KeybindContainer,
-                    Color = Library.Theme.Stroke,
-                    Thickness = 1
-                })
-                
-                local Title = Utility:Create("TextLabel", {
-                    Parent = KeybindContainer,
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 12, 0, 0),
-                    Size = UDim2.new(1, -100, 1, 0),
-                    Font = Enum.Font.Gotham,
-                    Text = Name,
-                    TextColor3 = Library.Theme.Text,
-                    TextSize = 13,
-                    TextXAlignment = Enum.TextXAlignment.Left
-                })
-                
-                local KeyButton = Utility:Create("TextButton", {
-                    Parent = KeybindContainer,
-                    BackgroundColor3 = Library.Theme.Secondary,
-                    Position = UDim2.new(1, -90, 0.5, -13),
-                    Size = UDim2.new(0, 80, 0, 26),
-                    Font = Enum.Font.GothamBold,
-                    Text = CurrentKey.Name,
-                    TextColor3 = Library.Theme.Text,
-                    TextSize = 12,
-                    AutoButtonColor = false
-                })
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = KeyButton})
-                
-                KeyButton.MouseButton1Click:Connect(function()
-                    if Listening then return end
-                    Listening = true
-                    KeyButton.Text = "..."
-                    Utility:Tween(Stroke, TweenInfo.new(0.2), {Color = Library.Theme.Accent})
-                    
-                    Connection = UserInputService.InputBegan:Connect(function(input, gpe)
-                        if input.UserInputType == Enum.UserInputType.Keyboard then
-                            CurrentKey = input.KeyCode
-                            KeyButton.Text = CurrentKey.Name
-                            Library.Flags[Flag] = CurrentKey
-                            Callback(CurrentKey)
-                            Listening = false
-                            Utility:Tween(Stroke, TweenInfo.new(0.2), {Color = Library.Theme.Stroke})
-                            Connection:Disconnect()
-                        end
-                    end)
-                end)
-                
-                KeyButton.MouseEnter:Connect(function()
-                    if not Listening then
-                        Utility:Tween(KeyButton, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.Hover})
-                    end
-                end)
-                KeyButton.MouseLeave:Connect(function()
-                    if not Listening then
-                        Utility:Tween(KeyButton, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.Secondary})
-                    end
-                end)
-                
-                return {
-                    Set = function(self, key)
-                        CurrentKey = key
-                        KeyButton.Text = key.Name
-                        Library.Flags[Flag] = CurrentKey
-                        Callback(CurrentKey)
-                    end
-                }
-            end
-            
-            --// COMPONENT: COLORPICKER
-            function Section:CreateColorPicker(options)
-                options = options or {}
-                local Name = options.Name or "Color"
-                local Default = options.Default or Color3.fromRGB(255, 255, 255)
-                local Callback = options.Callback or function() end
-                local Flag = options.Flag or Name
-                
-                local CurrentColor = Default
-                if Library.Flags[Flag] ~= nil then CurrentColor = Library.Flags[Flag] end
-                Library.Flags[Flag] = CurrentColor
-                
-                local Expanded = false
-                
-                local ColorContainer = Utility:Create("Frame", {
-                    Name = Name,
-                    Parent = ContentContainer,
-                    BackgroundColor3 = Library.Theme.Main,
-                    Size = UDim2.new(1, 0, 0, 36),
-                    ClipsDescendants = true
-                })
-                
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = ColorContainer})
-                Utility:Create("UIStroke", {
-                    Parent = ColorContainer,
-                    Color = Library.Theme.Stroke,
-                    Thickness = 1
-                })
-                
-                local Title = Utility:Create("TextLabel", {
-                    Parent = ColorContainer,
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 12, 0, 0),
-                    Size = UDim2.new(1, -60, 1, 0),
-                    Font = Enum.Font.Gotham,
-                    Text = Name,
-                    TextColor3 = Library.Theme.Text,
-                    TextSize = 13,
-                    TextXAlignment = Enum.TextXAlignment.Left
-                })
-                
-                local ColorDisplay = Utility:Create("TextButton", {
-                    Parent = ColorContainer,
-                    BackgroundColor3 = CurrentColor,
-                    Position = UDim2.new(1, -42, 0.5, -13),
-                    Size = UDim2.new(0, 32, 0, 26),
-                    AutoButtonColor = false,
-                    Text = ""
-                })
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = ColorDisplay})
-                Utility:Create("UIStroke", {
-                    Parent = ColorDisplay,
-                    Color = Library.Theme.Stroke,
-                    Thickness = 1
-                })
-                
-                -- Color Picker Panel
-                local PickerFrame = Utility:Create("Frame", {
-                    Parent = ColorContainer,
-                    BackgroundColor3 = Library.Theme.Secondary,
-                    Position = UDim2.new(0, 8, 0, 44),
-                    Size = UDim2.new(1, -16, 0, 0),
-                    ClipsDescendants = true
-                })
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = PickerFrame})
-                
-                local Saturation = Utility:Create("ImageButton", {
-                    Parent = PickerFrame,
-                    BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-                    Position = UDim2.new(0, 8, 0, 8),
-                    Size = UDim2.new(1, -46, 0, 100),
-                    AutoButtonColor = false,
-                    Image = "rbxassetid://4155801252"
-                })
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = Saturation})
-                
-                local Hue = Utility:Create("ImageButton", {
-                    Parent = PickerFrame,
-                    BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-                    Position = UDim2.new(1, -28, 0, 8),
-                    Size = UDim2.new(0, 20, 0, 100),
-                    AutoButtonColor = false,
-                    Image = "rbxassetid://4155830825"
-                })
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = Hue})
-                
-                local h, s, v = CurrentColor:ToHSV()
-                
-                local function UpdateColor()
-                    local color = Color3.fromHSV(h, s, v)
-                    CurrentColor = color
-                    ColorDisplay.BackgroundColor3 = color
-                    Saturation.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
-                    Library.Flags[Flag] = color
-                    Callback(color)
-                end
-                
-                local draggingSat = false
-                local draggingHue = false
-                
-                Saturation.InputBegan:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                        draggingSat = true
-                    end
-                end)
-                
-                Hue.InputBegan:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                        draggingHue = true
-                    end
-                end)
-                
-                UserInputService.InputEnded:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                        draggingSat = false
-                        draggingHue = false
-                    end
-                end)
-                
-                UserInputService.InputChanged:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseMovement then
-                        if draggingSat then
-                            local sizeX = math.clamp((input.Position.X - Saturation.AbsolutePosition.X) / Saturation.AbsoluteSize.X, 0, 1)
-                            local sizeY = math.clamp((input.Position.Y - Saturation.AbsolutePosition.Y) / Saturation.AbsoluteSize.Y, 0, 1)
-                            s = sizeX
-                            v = 1 - sizeY
-                            UpdateColor()
-                        elseif draggingHue then
-                            local sizeY = math.clamp((input.Position.Y - Hue.AbsolutePosition.Y) / Hue.AbsoluteSize.Y, 0, 1)
-                            h = sizeY
-                            UpdateColor()
-                        end
-                    end
-                end)
-                
-                ColorDisplay.MouseButton1Click:Connect(function()
-                    Expanded = not Expanded
-                    if Expanded then
-                        Utility:Tween(ColorContainer, TweenInfo.new(0.3), {Size = UDim2.new(1, 0, 0, 160)})
-                        Utility:Tween(PickerFrame, TweenInfo.new(0.3), {Size = UDim2.new(1, -16, 0, 116)})
-                    else
-                        Utility:Tween(ColorContainer, TweenInfo.new(0.3), {Size = UDim2.new(1, 0, 0, 36)})
-                        Utility:Tween(PickerFrame, TweenInfo.new(0.3), {Size = UDim2.new(1, -16, 0, 0)})
-                    end
-                end)
-                
-                return {
-                    Set = function(self, color)
-                        CurrentColor = color
-                        h, s, v = color:ToHSV()
-                        UpdateColor()
+                    Set = function(self, txt)
+                        Input.Text = txt
+                        Library.Flags[Flag] = txt
+                    end,
+                    Get = function(self)
+                        return Input.Text
                     end
                 }
             end
             
             --// COMPONENT: LABEL
-            function Section:CreateLabel(text)
-                local Label = Utility:Create("TextLabel", {
+            function Section:CreateLabel(Text)
+                local Container = Utility:Create("Frame", {
                     Name = "Label",
                     Parent = ContentContainer,
                     BackgroundTransparency = 1,
-                    Size = UDim2.new(1, 0, 0, 20),
-                    Font = Enum.Font.Gotham,
-                    Text = text or "Label",
-                    TextColor3 = Library.Theme.SubText,
-                    TextSize = 12,
-                    TextXAlignment = Enum.TextXAlignment.Left
+                    Size = UDim2.new(1, 0, 0, 20)
                 })
                 
+                local Lab = Utility:Create("TextLabel", {
+                    Parent = Container,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 1, 0),
+                    Font = Enum.Font.Gotham,
+                    Text = Text,
+                    TextColor3 = Library.Theme.Text,
+                    TextSize = 13,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextWrapped = true
+                })
+                
+                Lab:GetPropertyChangedSignal("TextBounds"):Connect(function()
+                    Container.Size = UDim2.new(1, 0, 0, Lab.TextBounds.Y + 4)
+                end)
+                
                 return {
-                    Set = function(self, newText)
-                        Label.Text = newText
+                    SetText = function(self, t)
+                        Lab.Text = t
                     end
                 }
             end
-            
-            table.insert(Tab.Sections, Section)
+
             return Section
         end
         
         return Tab
     end
     
-    -- UI Toggle Keybind Listener
-    UserInputService.InputBegan:Connect(function(input, gpe)
-        if gpe then return end
-        if input.KeyCode == Library.UIToggleKey then
-            Library.IsMinimized = not Library.IsMinimized
-            if Library.IsMinimized then
-                Utility:Tween(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
-                    Size = UDim2.new(0, 0, 0, 0),
-                    Position = UDim2.new(0.5, 0, 0.5, 0)
-                })
-            else
-                Utility:Tween(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
-                    Size = UDim2.new(0, 800, 0, 550),
-                    Position = UDim2.new(0.5, -400, 0.5, -275)
-                })
-            end
-        end
-    end)
-    
     return Window
 end
 
---// UNLOAD FUNCTION
-function Library:Unload()
-    if Library.Unloaded then return end
-    Library.Unloaded = true
-    
-    for _, connection in pairs(Library.Connections) do
-        connection:Disconnect()
-    end
-    
-    if Library.ScreenGui then
-        Library.ScreenGui:Destroy()
-    end
-    
-    Library:Notify({
-        Title = "Unloaded",
-        Content = "UI Library has been unloaded",
-        Duration = 2
-    })
-end
-
---// CONFIG SYSTEM
+--// MANAGERS
 function Library:SaveConfig(name)
-    name = name or "default"
-    local config = {}
-    for flag, value in pairs(Library.Flags) do
-        if typeof(value) == "Color3" then
-            config[flag] = {value.R, value.G, value.B}
-        elseif typeof(value) == "EnumItem" then
-            config[flag] = tostring(value)
-        else
-            config[flag] = value
-        end
-    end
-    Utility:WriteFile(name .. ".json", HttpService:JSONEncode(config))
-    Library:Notify({
-        Title = "Config Saved",
-        Content = "Configuration: " .. name,
-        Duration = 2
-    })
+    local json = HttpService:JSONEncode(Library.Flags)
+    writefile("RenLib/Configs/" .. name .. ".json", json)
+    Library:Notify({Title = "Config Saved", Content = "Saved config: " .. name})
 end
 
 function Library:LoadConfig(name)
-    name = name or "default"
-    local data = Utility:ReadFile(name .. ".json")
-    if data then
-        local success, config = pcall(function() return HttpService:JSONDecode(data) end)
-        if success then
-            for flag, value in pairs(config) do
-                if type(value) == "table" and #value == 3 then
-                    Library.Flags[flag] = Color3.new(value[1], value[2], value[3])
-                else
-                    Library.Flags[flag] = value
-                end
-            end
-            Library:Notify({
-                Title = "Config Loaded",
-                Content = "Configuration: " .. name,
-                Duration = 2
-            })
+    if isfile("RenLib/Configs/" .. name .. ".json") then
+        local json = readfile("RenLib/Configs/" .. name .. ".json")
+        local data = HttpService:JSONDecode(json)
+        for i, v in pairs(data) do
+            Library.Flags[i] = v
         end
+        Library:Notify({Title = "Config Loaded", Content = "Loaded config: " .. name})
+    else
+        Library:Notify({Title = "Error", Content = "Config not found: " .. name})
     end
 end
+
+function Library:Unload()
+    for _, conn in pairs(Library.Connections) do conn:Disconnect() end
+    if Library.ScreenGui then Library.ScreenGui:Destroy() end
+end
+
+--// GLOBAL INPUT HANDLER
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    
+    for flag, bind in pairs(Library.Keybinds) do
+        if bind.Key == input.KeyCode or bind.Key == input.UserInputType then
+            if bind.Mode == "Toggle" then
+                bind.Active = not bind.Active
+                bind.Callback(bind.Active)
+            elseif bind.Mode == "Held" then
+                bind.Active = true
+                bind.Callback(true)
+            elseif bind.Mode == "Press" then
+                bind.Callback()
+            end
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    for flag, bind in pairs(Library.Keybinds) do
+        if bind.Mode == "Held" and (bind.Key == input.KeyCode or bind.Key == input.UserInputType) then
+            bind.Active = false
+            bind.Callback(false)
+        end
+    end
+end)
+
+if not isfolder("RenLib") then makefolder("RenLib") end
+if not isfolder("RenLib/Configs") then makefolder("RenLib/Configs") end
 
 return Library
