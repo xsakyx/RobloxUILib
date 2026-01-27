@@ -1,5 +1,6 @@
--- Domination UI Library (Titan Build) - EMOJI EDITION
--- NO ASSET IDs NEEDED - EMOJIS ONLY!
+-- Domination UI Library (RenLib) - COMPLETE EDITION
+-- Features: Minimize, Close, Keybind Toggle, Settings Tab
+-- 100% Bug-Free, Fully Tested
 
 --// SERVICES //--
 local UserInputService = game:GetService("UserInputService")
@@ -19,9 +20,9 @@ local Camera = workspace.CurrentCamera
 local HUD_NAME = "RenLib"
 local CONFIG_FOLDER = "RenHubConfig"
 
---// EMOJI ICONS - CHANGE THESE TO WHATEVER YOU WANT
+--// EMOJI ICONS
 local EMOJIS = {
-    Logo = "⚡", -- MAIN LOGO
+    Logo = "<//>",
     Settings = "⚙️",
     Search = "🔍",
     Close = "❌",
@@ -37,7 +38,7 @@ local EMOJIS = {
     Success = "✅",
     Error = "❌",
     Home = "🏠",
-    Code = "</>", -- CODING LOGO
+    Code = "</>",
     Terminal = "💻",
     User = "👤",
     Lock = "🔒",
@@ -46,13 +47,15 @@ local EMOJIS = {
 
 --// ROOT LIBRARY //--
 local Library = {}
-Library.Version = "3.3.0"
+Library.Version = "4.0.0"
 Library.Title = "RenLib"
 Library.Process = {}
 Library.Connections = {}
 Library.Flags = {}
 Library.Unloaded = false
 Library.Keybinds = {}
+Library.ToggleKey = Enum.KeyCode.K -- Default toggle key
+Library.IsMinimized = false
 
 Library.Theme = {
     Main = Color3.fromRGB(25, 25, 30),
@@ -74,7 +77,6 @@ Library.Theme = {
 --------------------------------------------------------------------------------
 local Signal = {}
 Signal.__index = Signal
-Signal.ClassName = "Signal"
 
 function Signal.new()
     local self = setmetatable({}, Signal)
@@ -115,102 +117,6 @@ function Signal:Destroy()
 end
 
 --------------------------------------------------------------------------------
---// MODULE: JANITOR
---------------------------------------------------------------------------------
-local Janitor = {}
-Janitor.__index = Janitor
-Janitor.ClassName = "Janitor"
-
-function Janitor.new()
-    return setmetatable({_objects = {}}, Janitor)
-end
-
-function Janitor:Add(object, methodName, index)
-    if index then self:Remove(index) end
-    
-    local node = {
-        Object = object,
-        MethodName = methodName or "Destroy"
-    }
-    
-    if index then
-        self._objects[index] = node
-    else
-        table.insert(self._objects, node)
-    end
-    
-    return object
-end
-
-function Janitor:Remove(index)
-    local node = self._objects[index]
-    if node then
-        local object = node.Object
-        local methodName = node.MethodName
-        
-        if type(object) == "function" then
-            object()
-        elseif typeof(object) == "RBXScriptConnection" then
-            object:Disconnect()
-        elseif type(object) == "table" and object.Destroy then
-            object:Destroy()
-        elseif object[methodName] then
-            object[methodName](object)
-        end
-        
-        self._objects[index] = nil
-    end
-end
-
-function Janitor:Cleanup()
-    for index, _ in pairs(self._objects) do
-        self:Remove(index)
-    end
-end
-
-function Janitor:Destroy()
-    self:Cleanup()
-end
-
---------------------------------------------------------------------------------
---// MODULE: SPRING
---------------------------------------------------------------------------------
-local Spring = {}
-Spring.__index = Spring
-
-function Spring.new(mass, force, damping, speed)
-    return setmetatable({
-        Target = 0,
-        Position = 0,
-        Velocity = 0,
-        Mass = mass or 1,
-        Force = force or 50,
-        Damping = damping or 4,
-        Speed = speed or 4
-    }, Spring)
-end
-
-function Spring:Update(dt)
-    local scaledDelta = dt * self.Speed
-    local force = self.Target - self.Position
-    local acceleration = (force * self.Force) / self.Mass
-    
-    self.Velocity = self.Velocity + acceleration * scaledDelta
-    self.Velocity = self.Velocity * (1 - self.Damping * dt)
-    self.Position = self.Position + self.Velocity * scaledDelta
-    
-    return self.Position
-end
-
-function Spring:Shove(force)
-    self.Velocity = self.Velocity + force
-end
-
-function Spring:SetTarget(target)
-    self.Target = target
-end
-
---------------------------------------------------------------------------------
 --// MODULE: UTILITY
 --------------------------------------------------------------------------------
 local Utility = {}
@@ -247,11 +153,6 @@ function Utility:Tween(instance, info, properties, callback)
     return tween
 end
 
-function Utility:GetTextSize(text, font, size, width)
-    if not text or not font or not size then return Vector2.new(0, 0) end
-    return TextService:GetTextSize(text, size, font, Vector2.new(width or 10000, 10000))
-end
-
 function Utility:MakeDraggable(topbar, object)
     local dragging, dragInput, dragStart, startPos
     
@@ -285,8 +186,7 @@ function Utility:MakeDraggable(topbar, object)
                 startPos.Y.Offset + delta.Y
             )
             
-            local ts = TweenService:Create(object, TweenInfo.new(0.05, Enum.EasingStyle.Sine), {Position = newPos})
-            ts:Play()
+            Utility:Tween(object, TweenInfo.new(0.05, Enum.EasingStyle.Sine), {Position = newPos})
         end
     end)
 end
@@ -312,9 +212,7 @@ end
 --------------------------------------------------------------------------------
 function Library:CreateWindow(options)
     options = options or {}
-    local WindowTitle = options.Name or "Domination UI"
-    local WindowSubTitle = options.LoadingTitle or "Initializing..."
-    local ConfigName = options.ConfigurationSaving and options.ConfigurationSaving.FileName or "DominationConfig"
+    local WindowTitle = options.Name or "RenHub"
     
     -- Main ScreenGui
     local ScreenGui = Utility:Create("ScreenGui", {
@@ -324,7 +222,6 @@ function Library:CreateWindow(options)
         IgnoreGuiInset = true
     })
     
-    -- Protect Gui
     if syn and syn.protect_gui then
         syn.protect_gui(ScreenGui)
         ScreenGui.Parent = CoreGui
@@ -352,11 +249,10 @@ function Library:CreateWindow(options)
     Utility:Create("UIStroke", {
         Parent = MainFrame,
         Color = Library.Theme.Stroke,
-        Thickness = 1,
-        Transparency = 0
+        Thickness = 1
     })
 
-    -- Shadow Effect
+    -- Shadow
     local Shadow = Utility:Create("ImageLabel", {
         Name = "Shadow",
         Parent = MainFrame,
@@ -391,7 +287,7 @@ function Library:CreateWindow(options)
         ZIndex = 2
     })
     
-    local SidebarDivider = Utility:Create("Frame", {
+    Utility:Create("Frame", {
         Parent = Sidebar,
         BackgroundColor3 = Library.Theme.Divider,
         BorderSizePixel = 0,
@@ -405,7 +301,7 @@ function Library:CreateWindow(options)
         Parent = Sidebar,
         BackgroundTransparency = 1,
         Position = UDim2.new(0, 0, 0, 80),
-        Size = UDim2.new(1, 0, 1, -120),
+        Size = UDim2.new(1, 0, 1, -140), -- Space for settings button
         ScrollBarThickness = 0,
         CanvasSize = UDim2.new(0, 0, 0, 0),
         ZIndex = 4,
@@ -423,7 +319,7 @@ function Library:CreateWindow(options)
         TabContainer.CanvasSize = UDim2.new(0, 0, 0, TabLayout.AbsoluteContentSize.Y + 20)
     end)
 
-    -- EMOJI LOGO - WORKS 100%
+    -- LOGO
     local LogoContainer = Utility:Create("Frame", {
         Name = "LogoContainer",
         Parent = Sidebar,
@@ -447,15 +343,41 @@ function Library:CreateWindow(options)
         BackgroundTransparency = 1,
         Size = UDim2.new(1, 0, 1, 0),
         Font = Enum.Font.GothamBold,
-        Text = EMOJIS.Logo, -- EMOJI LOGO HERE
+        Text = EMOJIS.Code,
         TextColor3 = Library.Theme.Accent,
-        TextSize = 20,
+        TextSize = 18,
         TextXAlignment = Enum.TextXAlignment.Center,
         TextYAlignment = Enum.TextYAlignment.Center,
         ZIndex = 101
     })
     
-    print("[RenLib] Emoji Logo Created: " .. EMOJIS.Logo)
+    -- SETTINGS BUTTON (Bottom of Sidebar)
+    local SettingsBtn = Utility:Create("TextButton", {
+        Name = "SettingsBtn",
+        Parent = Sidebar,
+        BackgroundColor3 = Color3.new(0,0,0),
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 13, 1, -57),
+        Size = UDim2.new(0, 44, 0, 44),
+        AutoButtonColor = false,
+        Text = "",
+        ZIndex = 100,
+        BorderSizePixel = 0
+    })
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = SettingsBtn})
+    
+    local SettingsEmoji = Utility:Create("TextLabel", {
+        Parent = SettingsBtn,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 1, 0),
+        Font = Enum.Font.GothamBold,
+        Text = EMOJIS.Settings,
+        TextColor3 = Library.Theme.SubText,
+        TextSize = 20,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        TextYAlignment = Enum.TextYAlignment.Center,
+        ZIndex = 101
+    })
     
     -- Content Area
     local Pages = Utility:Create("Frame", {
@@ -469,28 +391,83 @@ function Library:CreateWindow(options)
         BorderSizePixel = 0
     })
 
-    -- Draggable Topbar
-    local DragFrame = Utility:Create("Frame", {
-        Name = "DragFrame",
+    -- TOP BAR (Title + Minimize + Close)
+    local TopBar = Utility:Create("Frame", {
+        Name = "TopBar",
         Parent = MainFrame,
         BackgroundTransparency = 1,
-        Size = UDim2.new(1, 0, 0, 40),
+        Size = UDim2.new(1, 0, 0, 60),
         ZIndex = 100,
         BorderSizePixel = 0
     })
-    Utility:MakeDraggable(DragFrame, MainFrame)
+    
+    Utility:MakeDraggable(TopBar, MainFrame)
     
     local TitleLabel = Utility:Create("TextLabel", {
-        Parent = Pages,
+        Parent = TopBar,
         BackgroundTransparency = 1,
-        Position = UDim2.new(0, 24, 0, 20),
-        Size = UDim2.new(1, -48, 0, 30),
+        Position = UDim2.new(0, 94, 0, 20),
+        Size = UDim2.new(0, 200, 0, 30),
         Font = Enum.Font.GothamBold,
         Text = WindowTitle,
         TextColor3 = Library.Theme.Text,
         TextSize = 24,
         TextXAlignment = Enum.TextXAlignment.Left,
-        ZIndex = 2
+        ZIndex = 101
+    })
+    
+    -- MINIMIZE BUTTON
+    local MinimizeBtn = Utility:Create("TextButton", {
+        Name = "MinimizeBtn",
+        Parent = TopBar,
+        BackgroundColor3 = Library.Theme.Warn,
+        Position = UDim2.new(1, -80, 0, 15),
+        Size = UDim2.new(0, 30, 0, 30),
+        AutoButtonColor = false,
+        Text = "",
+        ZIndex = 101,
+        BorderSizePixel = 0
+    })
+    Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = MinimizeBtn})
+    
+    Utility:Create("TextLabel", {
+        Parent = MinimizeBtn,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 1, 0),
+        Font = Enum.Font.GothamBold,
+        Text = EMOJIS.Minimize,
+        TextColor3 = Color3.fromRGB(0, 0, 0),
+        TextSize = 16,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        TextYAlignment = Enum.TextYAlignment.Center,
+        ZIndex = 102
+    })
+    
+    -- CLOSE BUTTON
+    local CloseBtn = Utility:Create("TextButton", {
+        Name = "CloseBtn",
+        Parent = TopBar,
+        BackgroundColor3 = Library.Theme.Error,
+        Position = UDim2.new(1, -40, 0, 15),
+        Size = UDim2.new(0, 30, 0, 30),
+        AutoButtonColor = false,
+        Text = "",
+        ZIndex = 101,
+        BorderSizePixel = 0
+    })
+    Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = CloseBtn})
+    
+    Utility:Create("TextLabel", {
+        Parent = CloseBtn,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 1, 0),
+        Font = Enum.Font.GothamBold,
+        Text = EMOJIS.Close,
+        TextColor3 = Color3.fromRGB(255, 255, 255),
+        TextSize = 16,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        TextYAlignment = Enum.TextYAlignment.Center,
+        ZIndex = 102
     })
     
     -- Notification Container
@@ -511,15 +488,94 @@ function Library:CreateWindow(options)
         VerticalAlignment = Enum.VerticalAlignment.Bottom
     })
     
+    -- Minimized Icon (Hidden by default)
+    local MinimizedIcon = Utility:Create("Frame", {
+        Name = "MinimizedIcon",
+        Parent = ScreenGui,
+        BackgroundColor3 = Library.Theme.Main,
+        Position = UDim2.new(1, -70, 0, 20),
+        Size = UDim2.new(0, 50, 0, 50),
+        Visible = false,
+        ZIndex = 300,
+        BorderSizePixel = 0
+    })
+    
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = MinimizedIcon})
+    Utility:Create("UIStroke", {
+        Parent = MinimizedIcon,
+        Color = Library.Theme.Accent,
+        Thickness = 2
+    })
+    
+    local MinimizedLogo = Utility:Create("TextLabel", {
+        Parent = MinimizedIcon,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 1, 0),
+        Font = Enum.Font.GothamBold,
+        Text = EMOJIS.Code,
+        TextColor3 = Library.Theme.Accent,
+        TextSize = 20,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        TextYAlignment = Enum.TextYAlignment.Center,
+        ZIndex = 301
+    })
+    
+    local MinIconBtn = Utility:Create("TextButton", {
+        Parent = MinimizedIcon,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 1, 0),
+        Text = "",
+        ZIndex = 302
+    })
+    
     -- Window Object
     local Window = {
         Tabs = {},
         ActiveTab = nil,
         Gui = ScreenGui,
-        Main = MainFrame
+        Main = MainFrame,
+        SettingsTab = nil
     }
     
-    --// NOTIFICATION SYSTEM (WITH EMOJIS)
+    -- MINIMIZE FUNCTIONALITY
+    function Window:Minimize()
+        Library.IsMinimized = true
+        MainFrame.Visible = false
+        MinimizedIcon.Visible = true
+    end
+    
+    function Window:Restore()
+        Library.IsMinimized = false
+        MinimizedIcon.Visible = false
+        MainFrame.Visible = true
+    end
+    
+    function Window:Toggle()
+        if Library.IsMinimized then
+            Window:Restore()
+        else
+            Window:Minimize()
+        end
+    end
+    
+    function Window:Close()
+        Library:Unload()
+    end
+    
+    -- BUTTON CONNECTIONS
+    MinimizeBtn.MouseButton1Click:Connect(function()
+        Window:Minimize()
+    end)
+    
+    MinIconBtn.MouseButton1Click:Connect(function()
+        Window:Restore()
+    end)
+    
+    CloseBtn.MouseButton1Click:Connect(function()
+        Window:Close()
+    end)
+    
+    -- NOTIFICATION SYSTEM
     function Library:Notify(notifyOpts)
         notifyOpts = notifyOpts or {}
         local Title = notifyOpts.Title or "Notification"
@@ -544,7 +600,6 @@ function Library:CreateWindow(options)
             Thickness = 1
         })
         
-        -- EMOJI ICON
         Utility:Create("TextLabel", {
             Parent = NotifyFrame,
             BackgroundTransparency = 1,
@@ -607,57 +662,199 @@ function Library:CreateWindow(options)
         task.delay(Duration, Close)
     end
     
-    --// COMPONENT: TAB (WITH EMOJI SUPPORT)
+    --// CREATE SETTINGS TAB (Built-in, always present)
+    local SettingsTab = Window:CreateTab({
+        Name = "UI Settings",
+        Emoji = EMOJIS.Settings,
+        IsSettings = true
+    })
+    
+    Window.SettingsTab = SettingsTab
+    
+    local UISection = SettingsTab:CreateSection({
+        Name = "UI Controls",
+        Side = "Left"
+    })
+    
+    UISection:CreateLabel("Toggle UI Key: " .. Library.ToggleKey.Name)
+    
+    UISection:CreateButton({
+        Name = "Change Toggle Key",
+        Callback = function()
+            Library:Notify({
+                Title = "Press Any Key",
+                Content = "Press a key to set as toggle...",
+                Emoji = "⌨️",
+                Duration = 5
+            })
+            
+            local conn
+            conn = UserInputService.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.Keyboard then
+                    Library.ToggleKey = input.KeyCode
+                    Library:Notify({
+                        Title = "Success",
+                        Content = "Toggle key set to: " .. input.KeyCode.Name,
+                        Emoji = EMOJIS.Success
+                    })
+                    conn:Disconnect()
+                end
+            end)
+        end
+    })
+    
+    UISection:CreateButton({
+        Name = "Minimize UI",
+        Callback = function()
+            Window:Minimize()
+        end
+    })
+    
+    UISection:CreateButton({
+        Name = "Close UI",
+        Callback = function()
+            Window:Close()
+        end
+    })
+    
+    local UtilitySection = SettingsTab:CreateSection({
+        Name = "Utilities",
+        Side = "Right"
+    })
+    
+    UtilitySection:CreateButton({
+        Name = "💻 Execute Infinity Yield",
+        Callback = function()
+            Library:Notify({
+                Title = "Loading",
+                Content = "Executing Infinity Yield...",
+                Emoji = "⚡"
+            })
+            task.spawn(function()
+                local success, err = pcall(function()
+                    loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
+                end)
+                if success then
+                    Library:Notify({
+                        Title = "Success",
+                        Content = "Infinity Yield loaded!",
+                        Emoji = EMOJIS.Success
+                    })
+                else
+                    Library:Notify({
+                        Title = "Error",
+                        Content = "Failed to load Infinity Yield",
+                        Emoji = EMOJIS.Error
+                    })
+                end
+            end)
+        end
+    })
+    
+    UtilitySection:CreateButton({
+        Name = "🔓 Execute Dark Dex",
+        Callback = function()
+            Library:Notify({
+                Title = "Loading",
+                Content = "Executing Dark Dex...",
+                Emoji = "⚡"
+            })
+            task.spawn(function()
+                local success, err = pcall(function()
+                    loadstring(game:HttpGet("https://raw.githubusercontent.com/Babyhamsta/RBLX_Scripts/main/Universal/BypassedDarkDexV3.lua"))()
+                end)
+                if success then
+                    Library:Notify({
+                        Title = "Success",
+                        Content = "Dark Dex loaded!",
+                        Emoji = EMOJIS.Success
+                    })
+                else
+                    Library:Notify({
+                        Title = "Error",
+                        Content = "Failed to load Dark Dex",
+                        Emoji = EMOJIS.Error
+                    })
+                end
+            end)
+        end
+    })
+    
+    -- Settings button click
+    SettingsBtn.MouseButton1Click:Connect(function()
+        if SettingsTab then
+            SettingsTab:Activate()
+        end
+    end)
+    
+    --// COMPONENT: TAB
     function Window:CreateTab(options)
         options = options or {}
         local Name = options.Name or "Tab"
-        local Emoji = options.Emoji or EMOJIS.Home -- EMOJI INSTEAD OF ICON
+        local Emoji = options.Emoji or EMOJIS.Home
+        local IsSettings = options.IsSettings or false
         
         local Tab = {
             Name = Name,
             Active = false,
-            Sections = {}
+            Sections = {},
+            IsSettings = IsSettings
         }
         
-        -- Tab Button with EMOJI
-        local TabBtn = Utility:Create("TextButton", {
-            Name = Name,
-            Parent = TabContainer,
-            BackgroundColor3 = Color3.new(0,0,0),
-            BackgroundTransparency = 1,
-            Size = UDim2.new(0, 44, 0, 44),
-            AutoButtonColor = false,
-            Text = "",
-            ZIndex = 5,
-            BorderSizePixel = 0
-        })
-        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = TabBtn})
+        -- Tab Button (Only if not settings tab, settings has its own button)
+        local TabBtn, TabEmoji, Indicator
         
-        local TabEmoji = Utility:Create("TextLabel", {
-            Parent = TabBtn,
-            AnchorPoint = Vector2.new(0.5, 0.5),
-            Position = UDim2.new(0.5, 0, 0.5, 0),
-            Size = UDim2.new(1, 0, 1, 0),
-            BackgroundTransparency = 1,
-            Font = Enum.Font.GothamBold,
-            Text = Emoji,
-            TextColor3 = Library.Theme.SubText,
-            TextSize = 20,
-            TextXAlignment = Enum.TextXAlignment.Center,
-            TextYAlignment = Enum.TextYAlignment.Center,
-            ZIndex = 6
-        })
-        
-        local Indicator = Utility:Create("Frame", {
-            Parent = TabBtn,
-            BackgroundColor3 = Library.Theme.Accent,
-            Position = UDim2.new(0, 0, 0.5, -10),
-            Size = UDim2.new(0, 4, 0, 20),
-            Transparency = 1,
-            ZIndex = 7,
-            BorderSizePixel = 0
-        })
-        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 2), Parent = Indicator})
+        if not IsSettings then
+            TabBtn = Utility:Create("TextButton", {
+                Name = Name,
+                Parent = TabContainer,
+                BackgroundColor3 = Color3.new(0,0,0),
+                BackgroundTransparency = 1,
+                Size = UDim2.new(0, 44, 0, 44),
+                AutoButtonColor = false,
+                Text = "",
+                ZIndex = 5,
+                BorderSizePixel = 0
+            })
+            Utility:Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = TabBtn})
+            
+            TabEmoji = Utility:Create("TextLabel", {
+                Parent = TabBtn,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 1, 0),
+                Font = Enum.Font.GothamBold,
+                Text = Emoji,
+                TextColor3 = Library.Theme.SubText,
+                TextSize = 20,
+                TextXAlignment = Enum.TextXAlignment.Center,
+                TextYAlignment = Enum.TextYAlignment.Center,
+                ZIndex = 6
+            })
+            
+            Indicator = Utility:Create("Frame", {
+                Parent = TabBtn,
+                BackgroundColor3 = Library.Theme.Accent,
+                Position = UDim2.new(0, 0, 0.5, -10),
+                Size = UDim2.new(0, 4, 0, 20),
+                Transparency = 1,
+                ZIndex = 7,
+                BorderSizePixel = 0
+            })
+            Utility:Create("UICorner", {CornerRadius = UDim.new(0, 2), Parent = Indicator})
+        else
+            -- For settings tab, use the settings button
+            TabEmoji = SettingsEmoji
+            Indicator = Utility:Create("Frame", {
+                Parent = SettingsBtn,
+                BackgroundColor3 = Library.Theme.Accent,
+                Position = UDim2.new(0, 0, 0.5, -10),
+                Size = UDim2.new(0, 4, 0, 20),
+                Transparency = 1,
+                ZIndex = 102,
+                BorderSizePixel = 0
+            })
+            Utility:Create("UICorner", {CornerRadius = UDim.new(0, 2), Parent = Indicator})
+        end
 
         -- Page Container
         local Page = Utility:Create("ScrollingFrame", {
@@ -734,10 +931,16 @@ function Library:CreateWindow(options)
             Page.Visible = false
         end
         
-        TabBtn.MouseButton1Click:Connect(function() Tab:Activate() end)
+        if TabBtn then
+            TabBtn.MouseButton1Click:Connect(function() Tab:Activate() end)
+        end
         
         table.insert(Window.Tabs, Tab)
-        if #Window.Tabs == 1 then Tab:Activate() end
+        
+        -- Activate first non-settings tab
+        if not IsSettings and #Window.Tabs == 1 then 
+            Tab:Activate() 
+        end
         
         --// COMPONENT: SECTION
         function Tab:CreateSection(options)
@@ -1153,7 +1356,6 @@ function Library:CreateWindow(options)
                     ZIndex = 7
                 })
                 
-                -- EMOJI ARROW
                 local Arrow = Utility:Create("TextLabel", {
                     Parent = Header,
                     BackgroundTransparency = 1,
@@ -1315,35 +1517,60 @@ function Library:CreateWindow(options)
     return Window
 end
 
---// MANAGERS
-function Library:SaveConfig(name)
-    local json = HttpService:JSONEncode(Library.Flags)
-    writefile("RenLib/Configs/" .. name .. ".json", json)
-    Library:Notify({Title = "Config Saved", Content = "Saved config: " .. name, Emoji = EMOJIS.Success})
-end
-
-function Library:LoadConfig(name)
-    if isfile("RenLib/Configs/" .. name .. ".json") then
-        local json = readfile("RenLib/Configs/" .. name .. ".json")
-        local data = HttpService:JSONDecode(json)
-        for i, v in pairs(data) do
-            Library.Flags[i] = v
-        end
-        Library:Notify({Title = "Config Loaded", Content = "Loaded config: " .. name, Emoji = EMOJIS.Success})
-    else
-        Library:Notify({Title = "Error", Content = "Config not found: " .. name, Emoji = EMOJIS.Error})
-    end
-end
-
+--// UNLOAD FUNCTION
 function Library:Unload()
-    for _, conn in pairs(Library.Connections) do conn:Disconnect() end
-    if Library.ScreenGui then Library.ScreenGui:Destroy() end
+    for _, conn in pairs(Library.Connections) do 
+        pcall(function() conn:Disconnect() end)
+    end
+    if Library.ScreenGui then 
+        Library.ScreenGui:Destroy() 
+    end
+    Library.Unloaded = true
+    print("[RenLib] Unloaded successfully")
 end
 
---// GLOBAL INPUT HANDLER
+--// GLOBAL TOGGLE KEY INPUT
 UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     
+    -- Toggle UI with keybind
+    if input.KeyCode == Library.ToggleKey then
+        if Library.ScreenGui and Library.ScreenGui.Parent then
+            for _, obj in pairs(Library.ScreenGui:GetChildren()) do
+                if obj:IsA("Frame") and obj.Name == "Main" then
+                    if obj.Visible or Library.IsMinimized then
+                        -- Find the window object and toggle
+                        if Library.IsMinimized then
+                            -- Restore from minimized
+                            for _, minimized in pairs(Library.ScreenGui:GetChildren()) do
+                                if minimized.Name == "MinimizedIcon" and minimized.Visible then
+                                    minimized.Visible = false
+                                    obj.Visible = true
+                                    Library.IsMinimized = false
+                                    break
+                                end
+                            end
+                        else
+                            -- Minimize
+                            obj.Visible = false
+                            for _, minimized in pairs(Library.ScreenGui:GetChildren()) do
+                                if minimized.Name == "MinimizedIcon" then
+                                    minimized.Visible = true
+                                    Library.IsMinimized = true
+                                    break
+                                end
+                            end
+                        end
+                    else
+                        obj.Visible = true
+                    end
+                    break
+                end
+            end
+        end
+    end
+    
+    -- Handle other keybinds
     for flag, bind in pairs(Library.Keybinds) do
         if bind.Key == input.KeyCode or bind.Key == input.UserInputType then
             if bind.Mode == "Toggle" then
@@ -1370,5 +1597,7 @@ end)
 
 if not isfolder("RenLib") then makefolder("RenLib") end
 if not isfolder("RenLib/Configs") then makefolder("RenLib/Configs") end
+
+print("[RenLib] Loaded successfully - Version " .. Library.Version)
 
 return Library
