@@ -289,7 +289,7 @@ end
 
 local MainTab = Window:CreateTab({
     Name = "Scripts",
-    Icon = "rbxassetid://4483345998"
+    Icon = "rbxassetid://73350721735790"
 })
 
 -------------------------------------------------------------------------------
