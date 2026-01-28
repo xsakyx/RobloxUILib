@@ -22,11 +22,18 @@
       "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/BranrotSniper.lua"
     },
     {
-      "name": "Criminality farm helper",
+      "name": "Criminality",
       "placeId": "4588604953",
       "universal": false,
       "description": "Farm helper for criminality ",
       "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/Criminality.lua"
+    },
+    {
+      "name": "Massacre",
+      "placeId": "14386479662",
+      "universal": false,
+      "description": "Massacre Script",
+      "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/Masacre.lua"
     },
     {
       "name": "Weaponary",
