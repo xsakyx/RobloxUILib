@@ -7,6 +7,13 @@
       "description": "Universal script with ESP , Aimbot and utilities",
       "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/RenU-V3.lua"
     },
+     {
+      "name": "UI Dumper (Alpha)",
+      "placeId": "universal",
+      "universal": false,
+      "description": "UI dumper script , still in alpha",
+      "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/UIDumperAlpha.lua"
+    },
     {
       "name": "Blox Fruits",
       "placeId": "2753915549",
