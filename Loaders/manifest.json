@@ -15,6 +15,13 @@
       "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/BloxFruits.lua"
     },
     {
+      "name": "Brainrot sniper",
+      "placeId": "109983668079237",
+      "universal": false,
+      "description": "Brainrot Sniper for steal a brain rot",
+      "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/BranrotSniper.lua"
+    },
+    {
       "name": "Weaponary",
       "placeId": "3297964905",
       "universal": false,
