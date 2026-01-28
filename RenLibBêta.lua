@@ -1386,7 +1386,7 @@ function Library:CreateWindow(options)
             })
             task.spawn(function()
                 local success, err = pcall(function()
-                    loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
+                    loadstring(game:HttpGet("https://raw.githubusercontent.com/xsakyx/InfiniteYield-MyOwneUpload/refs/heads/main/infiniteyield.lua"))() 
                 end)
                 if success then
                     Library:Notify({
@@ -1415,7 +1415,7 @@ function Library:CreateWindow(options)
             })
             task.spawn(function()
                 local success, err = pcall(function()
-                    loadstring(game:HttpGet("https://raw.githubusercontent.com/Babyhamsta/RBLX_Scripts/main/Universal/BypassedDarkDexV3.lua"))()
+                    loadstring(game:HttpGet("https://raw.githubusercontent.com/xsakyx/DarkDex-MyOwnUpload/refs/heads/main/Dex.lua"))() 
                 end)
                 if success then
                     Library:Notify({
