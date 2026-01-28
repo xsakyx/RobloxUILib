@@ -4,7 +4,7 @@
       "name": "RenU V3",
       "placeId": "universal",
       "universal": true,
-      "description": "Universal script with ESP and utilities",
+      "description": "Universal script with ESP , Aimbot and utilities",
       "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/RenU-V3.lua"
     },
     {
@@ -15,11 +15,11 @@
       "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/BloxFruits.lua"
     },
     {
-      "name": "Arsenal Aimbot",
-      "placeId": "286090429",
+      "name": "Weaponary",
+      "placeId": "3297964905",
       "universal": false,
-      "description": "Silent aim and ESP for Arsenal",
-      "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/Arsenal.lua"
+      "description": "Aimbot and ESP for Weaponary",
+      "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/Weaponary.lua"
     }
   ]
 }
