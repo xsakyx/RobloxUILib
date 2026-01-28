@@ -10,7 +10,7 @@
      {
       "name": "UI Dumper (Alpha)",
       "placeId": "universal",
-      "universal": false,
+      "universal": true,
       "description": "UI dumper script , still in alpha",
       "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/UIDumperAlpha.lua"
     },
