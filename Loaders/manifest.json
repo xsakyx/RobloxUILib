@@ -36,6 +36,13 @@
       "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/Masacre.lua"
     },
     {
+      "name": "Parkour Recorder",
+      "placeId": "universal",
+      "universal": true,
+      "description": "Parkour leagacy Script , can also be used universaly",
+      "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/ParcourRecorder.lua"
+    },
+    {
       "name": "Weaponary",
       "placeId": "3297964905",
       "universal": false,
