@@ -36,6 +36,13 @@
       "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/Masacre.lua"
     },
     {
+      "name": "Quickdraw",
+      "placeId": "15561786880",
+      "universal": false,
+      "description": "Quickdraw-Legacy Script",
+      "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/Quickdraw-V1.lua"
+    },
+    {
       "name": "Parkour Recorder",
       "placeId": "universal",
       "universal": true,
