@@ -15,10 +15,10 @@
       "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/UIDumperAlpha.lua"
     },
     {
-      "name": "Blox Fruits",
+      "name": "Blox Fruits (in progress)",
       "placeId": "2753915549",
       "universal": false,
-      "description": "Auto-farm for Blox Fruits",
+      "description": "Auto-farm for Blox Fruits (in progress)",
       "loadstring": "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Scripts/BloxFruits.lua"
     },
     {
