@@ -52,7 +52,7 @@ local function showMaintenanceUI()
 	CloseButtonCorner.CornerRadius = UDim.new(0, 6)
 	CloseButtonCorner.Parent = CloseButton
 	
-	-- Title with Icon
+	-- Title
 	local TitleContainer = Instance.new("Frame")
 	TitleContainer.Name = "TitleContainer"
 	TitleContainer.Parent = MainFrame
@@ -83,35 +83,12 @@ local function showMaintenanceUI()
 	Subtitle.TextColor3 = Color3.fromRGB(200, 200, 200)
 	Subtitle.TextSize = 13
 	
-	-- Status Icon
-	local StatusIcon = Instance.new("ImageLabel")
-	StatusIcon.Name = "StatusIcon"
-	StatusIcon.Parent = MainFrame
-	StatusIcon.Position = UDim2.new(0.5, -40, 0.3, 0)
-	StatusIcon.Size = UDim2.new(0, 80, 0, 80)
-	StatusIcon.BackgroundTransparency = 1
-	StatusIcon.Image = "rbxassetid://3570695787" -- Gear icon
-	StatusIcon.ImageColor3 = Color3.fromRGB(255, 165, 0)
-	StatusIcon.ScaleType = Enum.ScaleType.Fit
-	
-	-- Pulsing Animation for Icon
-	local pulseConnection
-	local function startPulseAnimation()
-		local ts = game:GetService("TweenService")
-		local pulseOut = ts:Create(StatusIcon, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, -1, true), {
-			Size = UDim2.new(0, 85, 0, 85),
-			ImageTransparency = 0.2
-		})
-		pulseOut:Play()
-		pulseConnection = pulseOut
-	end
-	
 	-- Main Message
 	local MessageLabel = Instance.new("TextLabel")
 	MessageLabel.Name = "MessageLabel"
 	MessageLabel.Parent = MainFrame
-	MessageLabel.Position = UDim2.new(0, 40, 0.5, 0)
-	MessageLabel.Size = UDim2.new(1, -80, 0, 80)
+	MessageLabel.Position = UDim2.new(0, 40, 0.25, 0)
+	MessageLabel.Size = UDim2.new(1, -80, 0, 100)
 	MessageLabel.BackgroundTransparency = 1
 	MessageLabel.Font = Enum.Font.Gotham
 	MessageLabel.Text = "RenHub is currently down for development reasons.\n\nWe're working hard to bring you an improved experience with new features and better performance.\n\nPlease join our Discord server for updates and announcements."
@@ -125,8 +102,8 @@ local function showMaintenanceUI()
 	local DiscordContainer = Instance.new("Frame")
 	DiscordContainer.Name = "DiscordContainer"
 	DiscordContainer.Parent = MainFrame
-	DiscordContainer.Position = UDim2.new(0, 40, 0.8, 0)
-	DiscordContainer.Size = UDim2.new(1, -80, 0, 60)
+	DiscordContainer.Position = UDim2.new(0.5, -160, 0.6, 0)
+	DiscordContainer.Size = UDim2.new(0, 320, 0, 60)
 	DiscordContainer.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
 	DiscordContainer.BorderSizePixel = 0
 	
@@ -151,18 +128,19 @@ local function showMaintenanceUI()
 	DiscordIcon.ImageRectSize = Vector2.new(36, 36)
 	DiscordIcon.ImageColor3 = Color3.fromRGB(220, 220, 220)
 	
-	-- Discord Link Text
+	-- Centered Discord Link Text
 	local DiscordLink = Instance.new("TextLabel")
 	DiscordLink.Name = "DiscordLink"
 	DiscordLink.Parent = DiscordContainer
-	DiscordLink.Position = UDim2.new(0, 50, 0, 0)
-	DiscordLink.Size = UDim2.new(1, -100, 1, 0)
+	DiscordLink.AnchorPoint = Vector2.new(0.5, 0.5)
+	DiscordLink.Position = UDim2.new(0.5, 0, 0.5, 0)
+	DiscordLink.Size = UDim2.new(0.7, 0, 0, 30)
 	DiscordLink.BackgroundTransparency = 1
-	DiscordLink.Font = Enum.Font.Gotham
+	DiscordLink.Font = Enum.Font.GothamBold
 	DiscordLink.Text = "discord.gg/amwATssmU4"
 	DiscordLink.TextColor3 = Color3.fromRGB(88, 101, 242)
-	DiscordLink.TextSize = 14
-	DiscordLink.TextXAlignment = Enum.TextXAlignment.Left
+	DiscordLink.TextSize = 15
+	DiscordLink.TextXAlignment = Enum.TextXAlignment.Center
 	
 	-- Copy Button
 	local CopyButton = Instance.new("TextButton")
@@ -212,8 +190,6 @@ local function showMaintenanceUI()
 	entranceTween:Play()
 	
 	entranceTween.Completed:Connect(function()
-		startPulseAnimation()
-		
 		-- Fade in elements
 		local children = MainFrame:GetChildren()
 		for _, child in ipairs(children) do
@@ -279,10 +255,6 @@ local function showMaintenanceUI()
 	
 	-- Close Button Functionality
 	CloseButton.MouseButton1Click:Connect(function()
-		if pulseConnection then
-			pulseConnection:Cancel()
-		end
-		
 		local exitTween = TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
 			Position = UDim2.new(0.5, 0, 0.5, 100),
 			BackgroundTransparency = 1
@@ -396,6 +368,19 @@ local function showMaintenanceUI()
 		}):Play()
 	end)
 	
+	-- Discord Link hover effect
+	DiscordLink.MouseEnter:Connect(function()
+		TweenService:Create(DiscordLink, TweenInfo.new(0.2), {
+			TextColor3 = Color3.fromRGB(114, 137, 218)
+		}):Play()
+	end)
+	
+	DiscordLink.MouseLeave:Connect(function()
+		TweenService:Create(DiscordLink, TweenInfo.new(0.2), {
+			TextColor3 = Color3.fromRGB(88, 101, 242)
+		}):Play()
+	end)
+	
 	-- Auto-close after 30 seconds (optional)
 	task.spawn(function()
 		task.wait(30)
@@ -414,10 +399,7 @@ end
 
 -- Entry point function
 local function initMaintenanceUI()
-	-- You can add a check here if you want to show this only under certain conditions
-	-- For example: if game.PlaceId == YOUR_PLACE_ID then
 	showMaintenanceUI()
-	-- end
 end
 
 -- Initialize the UI
