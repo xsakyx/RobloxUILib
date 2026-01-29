@@ -369,7 +369,7 @@ local function loadMainHub()
         local success, err = pcall(function()
             print("[SCRIPT HUB] Access granted. Loading main hub...")
             
-            local hubUrl = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Loaders/MainHubBêta"
+            local hubUrl = "https://raw.githubusercontent.com/dellbrowser-hub/RoScripts/refs/heads/main/Loaders/MainHubBêta"
             
             print("[SCRIPT HUB] Fetching from: " .. hubUrl)
             
