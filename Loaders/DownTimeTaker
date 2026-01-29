@@ -1,0 +1,406 @@
+-- RenHub Maintenance UI
+local function showMaintenanceUI()
+	local ScreenGui = Instance.new("ScreenGui")
+	ScreenGui.Name = "RenHubMaintenanceUI"
+	ScreenGui.ResetOnSpawn = false
+	ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	
+	-- Protection for exploit environments
+	if syn and syn.protect_gui then
+		syn.protect_gui(ScreenGui)
+		ScreenGui.Parent = game:GetService("CoreGui")
+	elseif gethui then
+		ScreenGui.Parent = gethui()
+	else
+		ScreenGui.Parent = game:GetService("CoreGui")
+	end
+	
+	-- Main Frame
+	local MainFrame = Instance.new("Frame")
+	MainFrame.Name = "MainFrame"
+	MainFrame.Parent = ScreenGui
+	MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+	MainFrame.Size = UDim2.new(0, 450, 0, 350)
+	MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+	MainFrame.BorderSizePixel = 0
+	
+	local UICorner = Instance.new("UICorner")
+	UICorner.CornerRadius = UDim.new(0, 12)
+	UICorner.Parent = MainFrame
+	
+	local UIStroke = Instance.new("UIStroke")
+	UIStroke.Color = Color3.fromRGB(60, 60, 70)
+	UIStroke.Thickness = 2
+	UIStroke.Parent = MainFrame
+	
+	-- Close Button
+	local CloseButton = Instance.new("TextButton")
+	CloseButton.Name = "CloseButton"
+	CloseButton.Parent = MainFrame
+	CloseButton.Position = UDim2.new(1, -40, 0, 10)
+	CloseButton.Size = UDim2.new(0, 30, 0, 30)
+	CloseButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+	CloseButton.BorderSizePixel = 0
+	CloseButton.Font = Enum.Font.GothamBold
+	CloseButton.Text = "X"
+	CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	CloseButton.TextSize = 16
+	CloseButton.AutoButtonColor = false
+	
+	local CloseButtonCorner = Instance.new("UICorner")
+	CloseButtonCorner.CornerRadius = UDim.new(0, 6)
+	CloseButtonCorner.Parent = CloseButton
+	
+	-- Title
+	local TitleContainer = Instance.new("Frame")
+	TitleContainer.Name = "TitleContainer"
+	TitleContainer.Parent = MainFrame
+	TitleContainer.Position = UDim2.new(0, 0, 0, 20)
+	TitleContainer.Size = UDim2.new(1, 0, 0, 50)
+	TitleContainer.BackgroundTransparency = 1
+	
+	local Title = Instance.new("TextLabel")
+	Title.Name = "Title"
+	Title.Parent = TitleContainer
+	Title.Position = UDim2.new(0, 0, 0, 0)
+	Title.Size = UDim2.new(1, 0, 0, 40)
+	Title.BackgroundTransparency = 1
+	Title.Font = Enum.Font.GothamBold
+	Title.Text = "⚠️ RenHub Maintenance"
+	Title.TextColor3 = Color3.fromRGB(255, 165, 0)
+	Title.TextSize = 22
+	Title.TextStrokeTransparency = 0.8
+	
+	local Subtitle = Instance.new("TextLabel")
+	Subtitle.Name = "Subtitle"
+	Subtitle.Parent = TitleContainer
+	Subtitle.Position = UDim2.new(0, 0, 0.6, 0)
+	Subtitle.Size = UDim2.new(1, 0, 0, 20)
+	Subtitle.BackgroundTransparency = 1
+	Subtitle.Font = Enum.Font.Gotham
+	Subtitle.Text = "Temporary Service Interruption"
+	Subtitle.TextColor3 = Color3.fromRGB(200, 200, 200)
+	Subtitle.TextSize = 13
+	
+	-- Main Message
+	local MessageLabel = Instance.new("TextLabel")
+	MessageLabel.Name = "MessageLabel"
+	MessageLabel.Parent = MainFrame
+	MessageLabel.Position = UDim2.new(0, 40, 0.25, 0)
+	MessageLabel.Size = UDim2.new(1, -80, 0, 100)
+	MessageLabel.BackgroundTransparency = 1
+	MessageLabel.Font = Enum.Font.Gotham
+	MessageLabel.Text = "RenHub is currently down for development reasons.\n\nWe're working hard to bring you an improved experience with new features and better performance.\n\nPlease join our Discord server for updates and announcements."
+	MessageLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+	MessageLabel.TextSize = 14
+	MessageLabel.TextWrapped = true
+	MessageLabel.TextYAlignment = Enum.TextYAlignment.Top
+	MessageLabel.RichText = true
+	
+	-- Discord Link Container
+	local DiscordContainer = Instance.new("Frame")
+	DiscordContainer.Name = "DiscordContainer"
+	DiscordContainer.Parent = MainFrame
+	DiscordContainer.Position = UDim2.new(0.5, -160, 0.6, 0)
+	DiscordContainer.Size = UDim2.new(0, 320, 0, 60)
+	DiscordContainer.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+	DiscordContainer.BorderSizePixel = 0
+	
+	local DiscordCorner = Instance.new("UICorner")
+	DiscordCorner.CornerRadius = UDim.new(0, 8)
+	DiscordCorner.Parent = DiscordContainer
+	
+	local DiscordStroke = Instance.new("UIStroke")
+	DiscordStroke.Color = Color3.fromRGB(88, 101, 242) -- Discord blurple
+	DiscordStroke.Thickness = 2
+	DiscordStroke.Parent = DiscordContainer
+	
+	-- Discord Icon
+	local DiscordIcon = Instance.new("ImageLabel")
+	DiscordIcon.Name = "DiscordIcon"
+	DiscordIcon.Parent = DiscordContainer
+	DiscordIcon.Position = UDim2.new(0, 15, 0.5, -12)
+	DiscordIcon.Size = UDim2.new(0, 24, 0, 24)
+	DiscordIcon.BackgroundTransparency = 1
+	DiscordIcon.Image = "rbxassetid://3926305904" -- Discord icon
+	DiscordIcon.ImageRectOffset = Vector2.new(524, 204)
+	DiscordIcon.ImageRectSize = Vector2.new(36, 36)
+	DiscordIcon.ImageColor3 = Color3.fromRGB(220, 220, 220)
+	
+	-- Centered Discord Link Text
+	local DiscordLink = Instance.new("TextLabel")
+	DiscordLink.Name = "DiscordLink"
+	DiscordLink.Parent = DiscordContainer
+	DiscordLink.AnchorPoint = Vector2.new(0.5, 0.5)
+	DiscordLink.Position = UDim2.new(0.5, 0, 0.5, 0)
+	DiscordLink.Size = UDim2.new(0.7, 0, 0, 30)
+	DiscordLink.BackgroundTransparency = 1
+	DiscordLink.Font = Enum.Font.GothamBold
+	DiscordLink.Text = "discord.gg/amwATssmU4"
+	DiscordLink.TextColor3 = Color3.fromRGB(88, 101, 242)
+	DiscordLink.TextSize = 15
+	DiscordLink.TextXAlignment = Enum.TextXAlignment.Center
+	
+	-- Copy Button
+	local CopyButton = Instance.new("TextButton")
+	CopyButton.Name = "CopyButton"
+	CopyButton.Parent = DiscordContainer
+	CopyButton.Position = UDim2.new(1, -70, 0.5, -15)
+	CopyButton.Size = UDim2.new(0, 60, 0, 30)
+	CopyButton.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
+	CopyButton.BorderSizePixel = 0
+	CopyButton.Font = Enum.Font.GothamBold
+	CopyButton.Text = "COPY"
+	CopyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	CopyButton.TextSize = 12
+	CopyButton.AutoButtonColor = false
+	
+	local CopyButtonCorner = Instance.new("UICorner")
+	CopyButtonCorner.CornerRadius = UDim.new(0, 6)
+	CopyButtonCorner.Parent = CopyButton
+	
+	-- Status Message
+	local StatusLabel = Instance.new("TextLabel")
+	StatusLabel.Name = "StatusLabel"
+	StatusLabel.Parent = MainFrame
+	StatusLabel.Position = UDim2.new(0, 20, 1, -40)
+	StatusLabel.Size = UDim2.new(1, -40, 0, 20)
+	StatusLabel.BackgroundTransparency = 1
+	StatusLabel.Font = Enum.Font.Gotham
+	StatusLabel.Text = "Thank you for your patience! ❤️"
+	StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+	StatusLabel.TextSize = 12
+	
+	--! ANIMATIONS AND FUNCTIONALITY
+	local TweenService = game:GetService("TweenService")
+	local UserInputService = game:GetService("UserInputService")
+	local dragging = false
+	local dragInput, mousePos, framePos
+	
+	-- Entrance Animation
+	MainFrame.Position = UDim2.new(0.5, 0, 0.5, 100)
+	MainFrame.BackgroundTransparency = 1
+	MainFrame.Visible = true
+	
+	local entranceTween = TweenService:Create(MainFrame, TweenInfo.new(0.8, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		BackgroundTransparency = 0
+	})
+	entranceTween:Play()
+	
+	entranceTween.Completed:Connect(function()
+		-- Fade in elements
+		local children = MainFrame:GetChildren()
+		for _, child in ipairs(children) do
+			if child:IsA("GuiObject") and child ~= MainFrame then
+				child.BackgroundTransparency = 1
+				if child:IsA("TextLabel") or child:IsA("TextButton") then
+					child.TextTransparency = 1
+				end
+				if child:IsA("ImageLabel") then
+					child.ImageTransparency = 1
+				end
+				
+				TweenService:Create(child, TweenInfo.new(0.5), {
+					BackgroundTransparency = child.Name == "TitleContainer" and 1 or child.BackgroundTransparency
+				}):Play()
+				
+				if child:IsA("TextLabel") or child:IsA("TextButton") then
+					TweenService:Create(child, TweenInfo.new(0.5), {
+						TextTransparency = 0
+					}):Play()
+				end
+				if child:IsA("ImageLabel") then
+					TweenService:Create(child, TweenInfo.new(0.5), {
+						ImageTransparency = 0
+					}):Play()
+				end
+			end
+		end
+	end)
+	
+	--! DRAGGABLE FUNCTIONALITY
+	MainFrame.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = true
+			mousePos = input.Position
+			framePos = MainFrame.Position
+			
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+				end
+			end)
+		end
+	end)
+	
+	MainFrame.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement then
+			dragInput = input
+		end
+	end)
+	
+	UserInputService.InputChanged:Connect(function(input)
+		if input == dragInput and dragging then
+			local delta = input.Position - mousePos
+			MainFrame.Position = UDim2.new(
+				framePos.X.Scale,
+				framePos.X.Offset + delta.X,
+				framePos.Y.Scale,
+				framePos.Y.Offset + delta.Y
+			)
+		end
+	end)
+	
+	-- Close Button Functionality
+	CloseButton.MouseButton1Click:Connect(function()
+		local exitTween = TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Position = UDim2.new(0.5, 0, 0.5, 100),
+			BackgroundTransparency = 1
+		})
+		exitTween:Play()
+		
+		exitTween.Completed:Connect(function()
+			ScreenGui:Destroy()
+		end)
+	end)
+	
+	CloseButton.MouseEnter:Connect(function()
+		TweenService:Create(CloseButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(220, 70, 70)}):Play()
+	end)
+	
+	CloseButton.MouseLeave:Connect(function()
+		TweenService:Create(CloseButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(180, 50, 50)}):Play()
+	end)
+	
+	-- Copy Button Functionality
+	local function copyToClipboard(text)
+		local success = pcall(function()
+			if setclipboard then
+				setclipboard(text)
+				return true
+			elseif writeclipboard then
+				writeclipboard(text)
+				return true
+			elseif toclipboard then
+				toclipboard(text)
+				return true
+			end
+		end)
+		return success
+	end
+	
+	CopyButton.MouseButton1Click:Connect(function()
+		local discordLink = "https://discord.gg/amwATssmU4"
+		local originalText = CopyButton.Text
+		local originalColor = CopyButton.BackgroundColor3
+		
+		if copyToClipboard(discordLink) then
+			CopyButton.Text = "✓ COPIED!"
+			CopyButton.BackgroundColor3 = Color3.fromRGB(0, 180, 100)
+			StatusLabel.Text = "Discord link copied to clipboard!"
+			StatusLabel.TextColor3 = Color3.fromRGB(0, 180, 100)
+			
+			-- Button pulse effect
+			TweenService:Create(CopyButton, TweenInfo.new(0.1), {
+				Size = UDim2.new(0, 65, 0, 32)
+			}):Play()
+			
+			task.wait(0.1)
+			
+			TweenService:Create(CopyButton, TweenInfo.new(0.1), {
+				Size = UDim2.new(0, 60, 0, 30)
+			}):Play()
+			
+			-- Reset after delay
+			task.wait(2)
+			CopyButton.Text = originalText
+			CopyButton.BackgroundColor3 = originalColor
+			StatusLabel.Text = "Thank you for your patience! ❤️"
+			StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+		else
+			CopyButton.Text = "FAILED"
+			CopyButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+			StatusLabel.Text = "Failed to copy. Link: " .. discordLink
+			StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+			
+			task.wait(2)
+			CopyButton.Text = originalText
+			CopyButton.BackgroundColor3 = originalColor
+			StatusLabel.Text = "Thank you for your patience! ❤️"
+			StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+		end
+	end)
+	
+	CopyButton.MouseEnter:Connect(function()
+		if CopyButton.Text == "COPY" then
+			TweenService:Create(CopyButton, TweenInfo.new(0.2), {
+				BackgroundColor3 = Color3.fromRGB(114, 137, 218)
+			}):Play()
+		end
+	end)
+	
+	CopyButton.MouseLeave:Connect(function()
+		if CopyButton.Text == "COPY" then
+			TweenService:Create(CopyButton, TweenInfo.new(0.2), {
+				BackgroundColor3 = Color3.fromRGB(88, 101, 242)
+			}):Play()
+		end
+	end)
+	
+	-- Discord Container Hover Effect
+	DiscordContainer.MouseEnter:Connect(function()
+		TweenService:Create(DiscordStroke, TweenInfo.new(0.2), {
+			Thickness = 3
+		}):Play()
+		TweenService:Create(DiscordContainer, TweenInfo.new(0.2), {
+			BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+		}):Play()
+	end)
+	
+	DiscordContainer.MouseLeave:Connect(function()
+		TweenService:Create(DiscordStroke, TweenInfo.new(0.2), {
+			Thickness = 2
+		}):Play()
+		TweenService:Create(DiscordContainer, TweenInfo.new(0.2), {
+			BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+		}):Play()
+	end)
+	
+	-- Discord Link hover effect
+	DiscordLink.MouseEnter:Connect(function()
+		TweenService:Create(DiscordLink, TweenInfo.new(0.2), {
+			TextColor3 = Color3.fromRGB(114, 137, 218)
+		}):Play()
+	end)
+	
+	DiscordLink.MouseLeave:Connect(function()
+		TweenService:Create(DiscordLink, TweenInfo.new(0.2), {
+			TextColor3 = Color3.fromRGB(88, 101, 242)
+		}):Play()
+	end)
+	
+	-- Auto-close after 30 seconds (optional)
+	task.spawn(function()
+		task.wait(30)
+		if ScreenGui and ScreenGui.Parent then
+			local fadeOut = TweenService:Create(MainFrame, TweenInfo.new(1), {
+				BackgroundTransparency = 1
+			})
+			fadeOut:Play()
+			
+			fadeOut.Completed:Connect(function()
+				ScreenGui:Destroy()
+			end)
+		end
+	end)
+end
+
+-- Entry point function
+local function initMaintenanceUI()
+	showMaintenanceUI()
+end
+
+-- Initialize the UI
+initMaintenanceUI()
