@@ -7,4 +7,4 @@ loadstring(game:HttpGet(UpString))()
 else
 loadstring(game:HttpGet(DownString))()
 end
-
+print("hi")
