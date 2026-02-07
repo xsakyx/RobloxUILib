@@ -1,0 +1,691 @@
+--[[
+    RenLib Testing Script - FULL COVERAGE
+    Tests EVERY feature of the RenLibTesting UI library
+    Works on both PC and Mobile
+]]
+
+-- Load the library from RenLibTesting
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/xsakyx/RobloxUILib/claude/mobile-ui-library-49JBk/RenLibTesting"))()
+
+-- ============================================================
+-- CREATE WINDOW
+-- ============================================================
+local Window = Library:CreateWindow({
+    Name = "RenLib Full Test"
+})
+
+-- ============================================================
+-- TAB 1: BUTTONS TEST
+-- ============================================================
+local ButtonsTab = Window:CreateTab({
+    Name = "Buttons",
+    Emoji = "🔘"
+})
+
+local BtnSection1 = ButtonsTab:CreateSection({
+    Name = "Basic Buttons",
+    Side = "Left"
+})
+
+-- Test 1: Simple button with callback
+BtnSection1:CreateButton({
+    Name = "Click Me - Test Callback",
+    Callback = function()
+        Library:Notify({
+            Title = "Button Test",
+            Content = "Basic button callback works!",
+            Emoji = "✅",
+            Duration = 3
+        })
+    end
+})
+
+-- Test 2: Button that changes its own text
+local DynamicBtn = BtnSection1:CreateButton({
+    Name = "Click to Change Text",
+    Callback = function()
+        DynamicBtn:SetText("Text Changed! ✅")
+        Library:Notify({
+            Title = "SetText Test",
+            Content = "Button SetText() works!",
+            Emoji = "✅"
+        })
+        task.delay(2, function()
+            DynamicBtn:SetText("Click to Change Text")
+        end)
+    end
+})
+
+-- Test 3: Button with heavy callback
+BtnSection1:CreateButton({
+    Name = "Stress Test (spam click me)",
+    Callback = function()
+        for i = 1, 5 do
+            Library:Notify({
+                Title = "Spam #" .. i,
+                Content = "Notification " .. i .. " of 5",
+                Emoji = "⚡",
+                Duration = 2
+            })
+        end
+    end
+})
+
+local BtnSection2 = ButtonsTab:CreateSection({
+    Name = "More Buttons",
+    Side = "Right"
+})
+
+-- Test 4: Multiple buttons in right column
+BtnSection2:CreateButton({
+    Name = "Right Side Button 1",
+    Callback = function()
+        Library:Notify({Title = "Right Column", Content = "Button 1 works!", Emoji = "✅"})
+    end
+})
+
+BtnSection2:CreateButton({
+    Name = "Right Side Button 2",
+    Callback = function()
+        Library:Notify({Title = "Right Column", Content = "Button 2 works!", Emoji = "✅"})
+    end
+})
+
+BtnSection2:CreateButton({
+    Name = "Right Side Button 3",
+    Callback = function()
+        Library:Notify({Title = "Right Column", Content = "Button 3 works!", Emoji = "✅"})
+    end
+})
+
+-- ============================================================
+-- TAB 2: TOGGLES TEST
+-- ============================================================
+local TogglesTab = Window:CreateTab({
+    Name = "Toggles",
+    Emoji = "🔀"
+})
+
+local ToggleSection1 = TogglesTab:CreateSection({
+    Name = "Toggle Tests",
+    Side = "Left"
+})
+
+-- Test 5: Basic toggle (default off)
+ToggleSection1:CreateToggle({
+    Name = "Toggle Default OFF",
+    Default = false,
+    Flag = "TestToggle1",
+    Callback = function(value)
+        Library:Notify({
+            Title = "Toggle 1",
+            Content = "Value: " .. tostring(value),
+            Emoji = value and "✅" or "❌",
+            Duration = 2
+        })
+    end
+})
+
+-- Test 6: Toggle (default on)
+ToggleSection1:CreateToggle({
+    Name = "Toggle Default ON",
+    Default = true,
+    Flag = "TestToggle2",
+    Callback = function(value)
+        Library:Notify({
+            Title = "Toggle 2",
+            Content = "Value: " .. tostring(value),
+            Emoji = value and "✅" or "❌",
+            Duration = 2
+        })
+    end
+})
+
+-- Test 7: Toggle with Set() method
+local SetToggle = ToggleSection1:CreateToggle({
+    Name = "Toggle (auto-sets in 3s)",
+    Default = false,
+    Flag = "TestToggle3",
+    Callback = function(value)
+        Library:Notify({
+            Title = "Auto Toggle",
+            Content = "Value: " .. tostring(value),
+            Emoji = "🔄",
+            Duration = 2
+        })
+    end
+})
+
+task.delay(3, function()
+    SetToggle:Set(true)
+    Library:Notify({
+        Title = "Set() Test",
+        Content = "Toggle was set programmatically!",
+        Emoji = "✅",
+        Duration = 3
+    })
+end)
+
+local ToggleSection2 = TogglesTab:CreateSection({
+    Name = "Flag System Test",
+    Side = "Right"
+})
+
+-- Test 8: Toggle that reads another toggle's flag
+ToggleSection2:CreateToggle({
+    Name = "Toggle with Flag Read",
+    Default = false,
+    Flag = "FlagReadTest",
+    Callback = function(value)
+        local otherFlag = Library.Flags["TestToggle1"]
+        Library:Notify({
+            Title = "Flag Read",
+            Content = "My value: " .. tostring(value) .. "\nToggle1 flag: " .. tostring(otherFlag),
+            Emoji = "📖",
+            Duration = 3
+        })
+    end
+})
+
+-- Test 9: Button to dump all flags
+ToggleSection2:CreateButton({
+    Name = "Print All Flags",
+    Callback = function()
+        local flagList = ""
+        local count = 0
+        for k, v in pairs(Library.Flags) do
+            flagList = flagList .. k .. "=" .. tostring(v) .. " | "
+            count = count + 1
+        end
+        Library:Notify({
+            Title = "Flags (" .. count .. ")",
+            Content = flagList,
+            Emoji = "📋",
+            Duration = 5
+        })
+    end
+})
+
+-- ============================================================
+-- TAB 3: SLIDERS TEST
+-- ============================================================
+local SlidersTab = Window:CreateTab({
+    Name = "Sliders",
+    Emoji = "🎚️"
+})
+
+local SliderSection1 = SlidersTab:CreateSection({
+    Name = "Slider Tests",
+    Side = "Left"
+})
+
+-- Test 10: Basic slider 0-100
+SliderSection1:CreateSlider({
+    Name = "Speed (0-100)",
+    Min = 0,
+    Max = 100,
+    Default = 50,
+    Flag = "SpeedSlider",
+    Callback = function(value)
+        -- Only notify on round numbers to avoid spam
+    end
+})
+
+-- Test 11: Slider with small range
+SliderSection1:CreateSlider({
+    Name = "Small Range (1-10)",
+    Min = 1,
+    Max = 10,
+    Default = 5,
+    Flag = "SmallSlider",
+    Callback = function(value)
+    end
+})
+
+-- Test 12: Slider with large range
+SliderSection1:CreateSlider({
+    Name = "Large Range (0-1000)",
+    Min = 0,
+    Max = 1000,
+    Default = 500,
+    Flag = "LargeSlider",
+    Callback = function(value)
+    end
+})
+
+local SliderSection2 = SlidersTab:CreateSection({
+    Name = "Slider Set() Test",
+    Side = "Right"
+})
+
+-- Test 13: Slider with programmatic Set()
+local ProgramSlider = SliderSection2:CreateSlider({
+    Name = "Auto-sets to 75 in 3s",
+    Min = 0,
+    Max = 100,
+    Default = 25,
+    Flag = "ProgramSlider",
+    Callback = function(value)
+    end
+})
+
+task.delay(3, function()
+    ProgramSlider:Set(75)
+    Library:Notify({
+        Title = "Slider Set()",
+        Content = "Slider was set to 75 programmatically!",
+        Emoji = "✅",
+        Duration = 3
+    })
+end)
+
+-- Test 14: Button to read slider values
+SliderSection2:CreateButton({
+    Name = "Read All Slider Values",
+    Callback = function()
+        local msg = "Speed: " .. tostring(Library.Flags["SpeedSlider"])
+            .. " | Small: " .. tostring(Library.Flags["SmallSlider"])
+            .. " | Large: " .. tostring(Library.Flags["LargeSlider"])
+            .. " | Program: " .. tostring(Library.Flags["ProgramSlider"])
+        Library:Notify({
+            Title = "Slider Values",
+            Content = msg,
+            Emoji = "🎚️",
+            Duration = 4
+        })
+    end
+})
+
+-- ============================================================
+-- TAB 4: DROPDOWNS TEST
+-- ============================================================
+local DropdownsTab = Window:CreateTab({
+    Name = "Dropdowns",
+    Emoji = "📋"
+})
+
+local DDSection1 = DropdownsTab:CreateSection({
+    Name = "Single Select",
+    Side = "Left"
+})
+
+-- Test 15: Basic single-select dropdown
+DDSection1:CreateDropdown({
+    Name = "Pick a Fruit",
+    Values = {"Apple", "Banana", "Cherry", "Dragon Fruit", "Elderberry"},
+    Default = "Apple",
+    Flag = "FruitPicker",
+    Callback = function(value)
+        Library:Notify({
+            Title = "Fruit Selected",
+            Content = "You picked: " .. tostring(value),
+            Emoji = "🍎",
+            Duration = 2
+        })
+    end
+})
+
+-- Test 16: Dropdown with many items (scroll test)
+DDSection1:CreateDropdown({
+    Name = "Pick a Number",
+    Values = {"One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"},
+    Default = "One",
+    Flag = "NumberPicker",
+    Callback = function(value)
+        Library:Notify({
+            Title = "Number Selected",
+            Content = "You picked: " .. tostring(value),
+            Emoji = "🔢",
+            Duration = 2
+        })
+    end
+})
+
+local DDSection2 = DropdownsTab:CreateSection({
+    Name = "Multi Select & Refresh",
+    Side = "Right"
+})
+
+-- Test 17: Multi-select dropdown
+DDSection2:CreateDropdown({
+    Name = "Pick Colors (Multi)",
+    Values = {"Red", "Green", "Blue", "Yellow", "Purple"},
+    Multi = true,
+    Default = {},
+    Flag = "ColorPicker",
+    Callback = function(value)
+        local selected = {}
+        for k, v in pairs(value) do
+            if v then table.insert(selected, k) end
+        end
+        Library:Notify({
+            Title = "Colors Selected",
+            Content = table.concat(selected, ", "),
+            Emoji = "🎨",
+            Duration = 2
+        })
+    end
+})
+
+-- Test 18: Dropdown with Set() and Refresh()
+local DynamicDD = DDSection2:CreateDropdown({
+    Name = "Dynamic Dropdown",
+    Values = {"Option A", "Option B", "Option C"},
+    Default = "Option A",
+    Flag = "DynamicDD",
+    Callback = function(value)
+        Library:Notify({
+            Title = "Dynamic DD",
+            Content = "Selected: " .. tostring(value),
+            Emoji = "🔄",
+            Duration = 2
+        })
+    end
+})
+
+DDSection2:CreateButton({
+    Name = "Refresh DD with new items",
+    Callback = function()
+        DynamicDD:Refresh({"New Item 1", "New Item 2", "New Item 3", "New Item 4"})
+        Library:Notify({
+            Title = "Refresh Test",
+            Content = "Dropdown items were refreshed!",
+            Emoji = "✅",
+            Duration = 3
+        })
+    end
+})
+
+DDSection2:CreateButton({
+    Name = "Set DD to 'Option B'",
+    Callback = function()
+        DynamicDD:Set("Option B")
+        Library:Notify({
+            Title = "Set() Test",
+            Content = "Dropdown set to Option B!",
+            Emoji = "✅",
+            Duration = 3
+        })
+    end
+})
+
+-- ============================================================
+-- TAB 5: LABELS & NOTIFICATIONS TEST
+-- ============================================================
+local LabelsTab = Window:CreateTab({
+    Name = "Labels/Notifs",
+    Emoji = "📝"
+})
+
+local LabelSection = LabelsTab:CreateSection({
+    Name = "Label Tests",
+    Side = "Left"
+})
+
+-- Test 19: Static label
+LabelSection:CreateLabel("This is a static label")
+
+-- Test 20: Long wrapped label
+LabelSection:CreateLabel("This is a much longer label that should word-wrap properly on both PC and mobile devices to test the text wrapping feature of the label component")
+
+-- Test 21: Label with SetText
+local DynamicLabel = LabelSection:CreateLabel("This label updates in 3 seconds...")
+
+task.delay(3, function()
+    DynamicLabel:SetText("Label updated via SetText()! ✅")
+end)
+
+-- Test 22: Label with emoji
+LabelSection:CreateLabel("🔥 Label with emoji support 🔥")
+
+local NotifSection = LabelsTab:CreateSection({
+    Name = "Notification Tests",
+    Side = "Right"
+})
+
+-- Test 23: All notification types
+NotifSection:CreateButton({
+    Name = "Info Notification",
+    Callback = function()
+        Library:Notify({
+            Title = "Info",
+            Content = "This is an info notification",
+            Emoji = "ℹ️",
+            Duration = 3
+        })
+    end
+})
+
+NotifSection:CreateButton({
+    Name = "Success Notification",
+    Callback = function()
+        Library:Notify({
+            Title = "Success",
+            Content = "Operation completed successfully!",
+            Emoji = "✅",
+            Duration = 3
+        })
+    end
+})
+
+NotifSection:CreateButton({
+    Name = "Warning Notification",
+    Callback = function()
+        Library:Notify({
+            Title = "Warning",
+            Content = "Something might be wrong...",
+            Emoji = "⚠️",
+            Duration = 3
+        })
+    end
+})
+
+NotifSection:CreateButton({
+    Name = "Error Notification",
+    Callback = function()
+        Library:Notify({
+            Title = "Error",
+            Content = "Something went wrong!",
+            Emoji = "❌",
+            Duration = 3
+        })
+    end
+})
+
+NotifSection:CreateButton({
+    Name = "Long Duration (10s)",
+    Callback = function()
+        Library:Notify({
+            Title = "Long Notification",
+            Content = "This stays for 10 seconds",
+            Emoji = "⏱️",
+            Duration = 10
+        })
+    end
+})
+
+NotifSection:CreateButton({
+    Name = "Spam 5 Notifications",
+    Callback = function()
+        for i = 1, 5 do
+            task.delay(i * 0.3, function()
+                Library:Notify({
+                    Title = "Spam #" .. i,
+                    Content = "Testing notification stacking",
+                    Emoji = "📬",
+                    Duration = 3
+                })
+            end)
+        end
+    end
+})
+
+-- ============================================================
+-- TAB 6: MIXED / STRESS TEST
+-- ============================================================
+local MixedTab = Window:CreateTab({
+    Name = "Stress Test",
+    Emoji = "🔥"
+})
+
+local MixSection1 = MixedTab:CreateSection({
+    Name = "All Elements Mixed",
+    Side = "Left"
+})
+
+MixSection1:CreateLabel("--- Mixed Section Test ---")
+
+MixSection1:CreateButton({
+    Name = "Button in mixed section",
+    Callback = function()
+        Library:Notify({Title = "Mixed", Content = "Button works in mixed section!", Emoji = "✅"})
+    end
+})
+
+MixSection1:CreateToggle({
+    Name = "Toggle in mixed",
+    Default = false,
+    Flag = "MixedToggle",
+    Callback = function(v) end
+})
+
+MixSection1:CreateSlider({
+    Name = "Slider in mixed",
+    Min = 0,
+    Max = 50,
+    Default = 25,
+    Flag = "MixedSlider",
+    Callback = function(v) end
+})
+
+MixSection1:CreateDropdown({
+    Name = "Dropdown in mixed",
+    Values = {"Mix A", "Mix B", "Mix C"},
+    Default = "Mix A",
+    Flag = "MixedDD",
+    Callback = function(v) end
+})
+
+MixSection1:CreateLabel("--- End of mixed section ---")
+
+local MixSection2 = MixedTab:CreateSection({
+    Name = "Window Controls Test",
+    Side = "Right"
+})
+
+-- Test: Minimize and restore
+MixSection2:CreateButton({
+    Name = "Test Minimize (restores in 3s)",
+    Callback = function()
+        Library:Notify({
+            Title = "Minimizing",
+            Content = "Window will restore in 3 seconds...",
+            Emoji = "⏱️",
+            Duration = 2
+        })
+        task.delay(1, function()
+            Window:Minimize()
+            task.delay(3, function()
+                Window:Restore()
+                Library:Notify({
+                    Title = "Restored",
+                    Content = "Window restored automatically!",
+                    Emoji = "✅",
+                    Duration = 3
+                })
+            end)
+        end)
+    end
+})
+
+-- Test: Toggle
+MixSection2:CreateButton({
+    Name = "Test Toggle (back in 3s)",
+    Callback = function()
+        task.delay(0.5, function()
+            Window:Toggle()
+            task.delay(3, function()
+                Window:Toggle()
+                Library:Notify({Title = "Toggle", Content = "Toggle test complete!", Emoji = "✅"})
+            end)
+        end)
+    end
+})
+
+-- Test: Device info
+MixSection2:CreateButton({
+    Name = "Show Device Info",
+    Callback = function()
+        local info = "Mobile: " .. tostring(Library.IsMobile)
+            .. "\nTouch: " .. tostring(game:GetService("UserInputService").TouchEnabled)
+            .. "\nKeyboard: " .. tostring(game:GetService("UserInputService").KeyboardEnabled)
+            .. "\nScreen: " .. tostring(math.floor(workspace.CurrentCamera.ViewportSize.X)) .. "x" .. tostring(math.floor(workspace.CurrentCamera.ViewportSize.Y))
+            .. "\nVersion: " .. Library.Version
+        Library:Notify({
+            Title = "Device Info",
+            Content = info,
+            Emoji = "📱",
+            Duration = 6
+        })
+    end
+})
+
+-- Test: Many sections to test scrolling
+local ScrollSection = MixedTab:CreateSection({
+    Name = "Scroll Test (many items)",
+    Side = "Left"
+})
+
+for i = 1, 8 do
+    ScrollSection:CreateButton({
+        Name = "Scroll Button #" .. i,
+        Callback = function()
+            Library:Notify({Title = "Scroll", Content = "Button " .. i .. " works!", Emoji = "📜", Duration = 1})
+        end
+    })
+end
+
+-- ============================================================
+-- TAB 7: AUTO SECTION PLACEMENT TEST
+-- ============================================================
+local AutoTab = Window:CreateTab({
+    Name = "Auto Layout",
+    Emoji = "📐"
+})
+
+-- Test: Auto side placement (should balance left/right on PC, stack on mobile)
+for i = 1, 6 do
+    local sec = AutoTab:CreateSection({
+        Name = "Auto Section " .. i,
+        Side = "Auto"
+    })
+    sec:CreateButton({
+        Name = "Btn in Auto " .. i,
+        Callback = function()
+            Library:Notify({Title = "Auto " .. i, Content = "Works!", Emoji = "✅", Duration = 1})
+        end
+    })
+    sec:CreateToggle({
+        Name = "Toggle " .. i,
+        Default = false,
+        Flag = "AutoToggle" .. i,
+        Callback = function(v) end
+    })
+end
+
+-- ============================================================
+-- STARTUP NOTIFICATION
+-- ============================================================
+Library:Notify({
+    Title = "RenLib Test Loaded",
+    Content = "All 7 tabs created. Test everything!",
+    Emoji = "🚀",
+    Duration = 5
+})
+
+Library:Notify({
+    Title = "Device: " .. (Library.IsMobile and "MOBILE" or "PC"),
+    Content = "Version: " .. Library.Version,
+    Emoji = Library.IsMobile and "📱" or "💻",
+    Duration = 5
+})
