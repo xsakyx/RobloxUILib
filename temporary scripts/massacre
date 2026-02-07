@@ -1,6 +1,5 @@
 -- Masacre Script - Migrated to RenLibBêta (Mobile + PC)
--- ESP, Aimbot, Noclip, Light Helmet
--- Fixed: ESP ghost boxes, Aimbot targeting, Noclip per-frame
+-- ESP, Aimbot (FOV circle), Noclip, Light Helmet, Sprint
 
 --// Load UI Library (RenLibBêta from main branch)
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/RenLibB%C3%AAta.lua"))()
@@ -25,6 +24,7 @@ local AimbotEnabled = false
 local AimbotTargetEveryone = false
 local NoclipEnabled = false
 local LightHelmetEnabled = false
+local SprintEnabled = false
 
 --// ESP Settings
 local ESPSettings = {
@@ -45,11 +45,37 @@ local AimbotSettings = {
     FriendCheck = false
 }
 
+--// FOV Circle Settings
+local FOVCircleSettings = {
+    Visible = true,
+    Color = Color3.fromRGB(255, 255, 255),
+    Thickness = 1,
+    Filled = false,
+    Transparency = 0.7
+}
+
+--// Sprint Settings
+local SprintSpeed = 20
+local NormalSpeed = 15
+local SprintHeld = false
+local SprintConnection = nil
+
 --// Storage
 local ESPObjects = {}
 local Connections = {}
 local LightObject = nil
 local WeaponNames = {}
+local NoclipConnection = nil
+
+--// FOV Circle Drawing
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = FOVCircleSettings.Thickness
+FOVCircle.Color = FOVCircleSettings.Color
+FOVCircle.Filled = false
+FOVCircle.Transparency = FOVCircleSettings.Transparency
+FOVCircle.NumSides = 64
+FOVCircle.Radius = AimbotSettings.FOV
+FOVCircle.Visible = false
 
 --------------------------------------------------------------------------------
 --// WEAPON DETECTION
@@ -72,7 +98,6 @@ local function LoadWeaponNames()
             end
         end
 
-        -- Hardcoded fallbacks
         local fallbacks = {"knife", "gun", "pistol", "revolver"}
         local uniqueNames = {}
         for _, name in pairs(WeaponNames) do
@@ -89,13 +114,11 @@ local function LoadWeaponNames()
 end
 
 local function IsKiller(player)
-    -- Method 1: Check for Killer value
     local killerVal = player:FindFirstChild("Killer")
     if killerVal and killerVal.Value == true then
         return true
     end
 
-    -- Method 2: Check for weapon tools
     local character = player.Character
     local backpack = player:FindFirstChild("Backpack")
     local containers = {character, backpack}
@@ -119,7 +142,7 @@ local function IsKiller(player)
 end
 
 --------------------------------------------------------------------------------
---// ESP SYSTEM (FIXED: ghost boxes cleaned up on leave/death)
+--// ESP SYSTEM
 --------------------------------------------------------------------------------
 local function CreateESPBox(player)
     local box = Drawing.new("Square")
@@ -159,7 +182,6 @@ local function CreateESPHighlight(character)
     return highlight
 end
 
--- FIX: Remove ESP for a specific player (called on leave, death, etc.)
 local function RemovePlayerESP(player)
     local espData = ESPObjects[player]
     if not espData then return end
@@ -176,7 +198,6 @@ local function RemovePlayerESP(player)
     ESPObjects[player] = nil
 end
 
--- FIX: Hide ESP drawings for a player (without destroying)
 local function HidePlayerESP(player)
     local espData = ESPObjects[player]
     if not espData then return end
@@ -205,7 +226,7 @@ local function UpdateESP()
     local localChar = LocalPlayer.Character
     local localHRP = localChar and localChar:FindFirstChild("HumanoidRootPart")
 
-    -- FIX: First pass - clean up ESP for players no longer in game
+    -- Clean up ESP for players no longer in game
     for player, _ in pairs(ESPObjects) do
         if not player or not player.Parent then
             RemovePlayerESP(player)
@@ -220,7 +241,6 @@ local function UpdateESP()
             local humanoid = character and character:FindFirstChild("Humanoid")
 
             if character and hrp and head and humanoid and humanoid.Health > 0 then
-                -- Skip checks
                 if ESPSettings.TeamCheck and player.Team == LocalPlayer.Team then
                     HidePlayerESP(player)
                     continue
@@ -233,7 +253,6 @@ local function UpdateESP()
                 local isKiller = IsKiller(player)
                 local espColor = isKiller and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(255, 255, 255)
 
-                -- Create ESP if needed
                 if not ESPObjects[player] then
                     ESPObjects[player] = {
                         Box = CreateESPBox(player),
@@ -243,7 +262,6 @@ local function UpdateESP()
 
                 local espData = ESPObjects[player]
 
-                -- Update Boxes
                 if ESPSettings.UseBoxes then
                     local vector, onScreen = Camera:WorldToViewportPoint(hrp.Position)
 
@@ -261,7 +279,6 @@ local function UpdateESP()
                         espData.Box.Box.Color = espColor
                         espData.Box.Box.Visible = true
 
-                        -- Health bar
                         if ESPSettings.ShowHealths then
                             local healthPercent = humanoid.Health / humanoid.MaxHealth
                             espData.Box.HealthBar.Size = Vector2.new(2, height * healthPercent)
@@ -272,7 +289,6 @@ local function UpdateESP()
                             espData.Box.HealthBar.Visible = false
                         end
 
-                        -- Name/distance text
                         local displayText = player.Name
                         if ESPSettings.ShowDistances and localHRP then
                             local distance = math.floor((hrp.Position - localHRP.Position).Magnitude)
@@ -299,7 +315,6 @@ local function UpdateESP()
                     end
                 end
 
-                -- Update Highlights
                 if ESPSettings.UseHighlights then
                     if not espData.Highlight then
                         espData.Highlight = CreateESPHighlight(character)
@@ -315,19 +330,18 @@ local function UpdateESP()
                     end
                 end
             else
-                -- Character missing/dead: hide their ESP drawings
                 HidePlayerESP(player)
             end
         end
     end
 end
 
--- FIX: Clean up ESP when a player leaves the game
+-- Clean up ESP when player leaves
 table.insert(Connections, Players.PlayerRemoving:Connect(function(player)
     RemovePlayerESP(player)
 end))
 
--- FIX: Clean up ESP when a character is removed (death/respawn)
+-- Clean up ESP when character removed
 local function HookCharacterRemoving(player)
     if player == LocalPlayer then return end
     table.insert(Connections, player.CharacterRemoving:Connect(function()
@@ -346,7 +360,7 @@ table.insert(Connections, Players.PlayerAdded:Connect(function(player)
 end))
 
 --------------------------------------------------------------------------------
---// AIMBOT (FIXED: target everyone toggle + killer-only mode)
+--// AIMBOT
 --------------------------------------------------------------------------------
 local function GetAimbotTarget()
     local closestPlayer = nil
@@ -361,14 +375,11 @@ local function GetAimbotTarget()
             if targetCharacter and targetCharacter:FindFirstChild("Head") and targetCharacter:FindFirstChild("Humanoid") then
                 local humanoid = targetCharacter.Humanoid
                 if humanoid.Health > 0 then
-                    -- If NOT targeting everyone, only target the killer
                     if not AimbotTargetEveryone then
                         if not IsKiller(player) then continue end
                     end
 
-                    -- Team check
                     if AimbotSettings.TeamCheck and player.Team == LocalPlayer.Team then continue end
-                    -- Friend check
                     if AimbotSettings.FriendCheck and LocalPlayer:IsFriendsWith(player.UserId) then continue end
 
                     local head = targetCharacter.Head
@@ -417,6 +428,23 @@ local function AimAt(player)
 end
 
 --------------------------------------------------------------------------------
+--// FOV CIRCLE UPDATE (runs every frame in main loop)
+--------------------------------------------------------------------------------
+local function UpdateFOVCircle()
+    if AimbotEnabled and FOVCircleSettings.Visible then
+        FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        FOVCircle.Radius = AimbotSettings.FOV
+        FOVCircle.Color = FOVCircleSettings.Color
+        FOVCircle.Thickness = FOVCircleSettings.Thickness
+        FOVCircle.Transparency = FOVCircleSettings.Transparency
+        FOVCircle.Filled = FOVCircleSettings.Filled
+        FOVCircle.Visible = true
+    else
+        FOVCircle.Visible = false
+    end
+end
+
+--------------------------------------------------------------------------------
 --// LIGHT HELMET
 --------------------------------------------------------------------------------
 local function CreateLightHelmet()
@@ -449,15 +477,85 @@ local function ToggleLightHelmet(enabled)
 end
 
 --------------------------------------------------------------------------------
---// NOCLIP (FIXED: per-frame for HRP + Torso only, efficient)
+--// NOCLIP (FIXED: dedicated connection, instant on/off)
 --------------------------------------------------------------------------------
-local function ApplyNoclip()
-    local character = LocalPlayer.Character
-    if not character then return end
+local function EnableNoclip()
+    if NoclipConnection then return end
+    NoclipConnection = RunService.Stepped:Connect(function()
+        local character = LocalPlayer.Character
+        if not character then return end
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+    end)
+end
 
-    for _, part in pairs(character:GetDescendants()) do
-        if part:IsA("BasePart") and part.CanCollide then
-            part.CanCollide = false
+local function DisableNoclip()
+    -- Disconnect the per-frame loop FIRST (instant stop)
+    if NoclipConnection then
+        NoclipConnection:Disconnect()
+        NoclipConnection = nil
+    end
+    -- Force-restore collisions immediately
+    local character = LocalPlayer.Character
+    if character then
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+        -- Let the humanoid recalculate collision state
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+    end
+end
+
+local function ToggleNoclip(enabled)
+    NoclipEnabled = enabled
+    if enabled then
+        EnableNoclip()
+    else
+        DisableNoclip()
+    end
+end
+
+--------------------------------------------------------------------------------
+--// SPRINT (hold Shift = looped 20, release = set 15 and stop)
+--------------------------------------------------------------------------------
+local function StartSprint()
+    if SprintConnection then return end
+    SprintHeld = true
+
+    SprintConnection = RunService.Heartbeat:Connect(function()
+        if not SprintHeld then return end
+        local character = LocalPlayer.Character
+        if not character then return end
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid and humanoid.WalkSpeed ~= SprintSpeed then
+            humanoid.WalkSpeed = SprintSpeed
+        end
+    end)
+end
+
+local function StopSprint()
+    SprintHeld = false
+
+    -- Disconnect the loop
+    if SprintConnection then
+        SprintConnection:Disconnect()
+        SprintConnection = nil
+    end
+
+    -- Set normal speed once
+    local character = LocalPlayer.Character
+    if character then
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.WalkSpeed = NormalSpeed
         end
     end
 end
@@ -469,6 +567,11 @@ local function OnCharacterAdded(character)
     task.wait(1)
     if LightHelmetEnabled then
         CreateLightHelmet()
+    end
+    -- Re-enable noclip if it was on
+    if NoclipEnabled then
+        DisableNoclip()
+        EnableNoclip()
     end
 end
 
@@ -484,7 +587,7 @@ local Window = Library:CreateWindow({
     Name = "Masacre Script"
 })
 
---// ESP Tab
+--// ===================== ESP TAB =====================
 local ESPTab = Window:CreateTab({
     Name = "ESP",
     Emoji = "👁️"
@@ -560,7 +663,7 @@ ESPFilters:CreateToggle({
     end
 })
 
---// Aimbot Tab
+--// ===================== AIMBOT TAB =====================
 local AimbotTab = Window:CreateTab({
     Name = "Aimbot",
     Emoji = "🎯"
@@ -598,10 +701,10 @@ AimbotSection:CreateToggle({
     end
 })
 
-AimbotSection:CreateLabel("OFF = targets killer only | ON = targets everyone")
+AimbotSection:CreateLabel("OFF = killer only | ON = everyone")
 
 AimbotSection:CreateSlider({
-    Name = "FOV",
+    Name = "FOV (circle radius)",
     Min = 50,
     Max = 500,
     Default = 100,
@@ -621,6 +724,8 @@ AimbotSection:CreateSlider({
         AimbotSettings.Smoothness = math.max(1, value)
     end
 })
+
+AimbotSection:CreateLabel("Smoothness: 1 = instant snap | 20 = very slow tracking")
 
 local AimbotFilters = AimbotTab:CreateSection({Name = "Filters", Side = "Right"})
 
@@ -651,13 +756,64 @@ AimbotFilters:CreateToggle({
     end
 })
 
---// Misc Tab
+--// FOV Circle customization
+local FOVSection = AimbotTab:CreateSection({Name = "FOV Circle", Side = "Right"})
+
+FOVSection:CreateToggle({
+    Name = "Show FOV Circle",
+    Default = true,
+    Flag = "FOVCircleVisible",
+    Callback = function(value)
+        FOVCircleSettings.Visible = value
+    end
+})
+
+FOVSection:CreateToggle({
+    Name = "Filled Circle",
+    Default = false,
+    Flag = "FOVCircleFilled",
+    Callback = function(value)
+        FOVCircleSettings.Filled = value
+    end
+})
+
+FOVSection:CreateSlider({
+    Name = "Circle Thickness",
+    Min = 1,
+    Max = 5,
+    Default = 1,
+    Flag = "FOVCircleThickness",
+    Callback = function(value)
+        FOVCircleSettings.Thickness = value
+    end
+})
+
+FOVSection:CreateDropdown({
+    Name = "Circle Color",
+    Values = {"White", "Red", "Green", "Blue", "Yellow", "Cyan", "Purple"},
+    Default = "White",
+    Flag = "FOVCircleColor",
+    Callback = function(value)
+        local colors = {
+            White = Color3.fromRGB(255, 255, 255),
+            Red = Color3.fromRGB(255, 0, 0),
+            Green = Color3.fromRGB(0, 255, 0),
+            Blue = Color3.fromRGB(0, 150, 255),
+            Yellow = Color3.fromRGB(255, 255, 0),
+            Cyan = Color3.fromRGB(0, 255, 255),
+            Purple = Color3.fromRGB(180, 0, 255)
+        }
+        FOVCircleSettings.Color = colors[value] or Color3.fromRGB(255, 255, 255)
+    end
+})
+
+--// ===================== MISC TAB =====================
 local MiscTab = Window:CreateTab({
     Name = "Misc",
     Emoji = "⚙️"
 })
 
-local MiscSection = MiscTab:CreateSection({Name = "Misc Features", Side = "Left"})
+local MiscSection = MiscTab:CreateSection({Name = "Features", Side = "Left"})
 
 MiscSection:CreateToggle({
     Name = "Light Helmet",
@@ -674,7 +830,7 @@ MiscSection:CreateToggle({
     Default = false,
     Flag = "Noclip",
     Callback = function(value)
-        NoclipEnabled = value
+        ToggleNoclip(value)
         Library:Notify({
             Title = "Noclip",
             Content = value and "Enabled" or "Disabled",
@@ -684,39 +840,82 @@ MiscSection:CreateToggle({
     end
 })
 
-local ControlsSection = MiscTab:CreateSection({Name = "Controls / Info", Side = "Right"})
+MiscSection:CreateToggle({
+    Name = "Infinite Sprint (hold Shift)",
+    Default = false,
+    Flag = "SprintEnabled",
+    Callback = function(value)
+        SprintEnabled = value
+        if not value and SprintHeld then
+            StopSprint()
+        end
+        Library:Notify({
+            Title = "Sprint",
+            Content = value and "Enabled (hold Shift to run)" or "Disabled",
+            Emoji = value and "🏃" or "❌",
+            Duration = 2
+        })
+    end
+})
 
-ControlsSection:CreateLabel("F = Toggle Aimbot")
-ControlsSection:CreateLabel("T = Toggle Target Everyone")
-ControlsSection:CreateLabel("H = Toggle Light Helmet")
-ControlsSection:CreateLabel("G = Toggle Noclip")
+local ScriptControls = MiscTab:CreateSection({Name = "Script Controls", Side = "Right"})
 
-ControlsSection:CreateButton({
+ScriptControls:CreateButton({
     Name = "Disable All Features",
     Callback = function()
         ESPEnabled = false
         AimbotEnabled = false
-        NoclipEnabled = false
         LightHelmetEnabled = false
+        SprintEnabled = false
+        ToggleNoclip(false)
         ClearAllESP()
         ToggleLightHelmet(false)
+        if SprintHeld then StopSprint() end
+        FOVCircle.Visible = false
         Library:Notify({Title = "Settings", Content = "All features disabled", Emoji = "✅"})
     end
 })
 
-ControlsSection:CreateButton({
+ScriptControls:CreateButton({
     Name = "Destroy Script",
     Callback = function()
         ScriptEnabled = false
         ClearAllESP()
         ToggleLightHelmet(false)
-        NoclipEnabled = false
+        ToggleNoclip(false)
+        if SprintHeld then StopSprint() end
+        FOVCircle:Remove()
         for _, conn in pairs(Connections) do
             pcall(function() conn:Disconnect() end)
         end
         Library:Unload()
     end
 })
+
+--// ===================== HELP TAB (?) =====================
+local HelpTab = Window:CreateTab({
+    Name = "Help",
+    Emoji = "❓"
+})
+
+local KeybindsSection = HelpTab:CreateSection({Name = "Keybinds (PC)", Side = "Left"})
+
+KeybindsSection:CreateLabel("F = Toggle Aimbot ON/OFF")
+KeybindsSection:CreateLabel("B = Toggle Target Everyone")
+KeybindsSection:CreateLabel("H = Toggle Light Helmet")
+KeybindsSection:CreateLabel("G = Toggle Noclip")
+KeybindsSection:CreateLabel("Shift (hold) = Sprint")
+KeybindsSection:CreateLabel("RMB (hold) = Aim at target")
+KeybindsSection:CreateLabel("K = Toggle UI visibility")
+
+local InfoSection = HelpTab:CreateSection({Name = "How It Works", Side = "Right"})
+
+InfoSection:CreateLabel("ESP: Shows players through walls with boxes/highlights and health bars")
+InfoSection:CreateLabel("Aimbot: Hold right-click to lock onto targets. FOV = detection range circle")
+InfoSection:CreateLabel("Target Everyone OFF = aims at killer only. ON = aims at anyone")
+InfoSection:CreateLabel("Noclip: Walk through walls. Press G to toggle instantly")
+InfoSection:CreateLabel("Sprint: Hold Shift for speed 20, release for speed 15")
+InfoSection:CreateLabel("Light Helmet: Adds a light to your head for dark maps")
 
 --------------------------------------------------------------------------------
 --// KEYBINDS
@@ -725,6 +924,7 @@ table.insert(Connections, UserInputService.InputBegan:Connect(function(input, ga
     if gameProcessed then return end
     if UserInputService:GetFocusedTextBox() then return end
 
+    -- F = Toggle Aimbot
     if input.KeyCode == Enum.KeyCode.F then
         AimbotEnabled = not AimbotEnabled
         Library:Notify({
@@ -735,7 +935,8 @@ table.insert(Connections, UserInputService.InputBegan:Connect(function(input, ga
         })
     end
 
-    if input.KeyCode == Enum.KeyCode.T then
+    -- B = Toggle Target Everyone
+    if input.KeyCode == Enum.KeyCode.B then
         AimbotTargetEveryone = not AimbotTargetEveryone
         Library:Notify({
             Title = "Aimbot Target",
@@ -745,6 +946,7 @@ table.insert(Connections, UserInputService.InputBegan:Connect(function(input, ga
         })
     end
 
+    -- H = Toggle Light Helmet
     if input.KeyCode == Enum.KeyCode.H then
         LightHelmetEnabled = not LightHelmetEnabled
         ToggleLightHelmet(LightHelmetEnabled)
@@ -756,14 +958,27 @@ table.insert(Connections, UserInputService.InputBegan:Connect(function(input, ga
         })
     end
 
+    -- G = Toggle Noclip
     if input.KeyCode == Enum.KeyCode.G then
-        NoclipEnabled = not NoclipEnabled
+        ToggleNoclip(not NoclipEnabled)
         Library:Notify({
             Title = "Noclip",
             Content = NoclipEnabled and "Enabled" or "Disabled",
             Emoji = NoclipEnabled and "👻" or "❌",
             Duration = 2
         })
+    end
+
+    -- Shift = Start Sprint
+    if input.KeyCode == Enum.KeyCode.LeftShift and SprintEnabled then
+        StartSprint()
+    end
+end))
+
+table.insert(Connections, UserInputService.InputEnded:Connect(function(input)
+    -- Shift released = Stop Sprint
+    if input.KeyCode == Enum.KeyCode.LeftShift and SprintHeld then
+        StopSprint()
     end
 end))
 
@@ -778,17 +993,15 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         UpdateESP()
     end
 
+    -- FOV Circle
+    UpdateFOVCircle()
+
     -- Aimbot (hold right mouse button to aim)
     if AimbotEnabled and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
         local target = GetAimbotTarget()
         if target then
             AimAt(target)
         end
-    end
-
-    -- Noclip (MUST run every frame - Roblox resets CanCollide)
-    if NoclipEnabled then
-        ApplyNoclip()
     end
 end))
 
@@ -799,7 +1012,7 @@ LoadWeaponNames()
 
 Library:Notify({
     Title = "Masacre Script",
-    Content = "Loaded! F:Aimbot T:TargetAll H:Light G:Noclip",
+    Content = "Loaded! F:Aimbot B:TargetAll H:Light G:Noclip",
     Emoji = "🔥",
     Duration = 5
 })
