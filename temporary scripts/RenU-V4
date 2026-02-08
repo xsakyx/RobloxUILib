@@ -45,6 +45,7 @@ local Mouse = LocalPlayer:GetMouse()
 -- UTILITY
 ---------------------------------------------------------
 local AllConnections = {}
+local KeybindsEnabled = true -- Global toggle for quick keybinds (E, G, X)
 
 local function SafeConnect(signal, func)
     local conn = signal:Connect(func)
@@ -262,6 +263,7 @@ function AimbotModule.Enable()
 
     AimbotModule.KeyConnection = SafeConnect(UserInputService.InputBegan, function(input, gpe)
         if gpe then return end
+        if not KeybindsEnabled then return end
         if input.KeyCode == Enum.KeyCode.X then
             if AimbotModule.TargetPlayer then
                 AimbotModule.TargetPlayer = nil
@@ -1589,6 +1591,20 @@ MiscSection:CreateButton({
     end
 })
 
+MiscSection:CreateToggle({
+    Name = "Quick Keybinds (E/G/X)",
+    Default = true,
+    Flag = "KeybindsToggle",
+    Callback = function(v)
+        KeybindsEnabled = v
+        if v then
+            Notify("Keybinds", "E/G/X keybinds enabled", "⌨️", 2)
+        else
+            Notify("Keybinds", "E/G/X keybinds disabled (won't interfere with game)", "⌨️", 2)
+        end
+    end
+})
+
 -- Server info
 local InfoSection = MiscTab:CreateSection({Name = "Server Info", Side = "Right"})
 
@@ -1726,6 +1742,7 @@ CreditsSection:CreateLabel("Migrated to RenLibBeta | Enhanced by Claude")
 ---------------------------------------------------------
 SafeConnect(UserInputService.InputBegan, function(input, gpe)
     if gpe then return end
+    if not KeybindsEnabled then return end
 
     if input.KeyCode == Enum.KeyCode.E then
         FlyModule.Toggle()
