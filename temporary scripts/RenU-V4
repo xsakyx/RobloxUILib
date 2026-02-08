@@ -1,0 +1,1760 @@
+--[[
+    RenU V4 - Universal Hub
+    Migrated to RenLibBêta | Enhanced & Expanded
+    Original by SoLoIsTe_Cry | Upgraded by Claude
+
+    Features:
+    - Aimbot (FOV circle, prediction, auto-lock, smoothing)
+    - ESP (Highlight + Billboard, health bars, distance, team color)
+    - Fly (math.huge force, shift boost, E key toggle)
+    - Noclip (instant toggle via Stepped)
+    - Invisibility (fixed: stores originals BEFORE clearing, keeps clothing in ReplicatedStorage)
+    - Follow Player (fixed: math.huge force, CFrame fallback, proper cleanup)
+    - Bang (animation-based, follows target)
+    - Click Teleport
+    - Speed / Jump / Gravity
+    - Infinite Jump
+    - Anti-AFK
+    - Fullbright
+    - Freecam
+    - Server Info
+    - Player List Teleport
+    - Keybinds: E=fly, G=noclip, X=aimbot lock, K=toggle UI
+]]
+
+-- Load RenLibBêta from MAIN branch
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/RenLibB%C3%AAta.lua"))()
+
+---------------------------------------------------------
+-- SERVICES
+---------------------------------------------------------
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+local StarterGui = game:GetService("StarterGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Stats = game:GetService("Stats")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
+
+---------------------------------------------------------
+-- UTILITY
+---------------------------------------------------------
+local AllConnections = {}
+
+local function SafeConnect(signal, func)
+    local conn = signal:Connect(func)
+    table.insert(AllConnections, conn)
+    return conn
+end
+
+local function GetCharacter()
+    local char = LocalPlayer.Character
+    if not char then return nil, nil, nil end
+    local hum = char:FindFirstChild("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not hum or not root then return nil, nil, nil end
+    return char, hum, root
+end
+
+local function GetPlayerNames()
+    local names = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            table.insert(names, p.Name)
+        end
+    end
+    return names
+end
+
+local function Notify(title, content, emoji, duration)
+    Library:Notify({
+        Title = title,
+        Content = content,
+        Emoji = emoji or "ℹ️",
+        Duration = duration or 3
+    })
+end
+
+---------------------------------------------------------
+-- CREATE WINDOW
+---------------------------------------------------------
+local Window = Library:CreateWindow({
+    Name = "RenU V4"
+})
+
+Notify("RenU V4", "Universal Hub loaded successfully", "✅", 4)
+
+---------------------------------------------------------
+-- TABS
+---------------------------------------------------------
+local MainTab = Window:CreateTab({Name = "Main", Emoji = "🏠"})
+local CombatTab = Window:CreateTab({Name = "Combat", Emoji = "⚔️"})
+local PlayersTab = Window:CreateTab({Name = "Players", Emoji = "👥"})
+local VisualsTab = Window:CreateTab({Name = "Visuals", Emoji = "👁️"})
+local MiscTab = Window:CreateTab({Name = "Misc", Emoji = "🔧"})
+local HelpTab = Window:CreateTab({Name = "Help", Emoji = "❓"})
+
+---------------------------------------------------------
+-- =====================================================
+-- MODULE: AIMBOT
+-- =====================================================
+---------------------------------------------------------
+local AimbotModule = {}
+AimbotModule.Enabled = false
+AimbotModule.TargetPlayer = nil
+AimbotModule.FOVRadius = 120
+AimbotModule.Connection = nil
+AimbotModule.FOVCircle = nil
+AimbotModule.KeyConnection = nil
+AimbotModule.AutoLock = true
+AimbotModule.Smoothing = 0.15
+AimbotModule.PredictionStrength = 0.12
+AimbotModule.AimPart = "Head"
+AimbotModule.ShowFOV = true
+AimbotModule.FOVColor = Color3.fromRGB(255, 0, 0)
+AimbotModule.FOVFilled = false
+AimbotModule.FOVThickness = 1
+AimbotModule.WallCheck = true
+
+function AimbotModule.CreateFOVCircle()
+    if AimbotModule.FOVCircle then
+        pcall(function() AimbotModule.FOVCircle:Remove() end)
+    end
+    AimbotModule.FOVCircle = Drawing.new("Circle")
+    AimbotModule.FOVCircle.Color = AimbotModule.FOVColor
+    AimbotModule.FOVCircle.Thickness = AimbotModule.FOVThickness
+    AimbotModule.FOVCircle.NumSides = 64
+    AimbotModule.FOVCircle.Radius = AimbotModule.FOVRadius
+    AimbotModule.FOVCircle.Filled = AimbotModule.FOVFilled
+    AimbotModule.FOVCircle.Transparency = 0.7
+    AimbotModule.FOVCircle.Visible = AimbotModule.ShowFOV and AimbotModule.Enabled
+    AimbotModule.FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+end
+
+function AimbotModule.IsPlayerValid(player)
+    if not player or player == LocalPlayer then return false end
+    if not player.Character or not player.Character.Parent then return false end
+    if not player.Character:FindFirstChild(AimbotModule.AimPart) then return false end
+    if not player.Character:FindFirstChild("HumanoidRootPart") then return false end
+    local hum = player.Character:FindFirstChild("Humanoid")
+    if not hum or hum.Health <= 0 then return false end
+    return true
+end
+
+function AimbotModule.GetClosestPlayerInFOV()
+    local closest, shortest = nil, math.huge
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if AimbotModule.IsPlayerValid(player) then
+            local part = player.Character:FindFirstChild(AimbotModule.AimPart)
+            local sp, onScreen = Camera:WorldToViewportPoint(part.Position)
+
+            if onScreen and sp.Z > 0 then
+                local pos = Vector2.new(sp.X, sp.Y)
+                local dist = (center - pos).Magnitude
+
+                if dist <= AimbotModule.FOVRadius and dist < shortest then
+                    local valid = true
+                    if AimbotModule.WallCheck and LocalPlayer.Character then
+                        local params = RaycastParams.new()
+                        params.FilterType = Enum.RaycastFilterType.Blacklist
+                        params.FilterDescendantsInstances = {LocalPlayer.Character}
+                        local dir = (part.Position - Camera.CFrame.Position)
+                        local result = workspace:Raycast(Camera.CFrame.Position, dir.Unit * dir.Magnitude, params)
+                        if result and not result.Instance:IsDescendantOf(player.Character) then
+                            valid = false
+                        end
+                    end
+                    if valid then
+                        closest = player
+                        shortest = dist
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+function AimbotModule.PredictPosition(part)
+    local vel = Vector3.zero
+    local hrp = part.Parent:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        vel = hrp.AssemblyLinearVelocity or hrp.Velocity or Vector3.zero
+    end
+    local dist = (part.Position - Camera.CFrame.Position).Magnitude
+    local ttt = dist / 1000
+    return part.Position + (vel * ttt * AimbotModule.PredictionStrength)
+end
+
+function AimbotModule.LockOnTarget()
+    if not AimbotModule.TargetPlayer or not AimbotModule.IsPlayerValid(AimbotModule.TargetPlayer) then
+        AimbotModule.TargetPlayer = nil
+        return
+    end
+
+    local part = AimbotModule.TargetPlayer.Character:FindFirstChild(AimbotModule.AimPart)
+    local sp, onScreen = Camera:WorldToViewportPoint(part.Position)
+    if not onScreen or sp.Z <= 0 then
+        AimbotModule.TargetPlayer = nil
+        return
+    end
+
+    local predicted = AimbotModule.PredictPosition(part)
+    local targetCF = CFrame.lookAt(Camera.CFrame.Position, predicted)
+
+    local screenPos = Vector2.new(sp.X, sp.Y)
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local screenDist = (center - screenPos).Magnitude
+
+    local smooth = AimbotModule.Smoothing * math.clamp(screenDist / AimbotModule.FOVRadius, 0.3, 1.2)
+    Camera.CFrame = Camera.CFrame:Lerp(targetCF, smooth)
+
+    if screenDist < 5 then
+        Camera.CFrame = targetCF
+    end
+end
+
+function AimbotModule.Enable()
+    if AimbotModule.Enabled then return end
+    AimbotModule.Enabled = true
+    AimbotModule.CreateFOVCircle()
+
+    AimbotModule.Connection = RunService.RenderStepped:Connect(function()
+        if AimbotModule.FOVCircle then
+            AimbotModule.FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+            AimbotModule.FOVCircle.Radius = AimbotModule.FOVRadius
+            AimbotModule.FOVCircle.Visible = AimbotModule.ShowFOV and AimbotModule.Enabled
+            AimbotModule.FOVCircle.Color = AimbotModule.FOVColor
+            AimbotModule.FOVCircle.Filled = AimbotModule.FOVFilled
+            AimbotModule.FOVCircle.Thickness = AimbotModule.FOVThickness
+        end
+
+        if AimbotModule.AutoLock then
+            if not AimbotModule.TargetPlayer or not AimbotModule.IsPlayerValid(AimbotModule.TargetPlayer) then
+                AimbotModule.TargetPlayer = AimbotModule.GetClosestPlayerInFOV()
+            else
+                local part = AimbotModule.TargetPlayer.Character:FindFirstChild(AimbotModule.AimPart)
+                local sp, on = Camera:WorldToViewportPoint(part.Position)
+                if on and sp.Z > 0 then
+                    local pos = Vector2.new(sp.X, sp.Y)
+                    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                    local dist = (center - pos).Magnitude
+                    if dist > AimbotModule.FOVRadius * 1.1 then
+                        AimbotModule.TargetPlayer = AimbotModule.GetClosestPlayerInFOV()
+                    end
+                else
+                    AimbotModule.TargetPlayer = AimbotModule.GetClosestPlayerInFOV()
+                end
+            end
+        end
+
+        if AimbotModule.TargetPlayer then
+            AimbotModule.LockOnTarget()
+        end
+    end)
+
+    AimbotModule.KeyConnection = SafeConnect(UserInputService.InputBegan, function(input, gpe)
+        if gpe then return end
+        if input.KeyCode == Enum.KeyCode.X then
+            if AimbotModule.TargetPlayer then
+                AimbotModule.TargetPlayer = nil
+                AimbotModule.AutoLock = false
+                Notify("Aimbot", "Target unlocked (3s pause)", "🎯", 2)
+                task.delay(3, function() AimbotModule.AutoLock = true end)
+            else
+                local t = AimbotModule.GetClosestPlayerInFOV()
+                if t then
+                    AimbotModule.TargetPlayer = t
+                    Notify("Aimbot", "Locked: " .. t.Name, "🎯", 2)
+                else
+                    Notify("Aimbot", "No targets in FOV", "🎯", 1)
+                end
+            end
+        end
+    end)
+
+    Notify("Aimbot", "Enabled | X = manual lock", "🎯", 3)
+end
+
+function AimbotModule.Disable()
+    if not AimbotModule.Enabled then return end
+    AimbotModule.Enabled = false
+    AimbotModule.TargetPlayer = nil
+    AimbotModule.AutoLock = true
+    if AimbotModule.Connection then AimbotModule.Connection:Disconnect(); AimbotModule.Connection = nil end
+    if AimbotModule.KeyConnection then AimbotModule.KeyConnection:Disconnect(); AimbotModule.KeyConnection = nil end
+    if AimbotModule.FOVCircle then pcall(function() AimbotModule.FOVCircle:Remove() end); AimbotModule.FOVCircle = nil end
+    Notify("Aimbot", "Disabled", "🎯", 2)
+end
+
+---------------------------------------------------------
+-- =====================================================
+-- MODULE: ESP
+-- =====================================================
+---------------------------------------------------------
+local ESPModule = {}
+ESPModule.Enabled = false
+ESPModule.Objects = {}
+ESPModule.Connections = {}
+ESPModule.ShowHealth = true
+ESPModule.ShowDistance = true
+ESPModule.ShowName = true
+ESPModule.FillTransparency = 0.7
+ESPModule.OutlineColor = Color3.fromRGB(255, 255, 255)
+ESPModule.FillColor = Color3.fromRGB(255, 50, 50)
+
+function ESPModule.CreateESP(player)
+    if player == LocalPlayer then return end
+    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then return end
+    ESPModule.RemoveESP(player)
+
+    local char = player.Character
+    local hrp = char.HumanoidRootPart
+    local head = char:FindFirstChild("Head")
+
+    local highlight = Instance.new("Highlight")
+    highlight.Parent = char
+    highlight.FillColor = ESPModule.FillColor
+    highlight.OutlineColor = ESPModule.OutlineColor
+    highlight.FillTransparency = ESPModule.FillTransparency
+    highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Adornee = char
+
+    local bb = Instance.new("BillboardGui")
+    bb.Parent = head or hrp
+    bb.Size = UDim2.new(0, 100, 0, 70)
+    bb.StudsOffset = Vector3.new(0, 4, 0)
+    bb.AlwaysOnTop = true
+    bb.LightInfluence = 0
+
+    local frame = Instance.new("Frame")
+    frame.Parent = bb
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    frame.BackgroundTransparency = 0.8
+    frame.BorderSizePixel = 0
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 4)
+
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Parent = frame
+    nameLabel.Size = UDim2.new(1, 0, 0.35, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = player.Name
+    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLabel.TextStrokeTransparency = 0.3
+    nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    nameLabel.TextScaled = true
+    nameLabel.Font = Enum.Font.GothamBold
+
+    local hpBG = Instance.new("Frame")
+    hpBG.Parent = frame
+    hpBG.Size = UDim2.new(0.9, 0, 0.12, 0)
+    hpBG.Position = UDim2.new(0.05, 0, 0.4, 0)
+    hpBG.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    hpBG.BorderSizePixel = 0
+    Instance.new("UICorner", hpBG).CornerRadius = UDim.new(0, 2)
+
+    local hpFill = Instance.new("Frame")
+    hpFill.Parent = hpBG
+    hpFill.Size = UDim2.new(1, 0, 1, 0)
+    hpFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    hpFill.BorderSizePixel = 0
+    Instance.new("UICorner", hpFill).CornerRadius = UDim.new(0, 2)
+
+    local hpLabel = Instance.new("TextLabel")
+    hpLabel.Parent = frame
+    hpLabel.Size = UDim2.new(1, 0, 0.25, 0)
+    hpLabel.Position = UDim2.new(0, 0, 0.55, 0)
+    hpLabel.BackgroundTransparency = 1
+    hpLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    hpLabel.TextStrokeTransparency = 0.3
+    hpLabel.TextScaled = true
+    hpLabel.Font = Enum.Font.Gotham
+
+    local distLabel = Instance.new("TextLabel")
+    distLabel.Parent = frame
+    distLabel.Size = UDim2.new(1, 0, 0.2, 0)
+    distLabel.Position = UDim2.new(0, 0, 0.8, 0)
+    distLabel.BackgroundTransparency = 1
+    distLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    distLabel.TextStrokeTransparency = 0.3
+    distLabel.TextScaled = true
+    distLabel.Font = Enum.Font.Gotham
+
+    local hum = char:FindFirstChild("Humanoid")
+    local hpConn = nil
+    if hum then
+        hpConn = hum:GetPropertyChangedSignal("Health"):Connect(function()
+            local hp = math.floor(hum.Health)
+            local max = math.floor(hum.MaxHealth)
+            local pct = hum.Health / hum.MaxHealth
+            hpLabel.Text = ESPModule.ShowHealth and (hp .. "/" .. max) or ""
+            hpFill.Size = UDim2.new(pct, 0, 1, 0)
+            hpBG.Visible = ESPModule.ShowHealth
+            hpFill.BackgroundColor3 = pct > 0.6 and Color3.fromRGB(0, 255, 0) or pct > 0.3 and Color3.fromRGB(255, 255, 0) or Color3.fromRGB(255, 0, 0)
+        end)
+    end
+
+    local alive = true
+    task.spawn(function()
+        while alive and ESPModule.Enabled and ESPModule.Objects[player] do
+            pcall(function()
+                if hum then
+                    local hp = math.floor(hum.Health)
+                    local max = math.floor(hum.MaxHealth)
+                    local pct = max > 0 and (hum.Health / max) or 0
+                    hpLabel.Text = ESPModule.ShowHealth and (hp .. "/" .. max) or ""
+                    hpFill.Size = UDim2.new(pct, 0, 1, 0)
+                    hpBG.Visible = ESPModule.ShowHealth
+                    hpFill.BackgroundColor3 = pct > 0.6 and Color3.fromRGB(0, 255, 0) or pct > 0.3 and Color3.fromRGB(255, 255, 0) or Color3.fromRGB(255, 0, 0)
+                end
+                if ESPModule.ShowDistance and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    local d = math.floor((LocalPlayer.Character.HumanoidRootPart.Position - hrp.Position).Magnitude)
+                    distLabel.Text = d .. "m"
+                else
+                    distLabel.Text = ""
+                end
+                nameLabel.Visible = ESPModule.ShowName
+            end)
+            task.wait(0.5)
+        end
+    end)
+
+    ESPModule.Objects[player] = {
+        highlight = highlight,
+        billboard = bb,
+        hpConnection = hpConn,
+        alive = function() alive = false end
+    }
+end
+
+function ESPModule.RemoveESP(player)
+    local obj = ESPModule.Objects[player]
+    if obj then
+        if obj.alive then obj.alive() end
+        if obj.highlight then pcall(function() obj.highlight:Destroy() end) end
+        if obj.billboard then pcall(function() obj.billboard:Destroy() end) end
+        if obj.hpConnection then pcall(function() obj.hpConnection:Disconnect() end) end
+        ESPModule.Objects[player] = nil
+    end
+end
+
+function ESPModule.Enable()
+    if ESPModule.Enabled then return end
+    ESPModule.Enabled = true
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            task.spawn(function() ESPModule.CreateESP(p) end)
+        end
+    end
+
+    ESPModule.Connections.Added = SafeConnect(Players.PlayerAdded, function(p)
+        if not ESPModule.Enabled or p == LocalPlayer then return end
+        local conn = p.CharacterAdded:Connect(function()
+            task.wait(1)
+            if ESPModule.Enabled then ESPModule.CreateESP(p) end
+        end)
+        ESPModule.Connections[p.Name .. "_ca"] = conn
+    end)
+
+    ESPModule.Connections.Removing = SafeConnect(Players.PlayerRemoving, function(p)
+        ESPModule.RemoveESP(p)
+    end)
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            ESPModule.Connections[p.Name .. "_ca"] = p.CharacterAdded:Connect(function()
+                task.wait(1)
+                if ESPModule.Enabled then ESPModule.CreateESP(p) end
+            end)
+            ESPModule.Connections[p.Name .. "_cr"] = p.CharacterRemoving:Connect(function()
+                ESPModule.RemoveESP(p)
+            end)
+        end
+    end
+
+    Notify("ESP", "Enabled", "👁️", 2)
+end
+
+function ESPModule.Disable()
+    if not ESPModule.Enabled then return end
+    ESPModule.Enabled = false
+    for p, _ in pairs(ESPModule.Objects) do ESPModule.RemoveESP(p) end
+    for _, c in pairs(ESPModule.Connections) do pcall(function() c:Disconnect() end) end
+    ESPModule.Connections = {}
+    Notify("ESP", "Disabled", "👁️", 2)
+end
+
+---------------------------------------------------------
+-- =====================================================
+-- MODULE: FLY (FIXED - math.huge force, E key, shift boost)
+-- =====================================================
+---------------------------------------------------------
+local FlyModule = {}
+FlyModule.Flying = false
+FlyModule.Speed = 50
+FlyModule.BoostMultiplier = 2
+FlyModule.Connection = nil
+FlyModule.BV = nil
+FlyModule.BAV = nil
+
+function FlyModule.Start()
+    if FlyModule.Flying then return end
+    local char, hum, root = GetCharacter()
+    if not char then Notify("Fly", "No character", "❌", 2); return end
+
+    FlyModule.Flying = true
+    hum.PlatformStand = true
+
+    FlyModule.BV = Instance.new("BodyVelocity")
+    FlyModule.BV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    FlyModule.BV.Velocity = Vector3.zero
+    FlyModule.BV.Parent = root
+
+    FlyModule.BAV = Instance.new("BodyAngularVelocity")
+    FlyModule.BAV.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    FlyModule.BAV.AngularVelocity = Vector3.zero
+    FlyModule.BAV.Parent = root
+
+    FlyModule.Connection = RunService.RenderStepped:Connect(function()
+        local cam = workspace.CurrentCamera
+        local mv = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then mv = mv + Vector3.new(0, 0, -1) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then mv = mv + Vector3.new(0, 0, 1) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then mv = mv + Vector3.new(-1, 0, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then mv = mv + Vector3.new(1, 0, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then mv = mv + Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then mv = mv + Vector3.new(0, -1, 0) end
+
+        local speed = FlyModule.Speed
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+            speed = speed * FlyModule.BoostMultiplier
+        end
+
+        if mv.Magnitude > 0 then
+            FlyModule.BV.Velocity = cam.CFrame:VectorToWorldSpace(mv.Unit) * speed
+        else
+            FlyModule.BV.Velocity = Vector3.zero
+        end
+        FlyModule.BAV.AngularVelocity = Vector3.zero
+    end)
+
+    Notify("Fly", "ON | Shift=boost | E=toggle", "✈️", 2)
+end
+
+function FlyModule.Stop()
+    FlyModule.Flying = false
+    if FlyModule.BV then FlyModule.BV:Destroy(); FlyModule.BV = nil end
+    if FlyModule.BAV then FlyModule.BAV:Destroy(); FlyModule.BAV = nil end
+    if FlyModule.Connection then FlyModule.Connection:Disconnect(); FlyModule.Connection = nil end
+    local _, hum, _ = GetCharacter()
+    if hum then hum.PlatformStand = false end
+    Notify("Fly", "OFF", "✈️", 2)
+end
+
+function FlyModule.Toggle()
+    if FlyModule.Flying then FlyModule.Stop() else FlyModule.Start() end
+end
+
+---------------------------------------------------------
+-- =====================================================
+-- MODULE: NOCLIP (instant toggle)
+-- =====================================================
+---------------------------------------------------------
+local NoclipModule = {}
+NoclipModule.Enabled = false
+NoclipModule.Connection = nil
+
+function NoclipModule.Enable()
+    if NoclipModule.Enabled then return end
+    NoclipModule.Enabled = true
+    NoclipModule.Connection = RunService.Stepped:Connect(function()
+        local char = LocalPlayer.Character
+        if char then
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then p.CanCollide = false end
+            end
+        end
+    end)
+end
+
+function NoclipModule.Disable()
+    if not NoclipModule.Enabled then return end
+    NoclipModule.Enabled = false
+    if NoclipModule.Connection then NoclipModule.Connection:Disconnect(); NoclipModule.Connection = nil end
+    local char = LocalPlayer.Character
+    if char then
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
+                p.CanCollide = true
+            end
+        end
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
+    end
+end
+
+function NoclipModule.Toggle()
+    if NoclipModule.Enabled then NoclipModule.Disable() else NoclipModule.Enable() end
+end
+
+---------------------------------------------------------
+-- =====================================================
+-- MODULE: INVISIBILITY (FIXED)
+-- =====================================================
+---------------------------------------------------------
+local InvisModule = {}
+InvisModule.Active = false
+InvisModule.SavedParts = {} -- {part = originalTransparency}
+InvisModule.SavedDecals = {} -- {decal = {prop, originalVal}}
+InvisModule.SavedClothing = {} -- {clothing = originalParent}
+InvisModule.MeshTextures = {} -- {mesh = originalTextureId}
+
+function InvisModule.MakeInvisible()
+    if InvisModule.Active then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    InvisModule.Active = true
+    InvisModule.SavedParts = {}
+    InvisModule.SavedDecals = {}
+    InvisModule.SavedClothing = {}
+    InvisModule.MeshTextures = {}
+
+    -- Hide body parts
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            InvisModule.SavedParts[part] = part.Transparency
+            part.Transparency = 1
+        end
+        if part:IsA("Decal") or part:IsA("Texture") then
+            InvisModule.SavedDecals[part] = part.Transparency
+            part.Transparency = 1
+        end
+        if part:IsA("SurfaceGui") then
+            InvisModule.SavedDecals[part] = part.Enabled
+            part.Enabled = false
+        end
+        if part:IsA("SpecialMesh") then
+            InvisModule.MeshTextures[part] = part.TextureId
+            part.TextureId = ""
+        end
+    end
+
+    -- Hide accessories
+    for _, acc in ipairs(char:GetChildren()) do
+        if acc:IsA("Accessory") or acc:IsA("Hat") then
+            local handle = acc:FindFirstChild("Handle")
+            if handle then
+                InvisModule.SavedParts[handle] = handle.Transparency
+                handle.Transparency = 1
+                for _, child in ipairs(handle:GetDescendants()) do
+                    if child:IsA("SpecialMesh") then
+                        InvisModule.MeshTextures[child] = child.TextureId
+                        child.TextureId = ""
+                    end
+                end
+            end
+        end
+    end
+
+    -- Store clothing in ReplicatedStorage (safer than nil parent)
+    for _, item in ipairs(char:GetChildren()) do
+        if item:IsA("Shirt") or item:IsA("Pants") or item:IsA("ShirtGraphic") then
+            InvisModule.SavedClothing[item] = char
+            item.Parent = ReplicatedStorage
+        end
+    end
+
+    Notify("Invisibility", "ON - You are invisible (client-side)", "👻", 3)
+end
+
+function InvisModule.MakeVisible()
+    if not InvisModule.Active then return end
+    InvisModule.Active = false
+
+    -- Restore parts
+    for part, orig in pairs(InvisModule.SavedParts) do
+        if part and part.Parent then part.Transparency = orig end
+    end
+
+    -- Restore decals/guis
+    for decal, orig in pairs(InvisModule.SavedDecals) do
+        if decal and decal.Parent then
+            if decal:IsA("Decal") or decal:IsA("Texture") then
+                decal.Transparency = orig
+            elseif decal:IsA("SurfaceGui") then
+                decal.Enabled = orig
+            end
+        end
+    end
+
+    -- Restore mesh textures
+    for mesh, texId in pairs(InvisModule.MeshTextures) do
+        if mesh and mesh.Parent then mesh.TextureId = texId end
+    end
+
+    -- Restore clothing
+    for clothing, parent in pairs(InvisModule.SavedClothing) do
+        if clothing then
+            pcall(function() clothing.Parent = parent end)
+        end
+    end
+
+    InvisModule.SavedParts = {}
+    InvisModule.SavedDecals = {}
+    InvisModule.SavedClothing = {}
+    InvisModule.MeshTextures = {}
+
+    Notify("Invisibility", "OFF - You are visible again", "👻", 2)
+end
+
+function InvisModule.Toggle()
+    if InvisModule.Active then InvisModule.MakeVisible() else InvisModule.MakeInvisible() end
+end
+
+---------------------------------------------------------
+-- =====================================================
+-- MODULE: FOLLOW PLAYER (FIXED)
+-- =====================================================
+---------------------------------------------------------
+local FollowModule = {}
+FollowModule.Active = false
+FollowModule.Target = nil
+FollowModule.Mode = "Follow"
+FollowModule.Distance = 5
+FollowModule.Connection = nil
+FollowModule.BP = nil
+FollowModule.BG = nil
+FollowModule.OrigCollide = {}
+
+function FollowModule.Start(playerName)
+    if FollowModule.Active then FollowModule.Stop() end
+
+    -- Find target
+    local target = nil
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and (p.Name == playerName or string.lower(p.Name):find(string.lower(playerName))) then
+            target = p
+            break
+        end
+    end
+
+    if not target then Notify("Follow", "Player not found: " .. playerName, "❌", 3); return end
+    if not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then
+        Notify("Follow", target.Name .. " has no character", "❌", 2); return
+    end
+
+    local char, hum, root = GetCharacter()
+    if not char then return end
+
+    FollowModule.Active = true
+    FollowModule.Target = target
+
+    if FollowModule.Mode == "Follow" then
+        -- Use CFrame teleport approach (much more reliable than BodyVelocity)
+        FollowModule.Connection = RunService.Heartbeat:Connect(function()
+            if not FollowModule.Active or not FollowModule.Target then return end
+            local tp = FollowModule.Target
+            if not tp.Parent or not tp.Character or not tp.Character:FindFirstChild("HumanoidRootPart") then
+                FollowModule.Stop()
+                return
+            end
+            local c, h, r = GetCharacter()
+            if not c then return end
+
+            local tRoot = tp.Character.HumanoidRootPart
+            local dist = (r.Position - tRoot.Position).Magnitude
+
+            if dist > FollowModule.Distance + 1 then
+                local dir = (tRoot.Position - r.Position).Unit
+                local targetPos = tRoot.Position - dir * FollowModule.Distance
+                r.CFrame = CFrame.new(targetPos, tRoot.Position)
+            end
+        end)
+    else
+        -- Backpack / Head modes: disable collision, use BodyPosition
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then
+                FollowModule.OrigCollide[p] = p.CanCollide
+                p.CanCollide = false
+            end
+        end
+
+        hum.PlatformStand = true
+
+        FollowModule.BP = Instance.new("BodyPosition")
+        FollowModule.BP.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        FollowModule.BP.P = 10000
+        FollowModule.BP.D = 1000
+        FollowModule.BP.Parent = root
+
+        FollowModule.BG = Instance.new("BodyGyro")
+        FollowModule.BG.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+        FollowModule.BG.P = 10000
+        FollowModule.BG.Parent = root
+
+        FollowModule.Connection = RunService.Heartbeat:Connect(function()
+            if not FollowModule.Active or not FollowModule.Target then return end
+            local tp = FollowModule.Target
+            if not tp.Parent or not tp.Character or not tp.Character:FindFirstChild("HumanoidRootPart") then
+                FollowModule.Stop()
+                return
+            end
+
+            local tRoot = tp.Character.HumanoidRootPart
+            local offset
+            if FollowModule.Mode == "Backpack" then
+                offset = tRoot.CFrame.LookVector * -1.5 + Vector3.new(0, 0.5, 0)
+            elseif FollowModule.Mode == "Head" then
+                offset = Vector3.new(0, 3, 0)
+            end
+
+            FollowModule.BP.Position = tRoot.Position + offset
+            FollowModule.BG.CFrame = CFrame.new(tRoot.Position + offset, tRoot.Position + offset - tRoot.CFrame.LookVector)
+
+            -- Keep collision off
+            local c = LocalPlayer.Character
+            if c then
+                for _, p in ipairs(c:GetDescendants()) do
+                    if p:IsA("BasePart") then p.CanCollide = false end
+                end
+            end
+        end)
+    end
+
+    Notify("Follow", FollowModule.Mode .. " -> " .. target.Name, "👥", 3)
+end
+
+function FollowModule.Stop()
+    FollowModule.Active = false
+    FollowModule.Target = nil
+    if FollowModule.Connection then FollowModule.Connection:Disconnect(); FollowModule.Connection = nil end
+    if FollowModule.BP then FollowModule.BP:Destroy(); FollowModule.BP = nil end
+    if FollowModule.BG then FollowModule.BG:Destroy(); FollowModule.BG = nil end
+
+    local char, hum, root = GetCharacter()
+    if hum then
+        hum.PlatformStand = false
+        hum.Sit = false
+    end
+    for part, val in pairs(FollowModule.OrigCollide) do
+        if part and part.Parent then part.CanCollide = val end
+    end
+    FollowModule.OrigCollide = {}
+    workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+
+    Notify("Follow", "Stopped", "👥", 2)
+end
+
+---------------------------------------------------------
+-- =====================================================
+-- MODULE: BANG
+-- =====================================================
+---------------------------------------------------------
+local BangModule = {}
+BangModule.Active = false
+BangModule.Target = nil
+BangModule.Connection = nil
+BangModule.AnimTrack = nil
+BangModule.BP = nil
+BangModule.BG = nil
+
+function BangModule.Start(playerName)
+    if BangModule.Active then BangModule.Stop() end
+
+    local target = nil
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and (p.Name == playerName or string.lower(p.Name):find(string.lower(playerName))) then
+            target = p
+            break
+        end
+    end
+    if not target then Notify("Bang", "Player not found", "❌", 2); return end
+    if not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then
+        Notify("Bang", target.Name .. " has no character", "❌", 2); return
+    end
+
+    local char, hum, root = GetCharacter()
+    if not char then return end
+
+    BangModule.Active = true
+    BangModule.Target = target
+
+    -- Play thrust animation
+    local anim = Instance.new("Animation")
+    anim.AnimationId = "rbxassetid://148840371"
+    pcall(function()
+        BangModule.AnimTrack = hum:LoadAnimation(anim)
+        BangModule.AnimTrack.Looped = true
+        BangModule.AnimTrack:Play()
+    end)
+
+    -- Disable collision
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") then p.CanCollide = false end
+    end
+
+    hum.PlatformStand = true
+
+    BangModule.BP = Instance.new("BodyPosition")
+    BangModule.BP.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    BangModule.BP.P = 30000
+    BangModule.BP.D = 1000
+    BangModule.BP.Parent = root
+
+    BangModule.BG = Instance.new("BodyGyro")
+    BangModule.BG.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    BangModule.BG.P = 30000
+    BangModule.BG.Parent = root
+
+    BangModule.Connection = RunService.Heartbeat:Connect(function()
+        if not BangModule.Active or not BangModule.Target then return end
+        local tp = BangModule.Target
+        if not tp.Parent or not tp.Character or not tp.Character:FindFirstChild("HumanoidRootPart") then
+            BangModule.Stop()
+            return
+        end
+
+        local tRoot = tp.Character.HumanoidRootPart
+        local offset = tRoot.CFrame.LookVector * 1.2
+        BangModule.BP.Position = tRoot.Position + offset
+        BangModule.BG.CFrame = CFrame.new(tRoot.Position + offset, tRoot.Position)
+
+        -- Keep collision off
+        local c = LocalPlayer.Character
+        if c then
+            for _, p in ipairs(c:GetDescendants()) do
+                if p:IsA("BasePart") then p.CanCollide = false end
+            end
+        end
+    end)
+
+    Notify("Bang", "Targeting " .. target.Name, "💀", 3)
+end
+
+function BangModule.Stop()
+    BangModule.Active = false
+    BangModule.Target = nil
+    if BangModule.Connection then BangModule.Connection:Disconnect(); BangModule.Connection = nil end
+    if BangModule.AnimTrack then pcall(function() BangModule.AnimTrack:Stop() end); BangModule.AnimTrack = nil end
+    if BangModule.BP then BangModule.BP:Destroy(); BangModule.BP = nil end
+    if BangModule.BG then BangModule.BG:Destroy(); BangModule.BG = nil end
+
+    local _, hum, _ = GetCharacter()
+    if hum then hum.PlatformStand = false end
+    local char = LocalPlayer.Character
+    if char then
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
+                p.CanCollide = true
+            end
+        end
+    end
+
+    Notify("Bang", "Stopped", "💀", 2)
+end
+
+---------------------------------------------------------
+-- =====================================================
+-- MODULE: CLICK TELEPORT
+-- =====================================================
+---------------------------------------------------------
+local ClickTPModule = {}
+ClickTPModule.Enabled = false
+ClickTPModule.Connection = nil
+
+function ClickTPModule.Enable()
+    if ClickTPModule.Enabled then return end
+    ClickTPModule.Enabled = true
+    ClickTPModule.Connection = Mouse.Button1Down:Connect(function()
+        if not ClickTPModule.Enabled then return end
+        local _, _, root = GetCharacter()
+        if root and Mouse.Hit then
+            root.CFrame = CFrame.new(Mouse.Hit.Position + Vector3.new(0, 5, 0))
+        end
+    end)
+end
+
+function ClickTPModule.Disable()
+    if not ClickTPModule.Enabled then return end
+    ClickTPModule.Enabled = false
+    if ClickTPModule.Connection then ClickTPModule.Connection:Disconnect(); ClickTPModule.Connection = nil end
+end
+
+---------------------------------------------------------
+-- =====================================================
+-- MODULE: INFINITE JUMP
+-- =====================================================
+---------------------------------------------------------
+local InfJumpModule = {}
+InfJumpModule.Enabled = false
+InfJumpModule.Connection = nil
+
+function InfJumpModule.Enable()
+    if InfJumpModule.Enabled then return end
+    InfJumpModule.Enabled = true
+    InfJumpModule.Connection = SafeConnect(UserInputService.JumpRequest, function()
+        if not InfJumpModule.Enabled then return end
+        local _, hum, _ = GetCharacter()
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end)
+end
+
+function InfJumpModule.Disable()
+    if not InfJumpModule.Enabled then return end
+    InfJumpModule.Enabled = false
+    if InfJumpModule.Connection then InfJumpModule.Connection:Disconnect(); InfJumpModule.Connection = nil end
+end
+
+---------------------------------------------------------
+-- =====================================================
+-- MODULE: ANTI-AFK
+-- =====================================================
+---------------------------------------------------------
+local AntiAFKModule = {}
+AntiAFKModule.Active = false
+
+function AntiAFKModule.Enable()
+    if AntiAFKModule.Active then return end
+    AntiAFKModule.Active = true
+
+    local vu = game:GetService("VirtualUser")
+    AntiAFKModule.Connection = SafeConnect(LocalPlayer.Idled, function()
+        if AntiAFKModule.Active then
+            vu:Button2Down(Vector2.zero, workspace.CurrentCamera.CFrame)
+            task.wait(1)
+            vu:Button2Up(Vector2.zero, workspace.CurrentCamera.CFrame)
+        end
+    end)
+
+    Notify("Anti-AFK", "ON - You won't be kicked", "🛡️", 2)
+end
+
+function AntiAFKModule.Disable()
+    if not AntiAFKModule.Active then return end
+    AntiAFKModule.Active = false
+    if AntiAFKModule.Connection then AntiAFKModule.Connection:Disconnect(); AntiAFKModule.Connection = nil end
+    Notify("Anti-AFK", "OFF", "🛡️", 2)
+end
+
+---------------------------------------------------------
+-- =====================================================
+-- MODULE: FULLBRIGHT
+-- =====================================================
+---------------------------------------------------------
+local FullbrightModule = {}
+FullbrightModule.Active = false
+FullbrightModule.OrigAmbient = nil
+FullbrightModule.OrigBrightness = nil
+FullbrightModule.OrigOutdoor = nil
+FullbrightModule.OrigFog = nil
+
+function FullbrightModule.Enable()
+    if FullbrightModule.Active then return end
+    FullbrightModule.Active = true
+    FullbrightModule.OrigAmbient = Lighting.Ambient
+    FullbrightModule.OrigBrightness = Lighting.Brightness
+    FullbrightModule.OrigOutdoor = Lighting.OutdoorAmbient
+    FullbrightModule.OrigFog = Lighting.FogEnd
+
+    Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+    Lighting.Brightness = 2
+    Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+    Lighting.FogEnd = 1e10
+end
+
+function FullbrightModule.Disable()
+    if not FullbrightModule.Active then return end
+    FullbrightModule.Active = false
+    if FullbrightModule.OrigAmbient then Lighting.Ambient = FullbrightModule.OrigAmbient end
+    if FullbrightModule.OrigBrightness then Lighting.Brightness = FullbrightModule.OrigBrightness end
+    if FullbrightModule.OrigOutdoor then Lighting.OutdoorAmbient = FullbrightModule.OrigOutdoor end
+    if FullbrightModule.OrigFog then Lighting.FogEnd = FullbrightModule.OrigFog end
+end
+
+---------------------------------------------------------
+-- =====================================================
+-- MODULE: FREECAM
+-- =====================================================
+---------------------------------------------------------
+local FreecamModule = {}
+FreecamModule.Active = false
+FreecamModule.Speed = 50
+FreecamModule.Connection = nil
+FreecamModule.SavedCF = nil
+
+function FreecamModule.Enable()
+    if FreecamModule.Active then return end
+    local char, hum, root = GetCharacter()
+    if not char then return end
+
+    FreecamModule.Active = true
+    FreecamModule.SavedCF = root.CFrame
+
+    Camera.CameraType = Enum.CameraType.Scriptable
+
+    FreecamModule.Connection = RunService.RenderStepped:Connect(function(dt)
+        local mv = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then mv = mv + Vector3.new(0, 0, -1) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then mv = mv + Vector3.new(0, 0, 1) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then mv = mv + Vector3.new(-1, 0, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then mv = mv + Vector3.new(1, 0, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then mv = mv + Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then mv = mv + Vector3.new(0, -1, 0) end
+
+        local speed = FreecamModule.Speed
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then speed = speed * 2 end
+
+        if mv.Magnitude > 0 then
+            Camera.CFrame = Camera.CFrame + Camera.CFrame:VectorToWorldSpace(mv.Unit) * speed * dt
+        end
+    end)
+
+    Notify("Freecam", "ON | WASD+Space/Ctrl to move", "📷", 3)
+end
+
+function FreecamModule.Disable()
+    if not FreecamModule.Active then return end
+    FreecamModule.Active = false
+    if FreecamModule.Connection then FreecamModule.Connection:Disconnect(); FreecamModule.Connection = nil end
+    Camera.CameraType = Enum.CameraType.Custom
+
+    local _, _, root = GetCharacter()
+    if root and FreecamModule.SavedCF then
+        Camera.CFrame = CFrame.new(FreecamModule.SavedCF.Position + Vector3.new(0, 5, 10), FreecamModule.SavedCF.Position)
+    end
+
+    Notify("Freecam", "OFF", "📷", 2)
+end
+
+---------------------------------------------------------
+-- =====================================================
+-- UI: MAIN TAB
+-- =====================================================
+---------------------------------------------------------
+local MovementSection = MainTab:CreateSection({Name = "Movement", Side = "Left"})
+
+MovementSection:CreateToggle({
+    Name = "Fly (E key)",
+    Default = false,
+    Flag = "FlyToggle",
+    Callback = function(v)
+        if v then FlyModule.Start() else FlyModule.Stop() end
+    end
+})
+
+MovementSection:CreateSlider({
+    Name = "Fly Speed",
+    Min = 10,
+    Max = 300,
+    Default = 50,
+    Flag = "FlySpeed",
+    Callback = function(v) FlyModule.Speed = v end
+})
+
+MovementSection:CreateSlider({
+    Name = "Walk Speed",
+    Min = 5,
+    Max = 150,
+    Default = 16,
+    Flag = "WalkSpeed",
+    Callback = function(v)
+        local _, hum, _ = GetCharacter()
+        if hum then hum.WalkSpeed = v end
+    end
+})
+
+MovementSection:CreateSlider({
+    Name = "Jump Power",
+    Min = 10,
+    Max = 300,
+    Default = 50,
+    Flag = "JumpPower",
+    Callback = function(v)
+        local _, hum, _ = GetCharacter()
+        if hum then hum.JumpPower = v end
+    end
+})
+
+MovementSection:CreateSlider({
+    Name = "Gravity",
+    Min = 0,
+    Max = 400,
+    Default = 196,
+    Flag = "Gravity",
+    Callback = function(v) workspace.Gravity = v end
+})
+
+MovementSection:CreateToggle({
+    Name = "Noclip (G key)",
+    Default = false,
+    Flag = "NoclipToggle",
+    Callback = function(v)
+        if v then NoclipModule.Enable() else NoclipModule.Disable() end
+    end
+})
+
+MovementSection:CreateToggle({
+    Name = "Infinite Jump",
+    Default = false,
+    Flag = "InfJump",
+    Callback = function(v)
+        if v then InfJumpModule.Enable() else InfJumpModule.Disable() end
+    end
+})
+
+MovementSection:CreateToggle({
+    Name = "Click Teleport",
+    Default = false,
+    Flag = "ClickTP",
+    Callback = function(v)
+        if v then ClickTPModule.Enable() else ClickTPModule.Disable() end
+    end
+})
+
+-- Teleport to player
+local TPSection = MainTab:CreateSection({Name = "Teleport to Player", Side = "Right"})
+
+local selectedTPPlayer = ""
+local tpDropdown = TPSection:CreateDropdown({
+    Name = "Select Player",
+    Values = GetPlayerNames(),
+    Default = nil,
+    Flag = "TPPlayer",
+    Callback = function(v) selectedTPPlayer = v end
+})
+
+TPSection:CreateButton({
+    Name = "Teleport",
+    Callback = function()
+        if selectedTPPlayer == "" then Notify("TP", "Select a player first", "❌", 2); return end
+        local target = Players:FindFirstChild(selectedTPPlayer)
+        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            local _, _, root = GetCharacter()
+            if root then
+                root.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0)
+                Notify("TP", "Teleported to " .. selectedTPPlayer, "✅", 2)
+            end
+        else
+            Notify("TP", "Player not found or has no character", "❌", 2)
+        end
+    end
+})
+
+TPSection:CreateButton({
+    Name = "Refresh Player List",
+    Callback = function()
+        tpDropdown:Refresh(GetPlayerNames())
+        Notify("TP", "Player list refreshed", "🔄", 1)
+    end
+})
+
+---------------------------------------------------------
+-- =====================================================
+-- UI: COMBAT TAB
+-- =====================================================
+---------------------------------------------------------
+local AimbotSection = CombatTab:CreateSection({Name = "Aimbot", Side = "Left"})
+
+AimbotSection:CreateToggle({
+    Name = "Enable Aimbot",
+    Default = false,
+    Flag = "AimbotToggle",
+    Callback = function(v)
+        if v then AimbotModule.Enable() else AimbotModule.Disable() end
+    end
+})
+
+AimbotSection:CreateSlider({
+    Name = "FOV Radius",
+    Min = 30,
+    Max = 400,
+    Default = 120,
+    Flag = "FOVRadius",
+    Callback = function(v)
+        AimbotModule.FOVRadius = v
+        if AimbotModule.FOVCircle then AimbotModule.FOVCircle.Radius = v end
+    end
+})
+
+AimbotSection:CreateSlider({
+    Name = "Smoothness (1=snap, 100=slow)",
+    Min = 1,
+    Max = 100,
+    Default = 15,
+    Flag = "AimbotSmooth",
+    Callback = function(v) AimbotModule.Smoothing = v / 100 end
+})
+
+AimbotSection:CreateDropdown({
+    Name = "Aim Part",
+    Values = {"Head", "HumanoidRootPart", "UpperTorso"},
+    Default = "Head",
+    Flag = "AimPart",
+    Callback = function(v) AimbotModule.AimPart = v end
+})
+
+AimbotSection:CreateToggle({
+    Name = "Wall Check",
+    Default = true,
+    Flag = "WallCheck",
+    Callback = function(v) AimbotModule.WallCheck = v end
+})
+
+-- FOV Circle customization
+local FOVSection = CombatTab:CreateSection({Name = "FOV Circle", Side = "Right"})
+
+FOVSection:CreateToggle({
+    Name = "Show FOV Circle",
+    Default = true,
+    Flag = "ShowFOV",
+    Callback = function(v) AimbotModule.ShowFOV = v end
+})
+
+FOVSection:CreateToggle({
+    Name = "Filled",
+    Default = false,
+    Flag = "FOVFilled",
+    Callback = function(v) AimbotModule.FOVFilled = v end
+})
+
+FOVSection:CreateSlider({
+    Name = "Thickness",
+    Min = 1,
+    Max = 5,
+    Default = 1,
+    Flag = "FOVThick",
+    Callback = function(v) AimbotModule.FOVThickness = v end
+})
+
+FOVSection:CreateDropdown({
+    Name = "FOV Color",
+    Values = {"Red", "Green", "Blue", "White", "Yellow", "Purple", "Cyan"},
+    Default = "Red",
+    Flag = "FOVColor",
+    Callback = function(v)
+        local colors = {
+            Red = Color3.fromRGB(255, 0, 0),
+            Green = Color3.fromRGB(0, 255, 0),
+            Blue = Color3.fromRGB(0, 100, 255),
+            White = Color3.fromRGB(255, 255, 255),
+            Yellow = Color3.fromRGB(255, 255, 0),
+            Purple = Color3.fromRGB(180, 0, 255),
+            Cyan = Color3.fromRGB(0, 255, 255)
+        }
+        AimbotModule.FOVColor = colors[v] or Color3.fromRGB(255, 0, 0)
+    end
+})
+
+FOVSection:CreateLabel("X key = manual lock/unlock target")
+
+-- ESP Section in Combat
+local ESPSection = CombatTab:CreateSection({Name = "ESP", Side = "Right"})
+
+ESPSection:CreateToggle({
+    Name = "Enable ESP",
+    Default = false,
+    Flag = "ESPToggle",
+    Callback = function(v)
+        if v then ESPModule.Enable() else ESPModule.Disable() end
+    end
+})
+
+ESPSection:CreateToggle({
+    Name = "Show Health",
+    Default = true,
+    Flag = "ESPHealth",
+    Callback = function(v) ESPModule.ShowHealth = v end
+})
+
+ESPSection:CreateToggle({
+    Name = "Show Distance",
+    Default = true,
+    Flag = "ESPDist",
+    Callback = function(v) ESPModule.ShowDistance = v end
+})
+
+ESPSection:CreateToggle({
+    Name = "Show Names",
+    Default = true,
+    Flag = "ESPNames",
+    Callback = function(v) ESPModule.ShowName = v end
+})
+
+---------------------------------------------------------
+-- =====================================================
+-- UI: PLAYERS TAB
+-- =====================================================
+---------------------------------------------------------
+local InteractSection = PlayersTab:CreateSection({Name = "Player Interaction", Side = "Left"})
+
+local selectedInteractPlayer = ""
+local interactDropdown = InteractSection:CreateDropdown({
+    Name = "Target Player",
+    Values = GetPlayerNames(),
+    Default = nil,
+    Flag = "InteractPlayer",
+    Callback = function(v) selectedInteractPlayer = v end
+})
+
+InteractSection:CreateDropdown({
+    Name = "Mode",
+    Values = {"Follow", "Backpack", "Head"},
+    Default = "Follow",
+    Flag = "InteractMode",
+    Callback = function(v) FollowModule.Mode = v end
+})
+
+InteractSection:CreateSlider({
+    Name = "Follow Distance",
+    Min = 1,
+    Max = 20,
+    Default = 5,
+    Flag = "FollowDist",
+    Callback = function(v) FollowModule.Distance = v end
+})
+
+InteractSection:CreateButton({
+    Name = "Start Following",
+    Callback = function()
+        if selectedInteractPlayer == "" then Notify("Follow", "Select a player", "❌", 2); return end
+        FollowModule.Start(selectedInteractPlayer)
+    end
+})
+
+InteractSection:CreateButton({
+    Name = "Stop Following",
+    Callback = function() FollowModule.Stop() end
+})
+
+InteractSection:CreateButton({
+    Name = "Refresh Players",
+    Callback = function()
+        local names = GetPlayerNames()
+        interactDropdown:Refresh(names)
+        bangDropdown:Refresh(names)
+        Notify("Players", "List refreshed", "🔄", 1)
+    end
+})
+
+-- Bang section
+local BangSection = PlayersTab:CreateSection({Name = "Bang", Side = "Right"})
+
+local selectedBangPlayer = ""
+bangDropdown = BangSection:CreateDropdown({
+    Name = "Target Player",
+    Values = GetPlayerNames(),
+    Default = nil,
+    Flag = "BangPlayer",
+    Callback = function(v) selectedBangPlayer = v end
+})
+
+BangSection:CreateButton({
+    Name = "Start Bang",
+    Callback = function()
+        if selectedBangPlayer == "" then Notify("Bang", "Select a player", "❌", 2); return end
+        BangModule.Start(selectedBangPlayer)
+    end
+})
+
+BangSection:CreateButton({
+    Name = "Stop Bang",
+    Callback = function() BangModule.Stop() end
+})
+
+BangSection:CreateLabel("Plays animation + follows target closely")
+
+---------------------------------------------------------
+-- =====================================================
+-- UI: VISUALS TAB
+-- =====================================================
+---------------------------------------------------------
+local VisSection = VisualsTab:CreateSection({Name = "Character", Side = "Left"})
+
+VisSection:CreateToggle({
+    Name = "Invisibility",
+    Default = false,
+    Flag = "InvisToggle",
+    Callback = function(v)
+        if v then InvisModule.MakeInvisible() else InvisModule.MakeVisible() end
+    end
+})
+
+VisSection:CreateToggle({
+    Name = "Fullbright",
+    Default = false,
+    Flag = "Fullbright",
+    Callback = function(v)
+        if v then FullbrightModule.Enable() else FullbrightModule.Disable() end
+    end
+})
+
+VisSection:CreateLabel("Invisibility is client-side only")
+
+-- Camera Section
+local CamSection = VisualsTab:CreateSection({Name = "Camera", Side = "Right"})
+
+CamSection:CreateToggle({
+    Name = "Freecam",
+    Default = false,
+    Flag = "Freecam",
+    Callback = function(v)
+        if v then FreecamModule.Enable() else FreecamModule.Disable() end
+    end
+})
+
+CamSection:CreateSlider({
+    Name = "Freecam Speed",
+    Min = 10,
+    Max = 200,
+    Default = 50,
+    Flag = "FreecamSpeed",
+    Callback = function(v) FreecamModule.Speed = v end
+})
+
+CamSection:CreateSlider({
+    Name = "Field of View",
+    Min = 30,
+    Max = 120,
+    Default = 70,
+    Flag = "CameraFOV",
+    Callback = function(v) Camera.FieldOfView = v end
+})
+
+---------------------------------------------------------
+-- =====================================================
+-- UI: MISC TAB
+-- =====================================================
+---------------------------------------------------------
+local MiscSection = MiscTab:CreateSection({Name = "Utilities", Side = "Left"})
+
+MiscSection:CreateToggle({
+    Name = "Anti-AFK",
+    Default = false,
+    Flag = "AntiAFK",
+    Callback = function(v)
+        if v then AntiAFKModule.Enable() else AntiAFKModule.Disable() end
+    end
+})
+
+MiscSection:CreateButton({
+    Name = "Rejoin Server",
+    Callback = function()
+        Notify("Rejoin", "Rejoining...", "🔄", 2)
+        task.wait(1)
+        game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId)
+    end
+})
+
+MiscSection:CreateButton({
+    Name = "Server Hop",
+    Callback = function()
+        Notify("Server Hop", "Finding new server...", "🔄", 2)
+        task.spawn(function()
+            local success, result = pcall(function()
+                local Http = game:GetService("HttpService")
+                local url = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/0?sortOrder=2&excludeFullGames=true&limit=100"
+                local data = Http:JSONDecode(game:HttpGet(url))
+                local servers = data.data
+                for _, server in ipairs(servers) do
+                    if server.id ~= game.JobId and server.playing < server.maxPlayers then
+                        game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, server.id)
+                        return
+                    end
+                end
+                Notify("Server Hop", "No servers found", "❌", 2)
+            end)
+            if not success then
+                Notify("Server Hop", "Failed: " .. tostring(result), "❌", 3)
+            end
+        end)
+    end
+})
+
+MiscSection:CreateButton({
+    Name = "Reset Character",
+    Callback = function()
+        local _, hum, _ = GetCharacter()
+        if hum then hum.Health = 0 end
+    end
+})
+
+-- Server info
+local InfoSection = MiscTab:CreateSection({Name = "Server Info", Side = "Right"})
+
+local infoLabel = InfoSection:CreateLabel("Loading...")
+
+task.spawn(function()
+    while task.wait(3) do
+        pcall(function()
+            local playerCount = #Players:GetPlayers()
+            local maxPlayers = Players.MaxPlayers
+            local ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+            local fps = math.floor(1 / RunService.RenderStepped:Wait())
+            local placeId = game.PlaceId
+            local serverId = string.sub(game.JobId, 1, 8) .. "..."
+
+            infoLabel:SetText(
+                "Players: " .. playerCount .. "/" .. maxPlayers ..
+                " | Ping: " .. ping .. "ms" ..
+                " | FPS: " .. fps ..
+                " | Place: " .. placeId ..
+                " | Server: " .. serverId
+            )
+        end)
+    end
+end)
+
+-- External tools
+local ToolsSection = MiscTab:CreateSection({Name = "External Tools", Side = "Right"})
+
+ToolsSection:CreateButton({
+    Name = "Infinity Yield",
+    Callback = function()
+        Notify("Loading", "Executing Infinity Yield...", "⚡", 2)
+        task.spawn(function()
+            local ok, err = pcall(function()
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/xsakyx/InfiniteYield-MyOwneUpload/refs/heads/main/infiniteyield.lua"))()
+            end)
+            if ok then Notify("Success", "Infinity Yield loaded", "✅", 2)
+            else Notify("Error", "Failed to load", "❌", 2) end
+        end)
+    end
+})
+
+ToolsSection:CreateButton({
+    Name = "Dark Dex",
+    Callback = function()
+        Notify("Loading", "Executing Dark Dex...", "⚡", 2)
+        task.spawn(function()
+            local ok, err = pcall(function()
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/xsakyx/DarkDex-MyOwnUpload/refs/heads/main/Dex.lua"))()
+            end)
+            if ok then Notify("Success", "Dark Dex loaded", "✅", 2)
+            else Notify("Error", "Failed to load", "❌", 2) end
+        end)
+    end
+})
+
+-- Destroy/Disable all
+local DangerSection = MiscTab:CreateSection({Name = "Script Control", Side = "Right"})
+
+DangerSection:CreateButton({
+    Name = "Disable All Features",
+    Callback = function()
+        pcall(function() AimbotModule.Disable() end)
+        pcall(function() ESPModule.Disable() end)
+        pcall(function() FlyModule.Stop() end)
+        pcall(function() NoclipModule.Disable() end)
+        pcall(function() InvisModule.MakeVisible() end)
+        pcall(function() FollowModule.Stop() end)
+        pcall(function() BangModule.Stop() end)
+        pcall(function() ClickTPModule.Disable() end)
+        pcall(function() InfJumpModule.Disable() end)
+        pcall(function() AntiAFKModule.Disable() end)
+        pcall(function() FullbrightModule.Disable() end)
+        pcall(function() FreecamModule.Disable() end)
+        pcall(function() Camera.FieldOfView = 70 end)
+        pcall(function() workspace.Gravity = 196.2 end)
+        local _, hum, _ = GetCharacter()
+        if hum then hum.WalkSpeed = 16; hum.JumpPower = 50 end
+        Notify("RenU V4", "All features disabled", "🛑", 3)
+    end
+})
+
+DangerSection:CreateButton({
+    Name = "Destroy Script",
+    Callback = function()
+        pcall(function() AimbotModule.Disable() end)
+        pcall(function() ESPModule.Disable() end)
+        pcall(function() FlyModule.Stop() end)
+        pcall(function() NoclipModule.Disable() end)
+        pcall(function() InvisModule.MakeVisible() end)
+        pcall(function() FollowModule.Stop() end)
+        pcall(function() BangModule.Stop() end)
+        pcall(function() ClickTPModule.Disable() end)
+        pcall(function() InfJumpModule.Disable() end)
+        pcall(function() AntiAFKModule.Disable() end)
+        pcall(function() FullbrightModule.Disable() end)
+        pcall(function() FreecamModule.Disable() end)
+        for _, c in pairs(AllConnections) do pcall(function() c:Disconnect() end) end
+        Library:Unload()
+    end
+})
+
+---------------------------------------------------------
+-- =====================================================
+-- UI: HELP TAB
+-- =====================================================
+---------------------------------------------------------
+local KeybindSection = HelpTab:CreateSection({Name = "Keybinds", Side = "Left"})
+KeybindSection:CreateLabel("K = Toggle UI")
+KeybindSection:CreateLabel("E = Toggle Fly")
+KeybindSection:CreateLabel("G = Toggle Noclip")
+KeybindSection:CreateLabel("X = Aimbot Lock/Unlock")
+KeybindSection:CreateLabel("Shift = Fly Boost / Sprint")
+KeybindSection:CreateLabel("Space/Ctrl = Fly Up/Down")
+
+local InfoHelpSection = HelpTab:CreateSection({Name = "Feature Info", Side = "Right"})
+InfoHelpSection:CreateLabel("Aimbot: Auto-locks closest player in FOV circle")
+InfoHelpSection:CreateLabel("ESP: Highlights players through walls with HP/distance")
+InfoHelpSection:CreateLabel("Fly: WASD to move, Shift to boost, math.huge force")
+InfoHelpSection:CreateLabel("Noclip: Walk through walls, instant toggle")
+InfoHelpSection:CreateLabel("Invisibility: Client-side, hides your model")
+InfoHelpSection:CreateLabel("Follow: CFrame-based, reliable tracking")
+InfoHelpSection:CreateLabel("Bang: Animation + follows target closely")
+InfoHelpSection:CreateLabel("Freecam: Detaches camera, fly around freely")
+
+local CreditsSection = HelpTab:CreateSection({Name = "Credits", Side = "Right"})
+CreditsSection:CreateLabel("RenU V4 | Original: SoLoIsTe_Cry")
+CreditsSection:CreateLabel("Migrated to RenLibBeta | Enhanced by Claude")
+
+---------------------------------------------------------
+-- =====================================================
+-- KEYBIND HANDLER
+-- =====================================================
+---------------------------------------------------------
+SafeConnect(UserInputService.InputBegan, function(input, gpe)
+    if gpe then return end
+
+    if input.KeyCode == Enum.KeyCode.E then
+        FlyModule.Toggle()
+    elseif input.KeyCode == Enum.KeyCode.G then
+        NoclipModule.Toggle()
+    end
+end)
+
+---------------------------------------------------------
+-- Auto-refresh player lists when players join/leave
+---------------------------------------------------------
+SafeConnect(Players.PlayerAdded, function()
+    task.wait(1)
+    pcall(function()
+        local names = GetPlayerNames()
+        tpDropdown:Refresh(names)
+        interactDropdown:Refresh(names)
+        bangDropdown:Refresh(names)
+    end)
+end)
+
+SafeConnect(Players.PlayerRemoving, function()
+    task.wait(0.5)
+    pcall(function()
+        local names = GetPlayerNames()
+        tpDropdown:Refresh(names)
+        interactDropdown:Refresh(names)
+        bangDropdown:Refresh(names)
+    end)
+end)
+
+print("[RenU V4] Loaded successfully")
