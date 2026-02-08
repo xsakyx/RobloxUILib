@@ -1,0 +1,1145 @@
+-- Parkour Recorder Pro - Migrated to RenLibBêta (Mobile + PC)
+-- Record, replay and loop movement paths in any game
+-- Made by xsakyx for RenHub
+
+--// Load UI Library
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/RenLibB%C3%AAta.lua"))()
+
+--// Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+--// Player
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
+local camera = Workspace.CurrentCamera
+
+--// Recording State
+local Recording = {
+    PointA = nil,
+    PointB = nil,
+    IsRecording = false,
+    IsReplaying = false,
+    Frames = {},
+    StartTime = 0,
+    CurrentFrameIndex = 1,
+    RecordingDuration = 0,
+    TotalFrames = 0,
+    RecordedFPS = 60,
+    CurrentFPS = 60,
+    FrameTimeAccumulator = 0,
+    LastValidationFrame = 1,
+    CumulativeError = 0,
+    MaxAllowedDrift = 15,
+}
+
+--// Settings
+local PlaybackSpeed = 1
+local LoopDelay = 1.5
+local CompletionDistance = 8
+local CountdownEnabled = true
+local CountdownSeconds = 3
+local DebugMode = false
+local ReplayLoopEnabled = false
+local ReplayLoopIteration = 0
+local IsTransitioning = false
+local ForcedResetNeeded = false
+local ScriptEnabled = true
+
+--// Key tracking
+local LastKeysPressed = {}
+local keyCodeMap = {
+    W = Enum.KeyCode.W,
+    A = Enum.KeyCode.A,
+    S = Enum.KeyCode.S,
+    D = Enum.KeyCode.D,
+    Space = Enum.KeyCode.Space,
+    Shift = Enum.KeyCode.LeftShift,
+    Ctrl = Enum.KeyCode.LeftControl
+}
+
+--// Connections
+local recordingConnection = nil
+local replayConnection = nil
+local fpsTracker = nil
+local Connections = {}
+
+--// Markers
+local pointAMarker = nil
+local pointBMarker = nil
+
+--// FPS tracking
+local frameCount = 0
+local lastFPSUpdate = tick()
+
+--------------------------------------------------------------------------------
+--// UTILITY
+--------------------------------------------------------------------------------
+local function updateCharacter()
+    local success = pcall(function()
+        character = player.Character
+        if character then
+            humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+            humanoid = character:FindFirstChild("Humanoid")
+        end
+    end)
+    return success and humanoidRootPart ~= nil and humanoid ~= nil
+end
+
+local function log(message, important)
+    if DebugMode or important then
+        print("[RECORDER] " .. message)
+    end
+end
+
+local function safeCall(func, errorMessage)
+    local success, err = pcall(func)
+    if not success then
+        warn("[RECORDER ERROR] " .. (errorMessage or "") .. ": " .. tostring(err))
+    end
+    return success
+end
+
+local function formatTime(seconds)
+    local mins = math.floor(seconds / 60)
+    local secs = seconds % 60
+    if mins > 0 then
+        return string.format("%dm %.1fs", mins, secs)
+    end
+    return string.format("%.1fs", secs)
+end
+
+--------------------------------------------------------------------------------
+--// PHYSICS RESET
+--------------------------------------------------------------------------------
+local function completePhysicsReset(targetCFrame)
+    if not humanoidRootPart then return false end
+
+    safeCall(function()
+        humanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        humanoidRootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        humanoidRootPart.CFrame = targetCFrame
+
+        RunService.Heartbeat:Wait()
+
+        humanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        humanoidRootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+            task.wait(0.05)
+            humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+        end
+    end, "physicsReset")
+
+    return true
+end
+
+--------------------------------------------------------------------------------
+--// FPS TRACKING
+--------------------------------------------------------------------------------
+local function startFPSTracking()
+    if fpsTracker then return end
+    fpsTracker = RunService.Heartbeat:Connect(function()
+        frameCount = frameCount + 1
+        local now = tick()
+        if now - lastFPSUpdate >= 1 then
+            Recording.CurrentFPS = frameCount / (now - lastFPSUpdate)
+            frameCount = 0
+            lastFPSUpdate = now
+        end
+    end)
+end
+
+local function stopFPSTracking()
+    if fpsTracker then
+        fpsTracker:Disconnect()
+        fpsTracker = nil
+    end
+end
+
+--------------------------------------------------------------------------------
+--// KEY HANDLING
+--------------------------------------------------------------------------------
+local function releaseAllKeys()
+    safeCall(function()
+        for _, keyCode in pairs(keyCodeMap) do
+            VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+        end
+        LastKeysPressed = {}
+    end, "releaseAllKeys")
+end
+
+local function getKeysPressed()
+    local keys = {}
+    safeCall(function()
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then table.insert(keys, "W") end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then table.insert(keys, "A") end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then table.insert(keys, "S") end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then table.insert(keys, "D") end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then table.insert(keys, "Space") end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then table.insert(keys, "Shift") end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then table.insert(keys, "Ctrl") end
+    end, "getKeysPressed")
+    return keys
+end
+
+local function applyKeys(keys)
+    safeCall(function()
+        local currentKeys = {}
+        for _, key in ipairs(LastKeysPressed) do
+            currentKeys[key] = true
+        end
+
+        local newKeys = {}
+        for _, key in ipairs(keys) do
+            newKeys[key] = true
+        end
+
+        for _, key in ipairs(LastKeysPressed) do
+            if not newKeys[key] then
+                local kc = keyCodeMap[key]
+                if kc then VirtualInputManager:SendKeyEvent(false, kc, false, game) end
+            end
+        end
+
+        for _, key in ipairs(keys) do
+            if not currentKeys[key] then
+                local kc = keyCodeMap[key]
+                if kc then VirtualInputManager:SendKeyEvent(true, kc, false, game) end
+            end
+        end
+
+        LastKeysPressed = keys
+    end, "applyKeys")
+end
+
+--------------------------------------------------------------------------------
+--// FRAME INTERPOLATION
+--------------------------------------------------------------------------------
+local function interpolateFrame(frame1, frame2, alpha)
+    alpha = math.clamp(alpha, 0, 1)
+    return {
+        Position = frame1.Position:Lerp(frame2.Position, alpha),
+        CFrame = frame1.CFrame:Lerp(frame2.CFrame, alpha),
+        CameraCFrame = frame1.CameraCFrame:Lerp(frame2.CameraCFrame, alpha),
+        Velocity = frame1.Velocity:Lerp(frame2.Velocity, alpha),
+        KeysPressed = alpha < 0.5 and frame1.KeysPressed or frame2.KeysPressed,
+        Time = frame1.Time + (frame2.Time - frame1.Time) * alpha
+    }
+end
+
+--------------------------------------------------------------------------------
+--// POINT MARKERS
+--------------------------------------------------------------------------------
+local function createMarker(position, name, color, text)
+    local part = Instance.new("Part")
+    part.Name = name
+    part.Size = Vector3.new(4, 8, 4)
+    part.Position = position
+    part.Anchored = true
+    part.CanCollide = false
+    part.Transparency = 0.5
+    part.Color = color
+    part.Material = Enum.Material.Neon
+    part.Parent = Workspace
+
+    local highlight = Instance.new("Highlight")
+    highlight.FillColor = color
+    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Parent = part
+
+    local bbg = Instance.new("BillboardGui")
+    bbg.Size = UDim2.new(0, 200, 0, 50)
+    bbg.StudsOffset = Vector3.new(0, 6, 0)
+    bbg.AlwaysOnTop = true
+    bbg.Parent = part
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = color
+    label.TextStrokeTransparency = 0
+    label.TextStrokeColor3 = Color3.new(0, 0, 0)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBold
+    label.Parent = bbg
+
+    return part
+end
+
+local function updateMarkerA()
+    if pointAMarker then pointAMarker:Destroy() pointAMarker = nil end
+    if Recording.PointA then
+        pointAMarker = createMarker(Recording.PointA, "PointAMarker", Color3.fromRGB(0, 150, 255), "POINT A - START")
+    end
+end
+
+local function updateMarkerB()
+    if pointBMarker then pointBMarker:Destroy() pointBMarker = nil end
+    if Recording.PointB then
+        pointBMarker = createMarker(Recording.PointB, "PointBMarker", Color3.fromRGB(0, 255, 0), "POINT B - END")
+    end
+end
+
+local function clearMarkers()
+    if pointAMarker then pointAMarker:Destroy() pointAMarker = nil end
+    if pointBMarker then pointBMarker:Destroy() pointBMarker = nil end
+end
+
+--------------------------------------------------------------------------------
+--// COUNTDOWN
+--------------------------------------------------------------------------------
+local function doCountdown()
+    if not CountdownEnabled then return end
+    for i = CountdownSeconds, 1, -1 do
+        Library:Notify({
+            Title = "Starting in...",
+            Content = tostring(i),
+            Emoji = "⏱️",
+            Duration = 0.9
+        })
+        task.wait(1)
+    end
+    Library:Notify({Title = "GO!", Content = "Recording started!", Emoji = "🏃", Duration = 1})
+end
+
+--------------------------------------------------------------------------------
+--// RECORDING
+--------------------------------------------------------------------------------
+local function startRecording()
+    if not Recording.PointA or not Recording.PointB then
+        Library:Notify({Title = "Error", Content = "Set Point A and Point B first!", Emoji = "❌", Duration = 3})
+        return false
+    end
+    if Recording.IsRecording then return false end
+    if Recording.IsReplaying or ReplayLoopEnabled then
+        Library:Notify({Title = "Error", Content = "Stop replay first!", Emoji = "❌", Duration = 3})
+        return false
+    end
+
+    Recording.Frames = {}
+    Recording.IsRecording = true
+    Recording.CurrentFrameIndex = 1
+    Recording.RecordedFPS = Recording.CurrentFPS
+    Recording.CumulativeError = 0
+
+    -- Teleport to A
+    safeCall(function()
+        if humanoidRootPart then
+            completePhysicsReset(CFrame.new(Recording.PointA))
+            task.wait(0.3)
+        end
+    end, "recording teleport")
+
+    updateMarkerB()
+    startFPSTracking()
+
+    -- Countdown
+    doCountdown()
+
+    Recording.StartTime = tick()
+
+    local lastFrameTime = tick()
+
+    recordingConnection = RunService.Heartbeat:Connect(function(deltaTime)
+        if not Recording.IsRecording then return end
+
+        safeCall(function()
+            if not updateCharacter() then return end
+
+            local currentTime = tick()
+            local frameTime = currentTime - lastFrameTime
+            lastFrameTime = currentTime
+
+            table.insert(Recording.Frames, {
+                Time = currentTime - Recording.StartTime,
+                DeltaTime = frameTime,
+                Position = humanoidRootPart.Position,
+                CFrame = humanoidRootPart.CFrame,
+                CameraCFrame = camera.CFrame,
+                Velocity = humanoidRootPart.AssemblyLinearVelocity,
+                AngularVelocity = humanoidRootPart.AssemblyAngularVelocity,
+                KeysPressed = getKeysPressed(),
+                FPS = Recording.CurrentFPS
+            })
+
+            local distToB = (Recording.PointB - humanoidRootPart.Position).Magnitude
+            if distToB < CompletionDistance then
+                stopRecording()
+                Library:Notify({
+                    Title = "Recording Complete!",
+                    Content = #Recording.Frames .. " frames @ " .. math.floor(Recording.RecordedFPS) .. " FPS",
+                    Emoji = "✅",
+                    Duration = 5
+                })
+            end
+        end, "recordFrame")
+    end)
+
+    return true
+end
+
+local function stopRecording()
+    Recording.IsRecording = false
+
+    if recordingConnection then
+        recordingConnection:Disconnect()
+        recordingConnection = nil
+    end
+
+    Recording.RecordingDuration = tick() - Recording.StartTime
+    Recording.TotalFrames = #Recording.Frames
+    releaseAllKeys()
+    log("Recording stopped: " .. Recording.TotalFrames .. " frames in " .. formatTime(Recording.RecordingDuration))
+end
+
+--------------------------------------------------------------------------------
+--// REPLAY
+--------------------------------------------------------------------------------
+local function startReplay()
+    if #Recording.Frames == 0 then
+        Library:Notify({Title = "Error", Content = "No recording to replay!", Emoji = "❌", Duration = 3})
+        return false
+    end
+    if Recording.IsReplaying then return false end
+
+    Recording.IsReplaying = true
+    Recording.CurrentFrameIndex = 1
+    Recording.FrameTimeAccumulator = 0
+    Recording.CumulativeError = 0
+    Recording.LastValidationFrame = 1
+    ForcedResetNeeded = false
+    IsTransitioning = true
+
+    -- Reset to Point A
+    safeCall(function()
+        if humanoidRootPart and Recording.PointA then
+            releaseAllKeys()
+            completePhysicsReset(CFrame.new(Recording.PointA))
+            task.wait(0.4)
+
+            local dist = (Recording.PointA - humanoidRootPart.Position).Magnitude
+            if dist > 2 then
+                completePhysicsReset(CFrame.new(Recording.PointA))
+                task.wait(0.2)
+            end
+            IsTransitioning = false
+        end
+    end, "replayReset")
+
+    local lastCorrectionTime = 0
+    local correctionInterval = 0.15
+    local consecutiveErrors = 0
+
+    replayConnection = RunService.Heartbeat:Connect(function(deltaTime)
+        if not Recording.IsReplaying or IsTransitioning then return end
+
+        if ForcedResetNeeded then
+            stopReplay()
+            return
+        end
+
+        safeCall(function()
+            if not updateCharacter() then
+                consecutiveErrors = consecutiveErrors + 1
+                if consecutiveErrors >= 5 then stopReplay() end
+                return
+            end
+            consecutiveErrors = 0
+
+            -- Apply playback speed
+            Recording.FrameTimeAccumulator = Recording.FrameTimeAccumulator + (deltaTime * PlaybackSpeed)
+
+            local currentFrameIndex = Recording.CurrentFrameIndex
+            local nextFrameIndex = math.min(currentFrameIndex + 1, #Recording.Frames)
+
+            if currentFrameIndex >= #Recording.Frames then
+                stopReplay()
+                return
+            end
+
+            local currentFrame = Recording.Frames[currentFrameIndex]
+            local nextFrame = Recording.Frames[nextFrameIndex]
+            local expectedFrameTime = nextFrame.Time - currentFrame.Time
+
+            if Recording.FrameTimeAccumulator >= expectedFrameTime then
+                Recording.FrameTimeAccumulator = Recording.FrameTimeAccumulator - expectedFrameTime
+                Recording.CurrentFrameIndex = nextFrameIndex
+
+                if Recording.FrameTimeAccumulator > expectedFrameTime * 2 then
+                    Recording.FrameTimeAccumulator = expectedFrameTime
+                end
+            end
+
+            local alpha = 0
+            if expectedFrameTime > 0 then
+                alpha = math.clamp(Recording.FrameTimeAccumulator / expectedFrameTime, 0, 1)
+            end
+
+            local interp = interpolateFrame(currentFrame, nextFrame, alpha)
+
+            -- Camera
+            camera.CFrame = interp.CameraCFrame
+
+            -- Keys
+            applyKeys(interp.KeysPressed)
+
+            -- Drift correction
+            local now = tick()
+            if now - lastCorrectionTime >= correctionInterval then
+                lastCorrectionTime = now
+
+                local currentPos = humanoidRootPart.Position
+                local targetPos = interp.Position
+                local posError = (targetPos - currentPos).Magnitude
+
+                if posError > Recording.MaxAllowedDrift then
+                    ForcedResetNeeded = true
+                elseif posError > 20 then
+                    humanoidRootPart.CFrame = interp.CFrame
+                    humanoidRootPart.AssemblyLinearVelocity = interp.Velocity
+                    humanoidRootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                elseif posError > 8 then
+                    humanoidRootPart.CFrame = interp.CFrame
+                    humanoidRootPart.AssemblyLinearVelocity = interp.Velocity
+                elseif posError > 4 then
+                    humanoidRootPart.CFrame = humanoidRootPart.CFrame:Lerp(interp.CFrame, 0.7)
+                    humanoidRootPart.AssemblyLinearVelocity = interp.Velocity * 0.8
+                elseif posError > 2 then
+                    local correction = (targetPos - currentPos).Unit * (posError * 3)
+                    humanoidRootPart.AssemblyLinearVelocity = humanoidRootPart.AssemblyLinearVelocity + correction
+                end
+            end
+
+            -- Periodic full sync every 30 frames
+            if Recording.CurrentFrameIndex % 30 == 0 and Recording.CurrentFrameIndex ~= Recording.LastValidationFrame then
+                Recording.LastValidationFrame = Recording.CurrentFrameIndex
+                local syncFrame = Recording.Frames[Recording.CurrentFrameIndex]
+                local syncError = (syncFrame.Position - humanoidRootPart.Position).Magnitude
+                if syncError > 5 then
+                    humanoidRootPart.CFrame = syncFrame.CFrame
+                    humanoidRootPart.AssemblyLinearVelocity = syncFrame.Velocity
+                    humanoidRootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                end
+            end
+        end, "replayFrame")
+    end)
+
+    return true
+end
+
+local function stopReplay()
+    if not Recording.IsReplaying then return end
+    Recording.IsReplaying = false
+    IsTransitioning = true
+
+    if replayConnection then
+        replayConnection:Disconnect()
+        replayConnection = nil
+    end
+
+    releaseAllKeys()
+    task.wait(0.1)
+    IsTransitioning = false
+end
+
+--------------------------------------------------------------------------------
+--// LOOP SYSTEM
+--------------------------------------------------------------------------------
+local loopCoroutine = nil
+
+local function startReplayLoop()
+    if loopCoroutine then return end
+
+    loopCoroutine = task.spawn(function()
+        while ReplayLoopEnabled and ScriptEnabled do
+            ReplayLoopIteration = ReplayLoopIteration + 1
+            log("=== Loop #" .. ReplayLoopIteration .. " ===", true)
+
+            if Recording.IsReplaying then
+                stopReplay()
+                task.wait(0.5)
+            end
+
+            safeCall(function()
+                if humanoidRootPart and Recording.PointA then
+                    IsTransitioning = true
+                    releaseAllKeys()
+                    completePhysicsReset(CFrame.new(Recording.PointA))
+                    task.wait(0.3)
+
+                    local resetError = (Recording.PointA - humanoidRootPart.Position).Magnitude
+                    if resetError > 1 then
+                        completePhysicsReset(CFrame.new(Recording.PointA))
+                        task.wait(0.2)
+                    end
+                    IsTransitioning = false
+                end
+            end, "loopReset")
+
+            task.wait(0.2)
+
+            local success = startReplay()
+            if not success then
+                task.wait(3)
+                continue
+            end
+
+            local timeout = (Recording.RecordingDuration or 30) + 15
+            local startTime = tick()
+
+            while Recording.IsReplaying and ReplayLoopEnabled do
+                if tick() - startTime > timeout then
+                    stopReplay()
+                    break
+                end
+                if ForcedResetNeeded then
+                    stopReplay()
+                    break
+                end
+                task.wait(0.1)
+            end
+
+            if not ReplayLoopEnabled then break end
+
+            if Recording.IsReplaying then
+                stopReplay()
+            end
+
+            task.wait(LoopDelay)
+        end
+
+        loopCoroutine = nil
+    end)
+end
+
+local function stopReplayLoop()
+    ReplayLoopEnabled = false
+    if Recording.IsReplaying then stopReplay() end
+    if loopCoroutine then
+        task.wait(1)
+        loopCoroutine = nil
+    end
+end
+
+local function emergencyStop()
+    ReplayLoopEnabled = false
+    if Recording.IsRecording then stopRecording() end
+    if Recording.IsReplaying then stopReplay() end
+    stopReplayLoop()
+    releaseAllKeys()
+    Library:Notify({Title = "Emergency Stop", Content = "All systems stopped!", Emoji = "🛑", Duration = 3})
+end
+
+--------------------------------------------------------------------------------
+--// CHARACTER RESPAWN
+--------------------------------------------------------------------------------
+local function setupDeathHandler()
+    if not humanoid then return end
+    humanoid.Died:Connect(function()
+        if Recording.IsReplaying or ReplayLoopEnabled then
+            stopReplay()
+        end
+    end)
+end
+
+table.insert(Connections, player.CharacterAdded:Connect(function(newChar)
+    task.wait(0.5)
+    safeCall(function()
+        character = newChar
+        humanoidRootPart = newChar:WaitForChild("HumanoidRootPart")
+        humanoid = newChar:WaitForChild("Humanoid")
+        setupDeathHandler()
+
+        if ReplayLoopEnabled and not Recording.IsReplaying then
+            task.wait(2)
+            if ReplayLoopEnabled then
+                startReplay()
+            end
+        end
+    end, "CharacterAdded")
+end))
+
+setupDeathHandler()
+
+--------------------------------------------------------------------------------
+--// UI
+--------------------------------------------------------------------------------
+local Window = Library:CreateWindow({
+    Name = "Parkour Recorder Pro"
+})
+
+--// ===================== SETUP TAB =====================
+local SetupTab = Window:CreateTab({Name = "Setup", Emoji = "📍"})
+
+local PointSection = SetupTab:CreateSection({Name = "Point Selection", Side = "Left"})
+
+local PointALabel = PointSection:CreateLabel("Point A: Not Set")
+local PointBLabel = PointSection:CreateLabel("Point B: Not Set")
+
+PointSection:CreateButton({
+    Name = "Set Point A (your position)",
+    Callback = function()
+        if not updateCharacter() then return end
+        Recording.PointA = humanoidRootPart.Position
+        PointALabel:SetText("Point A: Set ✓")
+        updateMarkerA()
+        Library:Notify({Title = "Point A Set", Content = "Start position saved!", Emoji = "✅", Duration = 2})
+    end
+})
+
+PointSection:CreateButton({
+    Name = "Set Point B (your position)",
+    Callback = function()
+        if not updateCharacter() then return end
+        Recording.PointB = humanoidRootPart.Position
+        PointBLabel:SetText("Point B: Set ✓")
+        updateMarkerB()
+        Library:Notify({Title = "Point B Set", Content = "End position saved!", Emoji = "✅", Duration = 2})
+    end
+})
+
+PointSection:CreateButton({
+    Name = "Clear Points",
+    Callback = function()
+        Recording.PointA = nil
+        Recording.PointB = nil
+        PointALabel:SetText("Point A: Not Set")
+        PointBLabel:SetText("Point B: Not Set")
+        clearMarkers()
+        Library:Notify({Title = "Cleared", Content = "Points reset", Emoji = "🗑️", Duration = 2})
+    end
+})
+
+local TeleportSection = SetupTab:CreateSection({Name = "Teleport", Side = "Right"})
+
+TeleportSection:CreateButton({
+    Name = "Teleport to Point A",
+    Callback = function()
+        if Recording.PointA and updateCharacter() then
+            completePhysicsReset(CFrame.new(Recording.PointA))
+            Library:Notify({Title = "Teleported", Content = "Moved to Point A", Emoji = "📍", Duration = 2})
+        else
+            Library:Notify({Title = "Error", Content = "Set Point A first!", Emoji = "❌", Duration = 2})
+        end
+    end
+})
+
+TeleportSection:CreateButton({
+    Name = "Teleport to Point B",
+    Callback = function()
+        if Recording.PointB and updateCharacter() then
+            completePhysicsReset(CFrame.new(Recording.PointB))
+            Library:Notify({Title = "Teleported", Content = "Moved to Point B", Emoji = "📍", Duration = 2})
+        else
+            Library:Notify({Title = "Error", Content = "Set Point B first!", Emoji = "❌", Duration = 2})
+        end
+    end
+})
+
+TeleportSection:CreateButton({
+    Name = "Show/Refresh Markers",
+    Callback = function()
+        updateMarkerA()
+        updateMarkerB()
+        Library:Notify({Title = "Markers", Content = "Markers refreshed!", Emoji = "📍", Duration = 2})
+    end
+})
+
+TeleportSection:CreateButton({
+    Name = "Hide Markers",
+    Callback = function()
+        clearMarkers()
+        Library:Notify({Title = "Markers", Content = "Markers hidden", Emoji = "👻", Duration = 2})
+    end
+})
+
+--// ===================== RECORD TAB =====================
+local RecordTab = Window:CreateTab({Name = "Record", Emoji = "🔴"})
+
+local RecordSection = RecordTab:CreateSection({Name = "Recording", Side = "Left"})
+
+local RecordStatusLabel = RecordSection:CreateLabel("Status: Idle")
+local FramesLabel = RecordSection:CreateLabel("Frames: 0")
+local RecordFPSLabel = RecordSection:CreateLabel("Recording FPS: N/A")
+local DistToB = RecordSection:CreateLabel("Distance to B: N/A")
+
+RecordSection:CreateButton({
+    Name = "Start Recording",
+    Callback = function()
+        startRecording()
+    end
+})
+
+RecordSection:CreateButton({
+    Name = "Stop Recording",
+    Callback = function()
+        if Recording.IsRecording then
+            stopRecording()
+            Library:Notify({Title = "Stopped", Content = Recording.TotalFrames .. " frames saved", Emoji = "⏹️", Duration = 3})
+        else
+            Library:Notify({Title = "Not Recording", Content = "Nothing to stop", Emoji = "❌", Duration = 2})
+        end
+    end
+})
+
+local RecordSettings = RecordTab:CreateSection({Name = "Recording Options", Side = "Right"})
+
+RecordSettings:CreateToggle({
+    Name = "Countdown (3-2-1-Go!)",
+    Default = true,
+    Flag = "Countdown",
+    Callback = function(value)
+        CountdownEnabled = value
+    end
+})
+
+RecordSettings:CreateSlider({
+    Name = "Countdown Seconds",
+    Min = 1,
+    Max = 5,
+    Default = 3,
+    Flag = "CountdownSec",
+    Callback = function(value)
+        CountdownSeconds = value
+    end
+})
+
+RecordSettings:CreateSlider({
+    Name = "Completion Distance (studs)",
+    Min = 3,
+    Max = 20,
+    Default = 8,
+    Flag = "CompleteDist",
+    Callback = function(value)
+        CompletionDistance = value
+    end
+})
+
+RecordSettings:CreateLabel("How close to Point B to auto-stop recording")
+
+--// ===================== REPLAY TAB =====================
+local ReplayTab = Window:CreateTab({Name = "Replay", Emoji = "▶️"})
+
+local ReplaySection = ReplayTab:CreateSection({Name = "Replay Control", Side = "Left"})
+
+local ReplayStatusLabel = ReplaySection:CreateLabel("Status: Idle")
+local ProgressLabel = ReplaySection:CreateLabel("Progress: 0%")
+local LoopCountLabel = ReplaySection:CreateLabel("Loops: 0")
+local DriftLabel = ReplaySection:CreateLabel("Drift: 0 studs")
+local DriftStatusLabel = ReplaySection:CreateLabel("Drift Status: -- ")
+
+ReplaySection:CreateButton({
+    Name = "Replay Once",
+    Callback = function()
+        if Recording.IsRecording then
+            Library:Notify({Title = "Error", Content = "Stop recording first!", Emoji = "❌", Duration = 3})
+            return
+        end
+        if ReplayLoopEnabled then
+            Library:Notify({Title = "Error", Content = "Disable loop first!", Emoji = "❌", Duration = 3})
+            return
+        end
+        if startReplay() then
+            Library:Notify({Title = "Replaying", Content = "Playback at " .. PlaybackSpeed .. "x speed", Emoji = "▶️", Duration = 3})
+        end
+    end
+})
+
+ReplaySection:CreateButton({
+    Name = "Stop Replay",
+    Callback = function()
+        if Recording.IsReplaying then
+            stopReplay()
+            Library:Notify({Title = "Stopped", Content = "Replay stopped", Emoji = "⏹️", Duration = 2})
+        end
+    end
+})
+
+ReplaySection:CreateToggle({
+    Name = "Enable Replay Loop",
+    Default = false,
+    Flag = "ReplayLoop",
+    Callback = function(value)
+        if value then
+            if #Recording.Frames == 0 then
+                Library:Notify({Title = "Error", Content = "No recording to replay!", Emoji = "❌", Duration = 3})
+                return
+            end
+            if Recording.IsRecording then
+                Library:Notify({Title = "Error", Content = "Stop recording first!", Emoji = "❌", Duration = 3})
+                return
+            end
+            ReplayLoopEnabled = true
+            ReplayLoopIteration = 0
+            startReplayLoop()
+            Library:Notify({Title = "Loop Started", Content = "Looping at " .. PlaybackSpeed .. "x", Emoji = "🔁", Duration = 3})
+        else
+            stopReplayLoop()
+            Library:Notify({Title = "Loop Stopped", Content = ReplayLoopIteration .. " loops done", Emoji = "⏹️", Duration = 3})
+        end
+    end
+})
+
+local ReplaySettings = ReplayTab:CreateSection({Name = "Playback Settings", Side = "Right"})
+
+ReplaySettings:CreateDropdown({
+    Name = "Playback Speed",
+    Values = {"0.25x", "0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x", "3x"},
+    Default = "1x",
+    Flag = "PlaybackSpeed",
+    Callback = function(value)
+        local speeds = {["0.25x"]=0.25, ["0.5x"]=0.5, ["0.75x"]=0.75, ["1x"]=1, ["1.25x"]=1.25, ["1.5x"]=1.5, ["2x"]=2, ["3x"]=3}
+        PlaybackSpeed = speeds[value] or 1
+        Library:Notify({Title = "Speed", Content = "Playback: " .. value, Emoji = "⏩", Duration = 2})
+    end
+})
+
+ReplaySettings:CreateSlider({
+    Name = "Loop Delay (seconds)",
+    Min = 0,
+    Max = 10,
+    Default = 2,
+    Flag = "LoopDelay",
+    Callback = function(value)
+        LoopDelay = value
+    end
+})
+
+ReplaySettings:CreateLabel("Pause between each loop iteration")
+
+ReplaySettings:CreateSlider({
+    Name = "Max Drift Before Reset",
+    Min = 10,
+    Max = 50,
+    Default = 15,
+    Flag = "MaxDrift",
+    Callback = function(value)
+        Recording.MaxAllowedDrift = value
+    end
+})
+
+ReplaySettings:CreateLabel("Higher = more tolerant, lower = stricter")
+
+--// ===================== STATS TAB =====================
+local StatsTab = Window:CreateTab({Name = "Stats", Emoji = "📊"})
+
+local StatsSection = StatsTab:CreateSection({Name = "Recording Info", Side = "Left"})
+
+local StatFrames = StatsSection:CreateLabel("Total Frames: 0")
+local StatDuration = StatsSection:CreateLabel("Duration: 0s")
+local StatFPS = StatsSection:CreateLabel("Recorded FPS: N/A")
+local StatDistance = StatsSection:CreateLabel("Distance A->B: N/A")
+local StatCurrentFPS = StatsSection:CreateLabel("Current FPS: 60")
+
+StatsSection:CreateButton({
+    Name = "Print Stats to Console (F9)",
+    Callback = function()
+        if Recording.TotalFrames > 0 then
+            print("=== RECORDING STATS ===")
+            print("Frames: " .. Recording.TotalFrames)
+            print("Duration: " .. formatTime(Recording.RecordingDuration))
+            print("FPS: " .. math.floor(Recording.RecordedFPS))
+            if Recording.PointA and Recording.PointB then
+                print("Distance: " .. math.floor((Recording.PointB - Recording.PointA).Magnitude) .. " studs")
+            end
+            print("=======================")
+            Library:Notify({Title = "Printed", Content = "Check console (F9)", Emoji = "📋", Duration = 2})
+        else
+            Library:Notify({Title = "No Data", Content = "Record a path first!", Emoji = "❌", Duration = 2})
+        end
+    end
+})
+
+local DebugSection = StatsTab:CreateSection({Name = "Debug", Side = "Right"})
+
+DebugSection:CreateToggle({
+    Name = "Debug Mode (console logs)",
+    Default = false,
+    Flag = "Debug",
+    Callback = function(value)
+        DebugMode = value
+    end
+})
+
+DebugSection:CreateButton({
+    Name = "Clear Recording Data",
+    Callback = function()
+        if Recording.IsReplaying or Recording.IsRecording or ReplayLoopEnabled then
+            Library:Notify({Title = "Error", Content = "Stop all actions first!", Emoji = "❌", Duration = 3})
+            return
+        end
+        Recording.Frames = {}
+        Recording.TotalFrames = 0
+        Recording.RecordingDuration = 0
+        Recording.RecordedFPS = 60
+        ReplayLoopIteration = 0
+        Library:Notify({Title = "Cleared", Content = "Recording data deleted", Emoji = "🗑️", Duration = 2})
+    end
+})
+
+DebugSection:CreateButton({
+    Name = "EMERGENCY STOP",
+    Callback = function()
+        emergencyStop()
+    end
+})
+
+DebugSection:CreateButton({
+    Name = "Destroy Script",
+    Callback = function()
+        ScriptEnabled = false
+        emergencyStop()
+        stopFPSTracking()
+        clearMarkers()
+        for _, conn in pairs(Connections) do
+            pcall(function() conn:Disconnect() end)
+        end
+        task.wait(0.3)
+        Library:Unload()
+    end
+})
+
+--// ===================== HELP TAB =====================
+local HelpTab = Window:CreateTab({Name = "Help", Emoji = "❓"})
+
+local HowToSection = HelpTab:CreateSection({Name = "How To Use", Side = "Left"})
+
+HowToSection:CreateLabel("1. Go to your START position")
+HowToSection:CreateLabel("2. Click 'Set Point A'")
+HowToSection:CreateLabel("3. Go to your END position")
+HowToSection:CreateLabel("4. Click 'Set Point B'")
+HowToSection:CreateLabel("5. Click 'Start Recording'")
+HowToSection:CreateLabel("6. Do your parkour run to Point B")
+HowToSection:CreateLabel("7. Recording auto-stops at Point B")
+HowToSection:CreateLabel("8. Use Replay Once or Loop!")
+
+local KeybindsSection = HelpTab:CreateSection({Name = "Keybinds", Side = "Right"})
+
+KeybindsSection:CreateLabel("Backspace = Emergency Stop")
+KeybindsSection:CreateLabel("K = Toggle UI visibility")
+
+local TipsSection = HelpTab:CreateSection({Name = "Tips", Side = "Right"})
+
+TipsSection:CreateLabel("Use 0.5x speed to watch your run in slow motion")
+TipsSection:CreateLabel("Lower completion distance for more precise end points")
+TipsSection:CreateLabel("Higher drift tolerance = less interruptions")
+TipsSection:CreateLabel("Works in any game with movement!")
+
+--------------------------------------------------------------------------------
+--// LIVE LABEL UPDATES
+--------------------------------------------------------------------------------
+task.spawn(function()
+    while ScriptEnabled do
+        task.wait(0.3)
+        safeCall(function()
+            -- Record tab
+            if Recording.IsRecording then
+                RecordStatusLabel:SetText("Status: 🔴 RECORDING")
+                FramesLabel:SetText("Frames: " .. #Recording.Frames)
+                RecordFPSLabel:SetText("Recording FPS: " .. math.floor(Recording.CurrentFPS))
+                if Recording.PointB and updateCharacter() then
+                    local d = math.floor((Recording.PointB - humanoidRootPart.Position).Magnitude)
+                    DistToB:SetText("Distance to B: " .. d .. " studs")
+                end
+            else
+                RecordStatusLabel:SetText("Status: Idle")
+                FramesLabel:SetText("Frames: " .. Recording.TotalFrames)
+                DistToB:SetText("Distance to B: --")
+                if Recording.TotalFrames > 0 then
+                    RecordFPSLabel:SetText("Recorded @ " .. math.floor(Recording.RecordedFPS) .. " FPS")
+                else
+                    RecordFPSLabel:SetText("Recording FPS: N/A")
+                end
+            end
+
+            -- Replay tab
+            if Recording.IsReplaying then
+                local progress = 0
+                if Recording.TotalFrames > 0 then
+                    progress = (Recording.CurrentFrameIndex / Recording.TotalFrames) * 100
+                end
+                local status = "Status: ▶️ REPLAYING"
+                if ReplayLoopEnabled then
+                    status = status .. " (Loop #" .. ReplayLoopIteration .. ")"
+                end
+                if PlaybackSpeed ~= 1 then
+                    status = status .. " [" .. PlaybackSpeed .. "x]"
+                end
+                ReplayStatusLabel:SetText(status)
+                ProgressLabel:SetText("Progress: " .. math.floor(progress) .. "% (" .. Recording.CurrentFrameIndex .. "/" .. Recording.TotalFrames .. ")")
+
+                if updateCharacter() and Recording.Frames[Recording.CurrentFrameIndex] then
+                    local err = (Recording.Frames[Recording.CurrentFrameIndex].Position - humanoidRootPart.Position).Magnitude
+                    DriftLabel:SetText("Drift: " .. string.format("%.1f", err) .. " studs")
+                    if err < 2 then
+                        DriftStatusLabel:SetText("Drift: ✓ Perfect")
+                    elseif err < 5 then
+                        DriftStatusLabel:SetText("Drift: ⚠️ Minor")
+                    elseif err < 10 then
+                        DriftStatusLabel:SetText("Drift: ⚠️ Medium")
+                    else
+                        DriftStatusLabel:SetText("Drift: 🚨 Critical")
+                    end
+                end
+            elseif ReplayLoopEnabled then
+                ReplayStatusLabel:SetText("Status: ⏳ Resetting...")
+                ProgressLabel:SetText("Progress: 0%")
+                DriftLabel:SetText("Drift: 0 studs")
+                DriftStatusLabel:SetText("Drift: --")
+            else
+                ReplayStatusLabel:SetText("Status: Idle")
+                ProgressLabel:SetText("Progress: 0%")
+                DriftLabel:SetText("Drift: 0 studs")
+                DriftStatusLabel:SetText("Drift: --")
+            end
+            LoopCountLabel:SetText("Loops: " .. ReplayLoopIteration)
+
+            -- Stats tab
+            StatFrames:SetText("Total Frames: " .. Recording.TotalFrames)
+            StatDuration:SetText("Duration: " .. formatTime(Recording.RecordingDuration))
+            StatCurrentFPS:SetText("Current FPS: " .. math.floor(Recording.CurrentFPS))
+            if Recording.TotalFrames > 0 then
+                StatFPS:SetText("Recorded FPS: " .. math.floor(Recording.RecordedFPS))
+            else
+                StatFPS:SetText("Recorded FPS: N/A")
+            end
+            if Recording.PointA and Recording.PointB then
+                StatDistance:SetText("Distance A->B: " .. math.floor((Recording.PointB - Recording.PointA).Magnitude) .. " studs")
+            else
+                StatDistance:SetText("Distance A->B: N/A")
+            end
+        end, "labelUpdate")
+    end
+end)
+
+--------------------------------------------------------------------------------
+--// KEYBIND: EMERGENCY STOP
+--------------------------------------------------------------------------------
+table.insert(Connections, UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.Backspace then
+        emergencyStop()
+    end
+end))
+
+--------------------------------------------------------------------------------
+--// INIT
+--------------------------------------------------------------------------------
+startFPSTracking()
+
+Library:Notify({
+    Title = "Parkour Recorder Pro",
+    Content = "Ready! Set Point A & B to start",
+    Emoji = "🏃",
+    Duration = 5
+})
