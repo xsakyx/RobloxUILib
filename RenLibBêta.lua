@@ -44,7 +44,7 @@ local EMOJIS = {
 
 --// ROOT LIBRARY //--
 local Library = {}
-Library.Version = "4.0.1"
+Library.Version = "4.1.0"
 Library.Title = "RenLib"
 Library.Connections = {}
 Library.Flags = {}
@@ -1306,6 +1306,282 @@ function Library:CreateWindow(options)
                 return {
                     SetText = function(self, t)
                         Lab.Text = t
+                    end
+                }
+            end
+
+            --// COLOR PICKER (HSV Color Wheel)
+            function Section:CreateColorPicker(options)
+                options = options or {}
+                local Name = options.Name or "Color"
+                local Default = options.Default or Color3.fromRGB(255, 0, 0)
+                local Callback = options.Callback or function() end
+                local Flag = options.Flag or Name
+
+                local CurrentColor = Default
+                if Library.Flags[Flag] ~= nil then CurrentColor = Library.Flags[Flag] end
+                Library.Flags[Flag] = CurrentColor
+
+                local H, S, V = Color3.toHSV(CurrentColor)
+                local Expanded = false
+
+                -- Main container (collapsed = header only)
+                local PickerContainer = Utility:Create("Frame", {
+                    Name = Name,
+                    Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Main,
+                    Size = UDim2.new(1, 0, 0, 36),
+                    ClipsDescendants = true,
+                    ZIndex = 5,
+                    BorderSizePixel = 0
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = PickerContainer})
+                Utility:Create("UIStroke", {
+                    Parent = PickerContainer,
+                    Color = Library.Theme.Stroke,
+                    Thickness = 1
+                })
+
+                -- Header button
+                local Header = Utility:Create("TextButton", {
+                    Parent = PickerContainer,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 36),
+                    AutoButtonColor = false,
+                    Text = "",
+                    ZIndex = 6,
+                    BorderSizePixel = 0
+                })
+
+                Utility:Create("TextLabel", {
+                    Parent = Header,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 12, 0, 8),
+                    Size = UDim2.new(0.6, 0, 0, 20),
+                    Font = Enum.Font.Gotham,
+                    Text = Name,
+                    TextColor3 = Library.Theme.Text,
+                    TextSize = 13,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    ZIndex = 7
+                })
+
+                -- Color preview swatch in header
+                local Preview = Utility:Create("Frame", {
+                    Parent = Header,
+                    BackgroundColor3 = CurrentColor,
+                    Position = UDim2.new(1, -48, 0.5, -8),
+                    Size = UDim2.new(0, 36, 0, 16),
+                    ZIndex = 7,
+                    BorderSizePixel = 0
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = Preview})
+                Utility:Create("UIStroke", {
+                    Parent = Preview,
+                    Color = Library.Theme.Stroke,
+                    Thickness = 1
+                })
+
+                --------------------------------------------------------
+                -- SV Box (Saturation = X axis, Value = Y axis)
+                --------------------------------------------------------
+                local SVBox = Utility:Create("Frame", {
+                    Parent = PickerContainer,
+                    BackgroundColor3 = Color3.fromHSV(H, 1, 1),
+                    Position = UDim2.new(0, 10, 0, 42),
+                    Size = UDim2.new(1, -20, 0, 100),
+                    ZIndex = 7,
+                    BorderSizePixel = 0
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = SVBox})
+
+                -- White gradient overlay (left = white/opaque, right = transparent)
+                local WhiteOverlay = Utility:Create("Frame", {
+                    Parent = SVBox,
+                    BackgroundColor3 = Color3.new(1, 1, 1),
+                    Size = UDim2.new(1, 0, 1, 0),
+                    ZIndex = 8,
+                    BorderSizePixel = 0
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = WhiteOverlay})
+                Utility:Create("UIGradient", {
+                    Parent = WhiteOverlay,
+                    Transparency = NumberSequence.new(0, 1)
+                })
+
+                -- Black gradient overlay (top = transparent, bottom = black/opaque)
+                local BlackOverlay = Utility:Create("Frame", {
+                    Parent = SVBox,
+                    BackgroundColor3 = Color3.new(0, 0, 0),
+                    Size = UDim2.new(1, 0, 1, 0),
+                    ZIndex = 9,
+                    BorderSizePixel = 0
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = BlackOverlay})
+                Utility:Create("UIGradient", {
+                    Parent = BlackOverlay,
+                    Transparency = NumberSequence.new(1, 0),
+                    Rotation = 90
+                })
+
+                -- Invisible input layer on top of SV box
+                local SVInput = Utility:Create("TextButton", {
+                    Parent = SVBox,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 1, 0),
+                    AutoButtonColor = false,
+                    Text = "",
+                    ZIndex = 10
+                })
+
+                -- SV cursor (circle indicator)
+                local SVCursor = Utility:Create("Frame", {
+                    Parent = SVBox,
+                    BackgroundColor3 = Color3.new(1, 1, 1),
+                    Position = UDim2.new(S, -6, 1 - V, -6),
+                    Size = UDim2.new(0, 12, 0, 12),
+                    ZIndex = 11,
+                    BorderSizePixel = 0
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = SVCursor})
+                Utility:Create("UIStroke", {
+                    Parent = SVCursor,
+                    Color = Color3.new(0, 0, 0),
+                    Thickness = 2
+                })
+
+                --------------------------------------------------------
+                -- Hue Bar (horizontal rainbow)
+                --------------------------------------------------------
+                local HueBar = Utility:Create("TextButton", {
+                    Parent = PickerContainer,
+                    BackgroundColor3 = Color3.new(1, 1, 1),
+                    Position = UDim2.new(0, 10, 0, 148),
+                    Size = UDim2.new(1, -20, 0, 14),
+                    AutoButtonColor = false,
+                    Text = "",
+                    ZIndex = 7,
+                    BorderSizePixel = 0
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = HueBar})
+                Utility:Create("UIGradient", {
+                    Parent = HueBar,
+                    Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, Color3.fromHSV(0, 1, 1)),
+                        ColorSequenceKeypoint.new(1/6, Color3.fromHSV(1/6, 1, 1)),
+                        ColorSequenceKeypoint.new(2/6, Color3.fromHSV(2/6, 1, 1)),
+                        ColorSequenceKeypoint.new(3/6, Color3.fromHSV(3/6, 1, 1)),
+                        ColorSequenceKeypoint.new(4/6, Color3.fromHSV(4/6, 1, 1)),
+                        ColorSequenceKeypoint.new(5/6, Color3.fromHSV(5/6, 1, 1)),
+                        ColorSequenceKeypoint.new(1, Color3.fromHSV(0, 1, 1))
+                    })
+                })
+
+                -- Hue cursor
+                local HueCursor = Utility:Create("Frame", {
+                    Parent = HueBar,
+                    BackgroundColor3 = Color3.new(1, 1, 1),
+                    Position = UDim2.new(H, -7, 0.5, -7),
+                    Size = UDim2.new(0, 14, 0, 14),
+                    ZIndex = 8,
+                    BorderSizePixel = 0
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = HueCursor})
+                Utility:Create("UIStroke", {
+                    Parent = HueCursor,
+                    Color = Color3.new(0, 0, 0),
+                    Thickness = 2
+                })
+
+                --------------------------------------------------------
+                -- Color update logic
+                --------------------------------------------------------
+                local function UpdateColor()
+                    CurrentColor = Color3.fromHSV(H, S, V)
+                    Preview.BackgroundColor3 = CurrentColor
+                    SVBox.BackgroundColor3 = Color3.fromHSV(H, 1, 1)
+                    SVCursor.Position = UDim2.new(S, -6, 1 - V, -6)
+                    HueCursor.Position = UDim2.new(H, -7, 0.5, -7)
+                    Library.Flags[Flag] = CurrentColor
+                    Callback(CurrentColor)
+                end
+
+                --------------------------------------------------------
+                -- Drag interaction
+                --------------------------------------------------------
+                local svDragging = false
+                local hueDragging = false
+
+                SVInput.InputBegan:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1
+                        or input.UserInputType == Enum.UserInputType.Touch then
+                        svDragging = true
+                        S = math.clamp((input.Position.X - SVBox.AbsolutePosition.X) / SVBox.AbsoluteSize.X, 0, 1)
+                        V = 1 - math.clamp((input.Position.Y - SVBox.AbsolutePosition.Y) / SVBox.AbsoluteSize.Y, 0, 1)
+                        UpdateColor()
+                    end
+                end)
+
+                HueBar.InputBegan:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1
+                        or input.UserInputType == Enum.UserInputType.Touch then
+                        hueDragging = true
+                        H = math.clamp((input.Position.X - HueBar.AbsolutePosition.X) / HueBar.AbsoluteSize.X, 0, 0.999)
+                        UpdateColor()
+                    end
+                end)
+
+                table.insert(Library.Connections, UserInputService.InputChanged:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseMovement
+                        or input.UserInputType == Enum.UserInputType.Touch then
+                        if svDragging then
+                            S = math.clamp((input.Position.X - SVBox.AbsolutePosition.X) / SVBox.AbsoluteSize.X, 0, 1)
+                            V = 1 - math.clamp((input.Position.Y - SVBox.AbsolutePosition.Y) / SVBox.AbsoluteSize.Y, 0, 1)
+                            UpdateColor()
+                        elseif hueDragging then
+                            H = math.clamp((input.Position.X - HueBar.AbsolutePosition.X) / HueBar.AbsoluteSize.X, 0, 0.999)
+                            UpdateColor()
+                        end
+                    end
+                end))
+
+                table.insert(Library.Connections, UserInputService.InputEnded:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1
+                        or input.UserInputType == Enum.UserInputType.Touch then
+                        svDragging = false
+                        hueDragging = false
+                    end
+                end))
+
+                --------------------------------------------------------
+                -- Expand / Collapse
+                --------------------------------------------------------
+                Header.MouseButton1Click:Connect(function()
+                    Expanded = not Expanded
+                    Utility:Tween(PickerContainer, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {
+                        Size = UDim2.new(1, 0, 0, Expanded and 172 or 36)
+                    })
+                end)
+
+                Header.MouseEnter:Connect(function()
+                    if not Expanded then
+                        Utility:Tween(PickerContainer, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.Hover})
+                    end
+                end)
+                Header.MouseLeave:Connect(function()
+                    if not Expanded then
+                        Utility:Tween(PickerContainer, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.Main})
+                    end
+                end)
+
+                return {
+                    Set = function(self, color)
+                        CurrentColor = color
+                        H, S, V = Color3.toHSV(color)
+                        UpdateColor()
+                    end,
+                    Get = function(self)
+                        return CurrentColor
                     end
                 }
             end
