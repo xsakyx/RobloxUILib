@@ -307,13 +307,13 @@ VisualSection:CreateDropdown({
 - **RenHub project (full hub using this library):**  
   `loadstring(game:HttpGet("https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/Loader"))()`
 
----
 
+## 🗒️LICENSE: USE ONLY - NO MODIFICATION
 
-    RenLib UI Library v4.1.0
+  **RenLib UI Library v4.1.0**
     Copyright (C) 2026 RenHub Team
     
-    LICENSE: USE ONLY - NO MODIFICATION
+    **LICENSE: USE ONLY - NO MODIFICATION**
     
     You MAY:
     - Load and use this library as-is in your private/public scripts
@@ -328,7 +328,6 @@ VisualSection:CreateDropdown({
     If you want a custom/modified version, CONTACT the author via the official discord server at https://discord.gg/zjuFt8gaMH.
 
 
----
 
 **Happy scripting!**  
 – *RenLib Team*
