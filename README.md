@@ -309,7 +309,7 @@ VisualSection:CreateDropdown({
 
 ---
 
---[[
+
     RenLib UI Library v4.1.0
     Copyright (C) 2026 RenHub Team
     
@@ -326,7 +326,7 @@ VisualSection:CreateDropdown({
     to GitHub/DMCA for takedown of infringing repositories.
     
     If you want a custom/modified version, CONTACT the author via the official discord server at https://discord.gg/zjuFt8gaMH.
-]]
+
 
 ---
 
