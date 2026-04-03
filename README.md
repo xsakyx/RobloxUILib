@@ -310,10 +310,11 @@ VisualSection:CreateDropdown({
 
 ## 🗒️LICENSE: USE ONLY - NO MODIFICATION
 
-  **RenLib UI Library v4.1.0**
-    Copyright (C) 2026 RenHub Team
+   RenLib UI Library v4.1.0
+   
+   Copyright (C) 2026 RenHub Team
     
-    **LICENSE: USE ONLY - NO MODIFICATION**
+    LICENSE: USE ONLY - NO MODIFICATION
     
     You MAY:
     - Load and use this library as-is in your private/public scripts
