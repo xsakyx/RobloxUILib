@@ -292,7 +292,8 @@ VisualSection:CreateDropdown({
 
 ## ⚠️ Important Notes
 
-- **Executors**: The library uses `syn.protect_gui` (if available) and falls back to `gethui()` or `CoreGui`. Works on most modern executors (Krnl, Synapse X, Script‑Ware, Fluxus, etc.).
+- **Executors**: The library uses `syn.protect_gui` (if available) and falls back to `gethui()` or `CoreGui`. Works on most modern executors (Velocity, Volt,
+- Script‑Ware, Fluxus, Xeno, Potasium, Retina(EarlyAcess) etc. ).
 - **Mobile**: Some executors on mobile may not support all features (e.g., `UserInputService` touch events). The library has been tested on **Android** with Codex and Hydrogen.
 - **Performance**: All tweens and events are cleaned up on unload. No memory leaks.
 - **Customisation**: You can freely replace `EMOJIS` table or modify any UI property after creation (though not recommended – use the theme system instead).
