@@ -1,4 +1,4 @@
-local scriptChoice = 3
+local scriptChoice = 2
 
 local UpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/FirstStepBeta"
 local DownString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/DownTimeTaker"
