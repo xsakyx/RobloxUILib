@@ -1,18 +1,49 @@
-local scriptChoice = 3 
+local scriptChoice = 3
 
-local UpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/FirstStepBeta" --1
-local DownString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/DownTimeTaker" --2
-local TempUpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/TempFirstStep/TempFirstStepBeta" --3
+local UpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/FirstStepBeta"
+local DownString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/DownTimeTaker"
+local TempUpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/TempFirstStep/TempFirstStepBeta"
+
+local function getLoader()
+    if type(loadstring) == "function" then
+        return loadstring
+    end
+    if type(load) == "function" then
+        return load
+    end
+    return nil
+end
 
 local function loadScript(url, scriptName)
-    local success, result = pcall(function()
+    local ok, result = pcall(function()
         return game:HttpGet(url)
     end)
-    if success then
-        print("Loading " .. scriptName .. "...")
-        loadstring(result)()
-    else
-        warn("Failed to load " .. scriptName .. ": " .. tostring(result))
+
+    if not ok then
+        warn("Failed to fetch " .. scriptName .. ": " .. tostring(result))
+        return
+    end
+
+    local loader = getLoader()
+    if not loader then
+        warn("No loader available for " .. scriptName)
+        return
+    end
+
+    local ok2, func = pcall(loader, result)
+    if not ok2 then
+        warn("Failed to compile " .. scriptName .. ": " .. tostring(func))
+        return
+    end
+
+    if type(func) ~= "function" then
+        warn("Loader returned non-function for " .. scriptName)
+        return
+    end
+
+    local ok3, err = pcall(func)
+    if not ok3 then
+        warn("Failed to execute " .. scriptName .. ": " .. tostring(err))
     end
 end
 
