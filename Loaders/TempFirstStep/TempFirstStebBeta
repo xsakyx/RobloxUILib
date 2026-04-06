@@ -1,83 +1,75 @@
 local a={}
-local requestFunc = request or http_request or (syn and syn.request) or (http and http.request)
-local loadFunc = loadstring or load
-local getClipboard = setclipboard or toclipboard
-local rand = math.random
-local floor = math.floor
-local char = string.char
-local sub = string.sub
-local tostring = tostring
-local gameService = game:GetService
-local Players = gameService("Players")
+local O = math
+local rnd = O.random
+local flr = O.floor
+local chr = string.char
+local sb = string.sub
+local T = tostring
+local gs = game.GetService
+local Players = gs(game, "Players")
 repeat task.wait(0.5) until game:IsLoaded() and Players.LocalPlayer and Players.LocalPlayer.UserId
-local localPlayer = Players.LocalPlayer
-local host = "https://api.platoboost.com"
-local serviceId = 5*1000+583
-local secret = table.concat({char(52,100,99,57),char(99,54,56,50,45),char(48,56,99,49,45),char(52,100,55,100,45),char(98,48,57,55,45),char(49,97,98,49,49),char(97,99,52,56,52,100,51)})
+local LocalPlayer = Players.LocalPlayer
+local HttpService = gs(game, "HttpService")
+local host = table.concat({chr(104),chr(116),chr(116),chr(112),chr(115),chr(58),chr(47),chr(47),chr(97),chr(112),chr(105),chr(46),chr(112),chr(108),chr(97),chr(116),chr(111),chr(98),chr(111),chr(111),chr(115),chr(116),chr(46),chr(99),chr(111),chr(109)})
+local serviceId = 5*1000 + 583
+local secret = table.concat({chr(52),chr(100),chr(99),chr(57),chr(99),chr(54),chr(56),chr(50),chr(45),chr(48),chr(56),chr(99),chr(49),chr(45),chr(52),chr(100),chr(55),chr(100),chr(45),chr(98),chr(48),chr(57),chr(55),chr(45),chr(49),chr(97),chr(98),chr(49),chr(49),chr(97),chr(99),chr(52),chr(56),chr(52),chr(100),chr(51)})
 local useNonce = true
+local requestFunc = request or http_request or (syn and syn.request) or (http and http.request)
+local getClipboard = setclipboard or toclipboard
 local cachedLink, cachedTime = "", 0
-local requestSending = false
+local sending = false
 
-local function safeNotify(msg)
+local function errNotify(value)
     local ok = pcall(function()
-        gameService("StarterGui"):SetCore("SendNotification", {Title = "Script Hub", Text = tostring(msg), Duration = 5})
+        gs(game, "StarterGui"):SetCore("SendNotification", {Title = "Script Hub", Text = T(value), Duration = 5})
     end)
-    if not ok then
-        warn("[Script Hub] " .. tostring(msg))
-    end
+    if not ok then warn("[Script Hub] " .. T(value)) end
 end
 
-local function getHwid()
-    if gethwid then
-        return tostring(gethwid())
-    end
-    return tostring(localPlayer.UserId)
-end
-
-local function encodeString(value)
+local function simpleEncode(value)
     if type(value) ~= "string" then error("expected string") end
-    local out = ""
+    local out = {}
     for i = 1, #value do
         local b = value:byte(i)
         if b < 32 or b == 34 or b == 92 then
-            out = out .. string.format("\\u%04x", b)
+            out[#out+1] = string.format("\\u%04x", b)
         else
-            out = out .. string.char(b)
+            out[#out+1] = chr(b)
         end
     end
-    return '"'..out..'"'
+    return '"' .. table.concat(out) .. '"'
 end
 
 local function jsonValue(value, seen)
-    local t = type(value)
-    if t == "string" then return encodeString(value)
-    elseif t == "number" then return tostring(value)
-    elseif t == "boolean" then return tostring(value)
-    elseif t == "nil" then return "null"
-    elseif t == "table" then
+    local vtype = type(value)
+    if vtype == "string" then return simpleEncode(value)
+    elseif vtype == "number" then return T(value)
+    elseif vtype == "boolean" then return T(value)
+    elseif vtype == "nil" then return "null"
+    elseif vtype == "table" then
         if seen[value] then error("circular reference") end
         seen[value] = true
         local isArray = true
         local maxIndex = 0
         for k in pairs(value) do
             if type(k) ~= "number" then isArray = false break end
-            maxIndex = math.max(maxIndex, k)
+            if k > maxIndex then maxIndex = k end
         end
         local parts = {}
         if isArray then
             for i = 1, maxIndex do
-                table.insert(parts, jsonValue(value[i], seen))
+                parts[#parts+1] = jsonValue(value[i], seen)
             end
             seen[value] = nil
-            return "["..table.concat(parts, ",").."]"
+            return "[" .. table.concat(parts, ",") .. "]"
         end
         for k,v in pairs(value) do
-            table.insert(parts, encodeString(tostring(k))..":"..jsonValue(v, seen))
+            parts[#parts+1] = simpleEncode(T(k)) .. ":" .. jsonValue(v, seen)
         end
         seen[value] = nil
-        return "{"..table.concat(parts, ",").."}"
+        return "{" .. table.concat(parts, ",") .. "}"
     else
-        error("unexpected type '"..t.."'")
+        error("unexpected type '" .. vtype .. "'")
     end
 end
 
@@ -85,69 +77,96 @@ local function jsonEncode(obj)
     return jsonValue(obj, {})
 end
 
-local function sha256Hex(str)
-    if type(str) ~= "string" then str = tostring(str) end
-    local h = 0
-    for i = 1, #str do
-        h = (h * 31 + str:byte(i)) % 2^32
-    end
-    return string.format("%08x", h)
+local function buildParts()
+    return {"https://", "raw.githubusercontent.com/", "user/scripthub/main/script.lua"}
+end
+
+local function shuffleParts(src)
+    local order = {3, 1, 2}
+    local dst = {}
+    for i = 1, #order do dst[i] = src[order[i]] end
+    return dst
 end
 
 local function buildHubUrl()
-    local parts = {
-        "\104\116\116\112\115\58\47\47",
-        "\114\97\119\46\103\105\116\104\117\98\117\115\101\114\99\111\110\116",
-        "\46\99\111\109\47",
-        "\117\115\101\114\47",
-        "\115\99\114\105\112\116\104\117\98\47",
-        "\109\97\105\110\47",
-        "\115\99\114\105\112\116\46\108\117\97"
-    }
-    return table.concat(parts)
+    return table.concat(shuffleParts(buildParts()))
+end
+
+local function chooseLoader()
+    local tests = {loadstring, load}
+    if syn and syn.loadfunc then tests[#tests+1] = syn.loadfunc end
+    if KRNL and KRNL.load then tests[#tests+1] = KRNL.load end
+    for _, f in ipairs(tests) do
+        if type(f) == "function" then return f end
+    end
+    return nil
+end
+
+local function tryLoad(code)
+    local loader = chooseLoader()
+    if type(loader) ~= "function" then return false, "missing loader" end
+    local ok, a, b = pcall(loader, code)
+    if not ok then return false, T(a) end
+    if type(a) == "function" then return true, a end
+    if type(b) == "function" then return true, b end
+    return false, "loader returned invalid type"
+end
+
+local function safeExecute(func)
+    if type(func) ~= "function" then return false, "bad function" end
+    local ok, err = pcall(func)
+    if not ok then return false, T(err) end
+    return true
+end
+
+local function requestCall(cfg)
+    if type(requestFunc) ~= "function" then return nil end
+    local ok, response = pcall(function() return requestFunc(cfg) end)
+    if ok and type(response) == "table" then
+        return response
+    end
+    return nil
 end
 
 local function safeHttpGet(url)
     if type(url) ~= "string" then return nil end
-    if game.HttpGet then
-        return game:HttpGet(url)
+    if type(game.HttpGet) == "function" then
+        local ok, res = pcall(function() return game:HttpGet(url) end)
+        if ok and type(res) == "string" and res ~= "" then return res end
     end
-    if requestFunc then
-        local ok, res = pcall(function()
-            return requestFunc({Url = url, Method = "GET"})
-        end)
-        if ok and res and res.Body then
-            return res.Body
-        end
+    if HttpService and type(HttpService.GetAsync) == "function" then
+        local ok, res = pcall(function() return HttpService:GetAsync(url, false) end)
+        if ok and type(res) == "string" and res ~= "" then return res end
+    end
+    local response = requestCall({Url = url, Method = "GET"})
+    if response then
+        return response.Body or response.body
     end
     return nil
 end
 
 local function loadMainHub()
-    safeNotify("Opening ScriptHub...")
+    errNotify("Opening ScriptHub...")
     task.spawn(function()
         local ok, err = pcall(function()
-            local hubUrl = buildHubUrl()
-            local scriptContent = safeHttpGet(hubUrl)
-            if not scriptContent or scriptContent == "" then
-                error("MainHub script is empty or could not be fetched")
-            end
-            local loader = loadFunc(scriptContent)
-            if type(loader) ~= "function" then
-                error("load function returned invalid value")
-            end
-            loader()
+            local url = buildHubUrl()
+            local content = safeHttpGet(url)
+            if not content or content == "" then error("MainHub script empty") end
+            local loaded, loader = tryLoad(content)
+            if not loaded then error(loader) end
+            local ran, rerr = safeExecute(loader)
+            if not ran then error(rerr) end
         end)
         if not ok then
-            safeNotify("Hub load error: "..tostring(err))
-            warn("[Script Hub] "..tostring(err))
+            errNotify("Hub load error: " .. T(err))
+            warn("[Script Hub] " .. T(err))
         end
     end)
 end
 
-local function getScreenGui()
+local function newGui()
     local gui = Instance.new("ScreenGui")
-    gui.Name = "HUD_0x"..tostring(math.random(1000,9999))
+    gui.Name = "HUD_" .. T(flr(rnd() * 9999 + 1))
     gui.ResetOnSpawn = false
     if syn and syn.protect_gui then
         syn.protect_gui(gui)
@@ -162,7 +181,7 @@ end
 
 local function createButton(parent, text, pos, size)
     local btn = Instance.new("TextButton")
-    btn.AnchorPoint = Vector2.new(0,0)
+    btn.AnchorPoint = Vector2.new(0, 0)
     btn.Position = pos
     btn.Size = size
     btn.BackgroundColor3 = Color3.fromRGB(55, 55, 65)
@@ -178,8 +197,24 @@ local function createButton(parent, text, pos, size)
     return btn
 end
 
+local function fakeKeySave(key, userId)
+    if type(key) ~= "string" then return end
+    if type(userId) ~= "string" then userId = T(userId) end
+    local data = {key = key, userId = userId}
+    if writefile then pcall(function() writefile("script_hub_key.dat", jsonEncode(data)) end) end
+end
+
+local function fakeLoadKey()
+    if not readfile or not isfile then return nil end
+    local ok = pcall(function()
+        if isfile("script_hub_key.dat") then return jsonEncode({}) end
+    end)
+    if not ok then return nil end
+    return nil
+end
+
 local function showKeySystemUI()
-    local gui = getScreenGui()
+    local gui = newGui()
     local frame = Instance.new("Frame")
     frame.Name = "MainFrame"
     frame.Size = UDim2.new(0, 420, 0, 320)
@@ -199,7 +234,7 @@ local function showKeySystemUI()
     title.BackgroundTransparency = 1
     title.Font = Enum.Font.GothamBold
     title.Text = "Script Hub"
-    title.TextColor3 = Color3.fromRGB(245,245,245)
+    title.TextColor3 = Color3.fromRGB(245, 245, 245)
     title.TextSize = 22
     title.TextXAlignment = Enum.TextXAlignment.Left
     title.Parent = frame
@@ -210,7 +245,7 @@ local function showKeySystemUI()
     subtitle.BackgroundTransparency = 1
     subtitle.Font = Enum.Font.Gotham
     subtitle.Text = "Press open to load the hub immediately. Use the key tools only if needed."
-    subtitle.TextColor3 = Color3.fromRGB(170,170,175)
+    subtitle.TextColor3 = Color3.fromRGB(170, 170, 175)
     subtitle.TextSize = 14
     subtitle.TextWrapped = true
     subtitle.TextYAlignment = Enum.TextYAlignment.Top
@@ -220,7 +255,7 @@ local function showKeySystemUI()
     local fakeBtn = createButton(frame, "Key System", UDim2.new(0, 220, 0, 140), UDim2.new(0, 180, 0, 38))
     local closeBtn = createButton(frame, "X", UDim2.new(1, -50, 0, 16), UDim2.new(0, 34, 0, 34))
     closeBtn.TextSize = 16
-    closeBtn.BackgroundColor3 = Color3.fromRGB(200,50,50)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
 
     local keyPanel = Instance.new("Frame")
     keyPanel.Size = UDim2.new(1, -40, 0, 120)
@@ -238,7 +273,7 @@ local function showKeySystemUI()
     keyBox.BorderSizePixel = 0
     keyBox.PlaceholderText = "Enter key here"
     keyBox.Font = Enum.Font.Gotham
-    keyBox.TextColor3 = Color3.fromRGB(235,235,235)
+    keyBox.TextColor3 = Color3.fromRGB(235, 235, 235)
     keyBox.TextSize = 14
     keyBox.Text = ""
     keyBox.Parent = keyPanel
@@ -260,15 +295,15 @@ local function showKeySystemUI()
     end)
 
     verifyBtn.MouseButton1Click:Connect(function()
-        safeNotify("Key system is hidden in this build.")
+        errNotify("Key system is hidden in this build.")
     end)
 
     copyBtn.MouseButton1Click:Connect(function()
-        if getClipboard then
-            getClipboard(""..host)
-            safeNotify("Key link copied")
+        if type(getClipboard) == "function" then
+            getClipboard("" .. host)
+            errNotify("Key link copied")
         else
-            safeNotify("Clipboard unavailable")
+            errNotify("Clipboard unavailable")
         end
     end)
 end
