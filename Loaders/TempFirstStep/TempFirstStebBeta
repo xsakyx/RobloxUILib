@@ -152,15 +152,71 @@ local function safeHttpGet(url)
     return nil
 end
 
+local function fallbackHubScript()
+    return [[
+        local g = Instance.new("ScreenGui")
+        g.Name = "ScriptHubFallback"
+        g.ResetOnSpawn = false
+        if syn and syn.protect_gui then
+            syn.protect_gui(g)
+            g.Parent = game:GetService("CoreGui")
+        elseif gethui then
+            g.Parent = gethui()
+        else
+            g.Parent = game:GetService("CoreGui")
+        end
+        local f = Instance.new("Frame")
+        f.Size = UDim2.new(0, 460, 0, 240)
+        f.Position = UDim2.new(0.5, -230, 0.5, -120)
+        f.AnchorPoint = Vector2.new(0.5, 0.5)
+        f.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
+        f.BorderSizePixel = 0
+        f.Parent = g
+        local c = Instance.new("UICorner", f)
+        c.CornerRadius = UDim.new(0, 18)
+        local t = Instance.new("TextLabel")
+        t.Size = UDim2.new(1, -32, 0, 40)
+        t.Position = UDim2.new(0, 16, 0, 16)
+        t.BackgroundTransparency = 1
+        t.Font = Enum.Font.GothamBold
+        t.Text = "Script Hub Loaded"
+        t.TextColor3 = Color3.fromRGB(245, 245, 245)
+        t.TextSize = 22
+        t.TextXAlignment = Enum.TextXAlignment.Left
+        t.Parent = f
+        local b = Instance.new("TextLabel")
+        b.Size = UDim2.new(1, -32, 0, 80)
+        b.Position = UDim2.new(0, 16, 0, 60)
+        b.BackgroundTransparency = 1
+        b.Font = Enum.Font.Gotham
+        b.Text = "Remote hub is unavailable, loading local fallback interface."
+        b.TextColor3 = Color3.fromRGB(185, 185, 190)
+        b.TextSize = 16
+        b.TextWrapped = true
+        b.TextYAlignment = Enum.TextYAlignment.Top
+        b.Parent = f
+    ]]
+end
+
 local function loadMainHub()
     errNotify("Opening ScriptHub...")
     task.spawn(function()
         local ok, err = pcall(function()
             local url = buildHubUrl()
             local content = safeHttpGet(url)
-            if not content or content == "" then error("MainHub script empty") end
-            local loaded, loader = tryLoad(content)
-            if not loaded then error(loader) end
+            local loader
+            if content and content ~= "" then
+                local loaded, maybeLoader = tryLoad(content)
+                if loaded then
+                    loader = maybeLoader
+                end
+            end
+            if not loader then
+                local fallback = fallbackHubScript()
+                local loaded, maybeLoader = tryLoad(fallback)
+                if not loaded then error("fallback loader failed: " .. T(maybeLoader)) end
+                loader = maybeLoader
+            end
             local ran, rerr = safeExecute(loader)
             if not ran then error(rerr) end
         end)
@@ -229,11 +285,35 @@ local function showKeySystemUI()
     frame.AnchorPoint = Vector2.new(0.5, 0.5)
     frame.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
     frame.BorderSizePixel = 0
+    frame.Active = true
     frame.Parent = gui
     Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 16)
     local stroke = Instance.new("UIStroke", frame)
     stroke.Color = Color3.fromRGB(60, 60, 70)
     stroke.Thickness = 2
+
+    local dragStart, dragInput, startPos
+    local function updateDrag(input)
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragStart = input.Position
+            startPos = frame.Position
+            dragInput = input
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragInput = nil
+                end
+            end)
+        end
+    end)
+    frame.InputChanged:Connect(function(input)
+        if input == dragInput and input.UserInputType == Enum.UserInputType.MouseMovement then
+            updateDrag(input)
+        end
+    end)
 
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, -40, 0, 40)
