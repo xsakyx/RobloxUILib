@@ -11,39 +11,42 @@ local function getLoader()
     if type(load) == "function" then
         return load
     end
+    if syn and type(syn.loadfunc) == "function" then
+        return syn.loadfunc
+    end
+    if KRNL and type(KRNL.load) == "function" then
+        return KRNL.load
+    end
     return nil
 end
 
 local function loadScript(url, scriptName)
-    local ok, result = pcall(function()
+    local success, result = pcall(function()
         return game:HttpGet(url)
     end)
 
-    if not ok then
-        warn("Failed to fetch " .. scriptName .. ": " .. tostring(result))
+    if not success then
+        warn("Failed to load " .. scriptName .. ": " .. tostring(result))
         return
     end
 
     local loader = getLoader()
     if not loader then
-        warn("No loader available for " .. scriptName)
+        warn("No supported loader available for " .. scriptName)
         return
     end
 
-    local ok2, func = pcall(loader, result)
-    if not ok2 then
-        warn("Failed to compile " .. scriptName .. ": " .. tostring(func))
+    local fn, err = loader(result)
+    if type(fn) ~= "function" then
+        warn("Compile failed for " .. scriptName .. ": " .. tostring(err))
         return
     end
 
-    if type(func) ~= "function" then
-        warn("Loader returned non-function for " .. scriptName)
-        return
-    end
-
-    local ok3, err = pcall(func)
-    if not ok3 then
-        warn("Failed to execute " .. scriptName .. ": " .. tostring(err))
+    local ran, execErr = pcall(fn)
+    if not ran then
+        warn("Execution failed for " .. scriptName .. ": " .. tostring(execErr))
+    else
+        print("Loaded " .. scriptName .. ".")
     end
 end
 
