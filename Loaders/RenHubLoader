@@ -1,4 +1,4 @@
-local down = false
+local down = true
 local UpString ="https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/FirstStepBêta"
 local DownString="https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/DownTimeTaker"
 
