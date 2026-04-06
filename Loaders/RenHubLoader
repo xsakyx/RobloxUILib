@@ -1,9 +1,27 @@
-local down = true
-local UpString ="https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/FirstStepBêta"
-local DownString="https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/DownTimeTaker"
+local scriptChoice = 3 
 
-if down == false then
-loadstring(game:HttpGet(UpString))()
+local UpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/FirstStepBeta" --1
+local DownString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/DownTimeTaker" --2
+local TempUpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/TempFirstStep/TempFirstStepBeta" --3
+
+local function loadScript(url, scriptName)
+    local success, result = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if success then
+        print("Loading " .. scriptName .. "...")
+        loadstring(result)()
+    else
+        warn("Failed to load " .. scriptName .. ": " .. tostring(result))
+    end
+end
+
+if scriptChoice == 1 then
+    loadScript(UpString, "Main Script")
+elseif scriptChoice == 2 then
+    loadScript(DownString, "Downtime Script")
+elseif scriptChoice == 3 then
+    loadScript(TempUpString, "Temp Script")
 else
-loadstring(game:HttpGet(DownString))()
+    warn("Invalid choice! Please set scriptChoice to 1, 2, or 3")
 end
