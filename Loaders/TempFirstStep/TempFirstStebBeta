@@ -19,6 +19,13 @@ local getClipboard = setclipboard or toclipboard
 local cachedLink, cachedTime = "", 0
 local sending = false
 
+if type(loadstring) ~= "function" and type(load) == "function" then
+    loadstring = load
+end
+if type(load) ~= "function" and type(loadstring) == "function" then
+    load = loadstring
+end
+
 local function errNotify(value)
     local ok = pcall(function()
         gs(game, "StarterGui"):SetCore("SendNotification", {Title = "Script Hub", Text = T(value), Duration = 5})
