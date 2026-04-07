@@ -1,164 +1,192 @@
-local a={}
-local O = math
-local rnd = O.random
-local flr = O.floor
-local chr = string.char
-local sb = string.sub
-local T = tostring
-local gs = game.GetService
-local Players = gs(game, "Players")
+local _K = {}
+local _M = math
+local _rnd = _M.random
+local _flr = _M.floor
+local _chr = string.char
+local _sb = string.sub
+local _T = tostring
+local _gs = game.GetService
+local Players = _gs(game, "Players")
 repeat task.wait(0.5) until game:IsLoaded() and Players.LocalPlayer and Players.LocalPlayer.UserId
 local LocalPlayer = Players.LocalPlayer
-local HttpService = gs(game, "HttpService")
-local host = table.concat({chr(104),chr(116),chr(116),chr(112),chr(115),chr(58),chr(47),chr(47),chr(97),chr(112),chr(105),chr(46),chr(112),chr(108),chr(97),chr(116),chr(111),chr(98),chr(111),chr(111),chr(115),chr(116),chr(46),chr(99),chr(111),chr(109)})
-local serviceId = 5*1000 + 583
-local secret = table.concat({chr(52),chr(100),chr(99),chr(57),chr(99),chr(54),chr(56),chr(50),chr(45),chr(48),chr(56),chr(99),chr(49),chr(45),chr(52),chr(100),chr(55),chr(100),chr(45),chr(98),chr(48),chr(57),chr(55),chr(45),chr(49),chr(97),chr(98),chr(49),chr(49),chr(97),chr(99),chr(52),chr(56),chr(52),chr(100),chr(51)})
-local useNonce = true
-local requestFunc = request or http_request or (syn and syn.request) or (http and http.request)
-local getClipboard = setclipboard or toclipboard
-local cachedLink, cachedTime = "", 0
-local sending = false
+local HttpService = _gs(game, "HttpService")
 
-if type(loadstring) ~= "function" and type(load) == "function" then
-    loadstring = load
+local _svcId = 5 * 1000 + 583
+local _host = table.concat({_chr(104),_chr(116),_chr(116),_chr(112),_chr(115),_chr(58),_chr(47),_chr(47),_chr(97),_chr(112),_chr(105),_chr(46),_chr(112),_chr(108),_chr(97),_chr(116),_chr(111),_chr(98),_chr(111),_chr(111),_chr(115),_chr(116),_chr(46),_chr(99),_chr(111),_chr(109)})
+local _secret = table.concat({_chr(52),_chr(100),_chr(99),_chr(57),_chr(99),_chr(54),_chr(56),_chr(50),_chr(45),_chr(48),_chr(56),_chr(99),_chr(49),_chr(45),_chr(52),_chr(100),_chr(55),_chr(100),_chr(45),_chr(98),_chr(48),_chr(57),_chr(55),_chr(45),_chr(49),_chr(97),_chr(98),_chr(49),_chr(49),_chr(97),_chr(99),_chr(52),_chr(56),_chr(52),_chr(100),_chr(51)})
+local _useNonce = true
+local _sending = false
+local _cachedLink, _cachedTime = "", 0
+
+local _requestFunc = request or http_request or (syn and syn.request) or (http and http.request)
+local _getClipboard = setclipboard or toclipboard
+
+if type(loadstring) ~= "function" and type(load) == "function" then loadstring = load end
+if type(load) ~= "function" and type(loadstring) == "function" then load = loadstring end
+
+local function _genHwid()
+    local _parts = {}
+    for _i = 1, 8 do
+        _parts[_i] = string.format("%x", _rnd(0, 0xFFFF))
+    end
+    return table.concat(_parts, "-")
 end
-if type(load) ~= "function" and type(loadstring) == "function" then
-    load = loadstring
+local _hwid = _genHwid()
+
+local function _buildNonce(seed)
+    local _n = _flr(_M.abs(_M.sin(seed or os.clock()) * 1e7))
+    local _chars = {}
+    for _i = 1, 12 do
+        _chars[_i] = _chr(97 + (_n % 26))
+        _n = _flr(_n / 3) + _i * 7
+    end
+    return table.concat(_chars)
 end
 
-local function errNotify(value)
-    local ok = pcall(function()
-        gs(game, "StarterGui"):SetCore("SendNotification", {Title = "Script Hub", Text = T(value), Duration = 5})
-    end)
-    if not ok then warn("[Script Hub] " .. T(value)) end
+local function _checksum(s)
+    local _h = 0x811c9dc5
+    for _i = 1, #s do
+        _h = _h ~ s:byte(_i)
+        _h = (_h * 0x01000193) % 0x100000000
+    end
+    return string.format("%08x", _h)
 end
 
-local function simpleEncode(value)
-    if type(value) ~= "string" then error("expected string") end
-    local out = {}
-    for i = 1, #value do
-        local b = value:byte(i)
-        if b < 32 or b == 34 or b == 92 then
-            out[#out+1] = string.format("\\u%04x", b)
+local function _simpleEncode(v)
+    if type(v) ~= "string" then error("expected string") end
+    local _out = {}
+    for _i = 1, #v do
+        local _b = v:byte(_i)
+        if _b < 32 or _b == 34 or _b == 92 then
+            _out[#_out+1] = string.format("\\u%04x", _b)
         else
-            out[#out+1] = chr(b)
+            _out[#_out+1] = _chr(_b)
         end
     end
-    return '"' .. table.concat(out) .. '"'
+    return '"' .. table.concat(_out) .. '"'
 end
 
-local function jsonValue(value, seen)
-    local vtype = type(value)
-    if vtype == "string" then return simpleEncode(value)
-    elseif vtype == "number" then return T(value)
-    elseif vtype == "boolean" then return T(value)
-    elseif vtype == "nil" then return "null"
-    elseif vtype == "table" then
-        if seen[value] then error("circular reference") end
-        seen[value] = true
-        local isArray = true
-        local maxIndex = 0
-        for k in pairs(value) do
-            if type(k) ~= "number" then isArray = false break end
-            if k > maxIndex then maxIndex = k end
+local function _jsonVal(v, seen)
+    local _vt = type(v)
+    if _vt == "string" then return _simpleEncode(v)
+    elseif _vt == "number" then return _T(v)
+    elseif _vt == "boolean" then return _T(v)
+    elseif _vt == "nil" then return "null"
+    elseif _vt == "table" then
+        if seen[v] then error("circular reference") end
+        seen[v] = true
+        local _isArr, _maxIdx = true, 0
+        for _k in pairs(v) do
+            if type(_k) ~= "number" then _isArr = false break end
+            if _k > _maxIdx then _maxIdx = _k end
         end
-        local parts = {}
-        if isArray then
-            for i = 1, maxIndex do
-                parts[#parts+1] = jsonValue(value[i], seen)
-            end
-            seen[value] = nil
-            return "[" .. table.concat(parts, ",") .. "]"
+        local _parts = {}
+        if _isArr then
+            for _i = 1, _maxIdx do _parts[#_parts+1] = _jsonVal(v[_i], seen) end
+            seen[v] = nil
+            return "[" .. table.concat(_parts, ",") .. "]"
         end
-        for k,v in pairs(value) do
-            parts[#parts+1] = simpleEncode(T(k)) .. ":" .. jsonValue(v, seen)
+        for _k, _v in pairs(v) do
+            _parts[#_parts+1] = _simpleEncode(_T(_k)) .. ":" .. _jsonVal(_v, seen)
         end
-        seen[value] = nil
-        return "{" .. table.concat(parts, ",") .. "}"
-    else
-        error("unexpected type '" .. vtype .. "'")
-    end
+        seen[v] = nil
+        return "{" .. table.concat(_parts, ",") .. "}"
+    else error("unexpected type '" .. _vt .. "'") end
 end
 
-local function jsonEncode(obj)
-    return jsonValue(obj, {})
+local function _jsonEncode(obj) return _jsonVal(obj, {}) end
+
+local function _errNotify(val)
+    local _ok = pcall(function()
+        _gs(game,"StarterGui"):SetCore("SendNotification",{Title="Script Hub",Text=_T(val),Duration=5})
+    end)
+    if not _ok then warn("[Script Hub] " .. _T(val)) end
 end
 
-local function buildParts()
-    return {
-        "\104\116\116\112\115\58\47\47",
-        "\114\97\119\46\103\105\116\104\117\98\117\115\101\114\99\111\110\116\101\110\116",
-        "\46\99\111\109\47\100\101\108\108\98\114\111\119\115\101\114\45",
-        "\104\117\98\47\82\111\83\99\114\105\112\116\115\47\109\97\105\110\47",
-        "\76\111\97\100\101\114\115\47\77\97\105\110\72\117\98\66\101\116\97"
+local function _buildKeyPayload(key)
+    local _nonce = _buildNonce(os.clock())
+    local _uid = _T(LocalPlayer.UserId)
+    local _payload = {
+        key     = key,
+        uid     = _uid,
+        hwid    = _hwid,
+        nonce   = _nonce,
+        svc     = _svcId,
+        cs      = _checksum(key .. _uid .. _nonce),
+        ts      = _T(_flr(os.clock() * 1000))
     }
+    return _jsonEncode(_payload)
 end
 
-local function shuffleParts(src)
-    local order = {1, 2, 3, 4, 5}
-    local dst = {}
-    for i = 1, #order do dst[i] = src[order[i]] end
-    return dst
-end
-
-local function buildHubUrl()
-    return table.concat(shuffleParts(buildParts()))
-end
-
-local function chooseLoader()
-    local tests = {loadstring, load}
-    if syn and syn.loadfunc then tests[#tests+1] = syn.loadfunc end
-    if KRNL and KRNL.load then tests[#tests+1] = KRNL.load end
-    for _, f in ipairs(tests) do
-        if type(f) == "function" then return f end
-    end
+local function _requestCall(cfg)
+    if type(_requestFunc) ~= "function" then return nil end
+    local _ok, _resp = pcall(function() return _requestFunc(cfg) end)
+    if _ok and type(_resp) == "table" then return _resp end
     return nil
 end
 
-local function tryLoad(code)
-    local loader = chooseLoader()
-    if type(loader) ~= "function" then return false, "missing loader" end
-    local ok, a, b = pcall(loader, code)
-    if not ok then return false, T(a) end
-    if type(a) == "function" then return true, a end
-    if type(b) == "function" then return true, b end
-    return false, "loader returned invalid type"
+local function _fakeVerifyKey(key, onDone)
+    if _sending then return end
+    _sending = true
+    task.spawn(function()
+        local _payload = _buildKeyPayload(key)
+        local _ep = _host .. "/api/v2/validate"
+        local _resp = _requestCall({
+            Url = _ep,
+            Method = "POST",
+            Headers = {
+                ["Content-Type"] = "application/json",
+                ["X-Hub-Nonce"]  = _buildNonce(1337),
+                ["X-Service-Id"] = _T(_svcId),
+                ["X-Secret"]     = _sb(_secret, 1, 8)
+            },
+            Body = _payload
+        })
+
+        local _pass = false
+        if _resp and _resp.StatusCode == 200 then
+            local _body = _resp.Body or _resp.body or ""
+            _pass = (_body:find('"success":true') ~= nil)
+        end
+        _sending = false
+        if onDone then onDone(_pass) end
+    end)
 end
 
-local function safeExecute(func)
-    if type(func) ~= "function" then return false, "bad function" end
-    local ok, err = pcall(func)
-    if not ok then return false, T(err) end
-    return true
+
+local function _fakeKeySave(key, uid)
+    if type(key) ~= "string" then return end
+    if type(uid) ~= "string" then uid = _T(uid) end
+    local _data = {key=key, uid=uid, hwid=_hwid, ts=_flr(os.clock()*1000)}
+    if writefile then pcall(function() writefile("hub_session.dat", _jsonEncode(_data)) end) end
 end
 
-local function requestCall(cfg)
-    if type(requestFunc) ~= "function" then return nil end
-    local ok, response = pcall(function() return requestFunc(cfg) end)
-    if ok and type(response) == "table" then
-        return response
-    end
+local function _fakeLoadKey()
+    if not readfile or not isfile then return nil end
+    local _ok, _raw = pcall(function()
+        if isfile("hub_session.dat") then return readfile("hub_session.dat") end
+        return nil
+    end)
+    if not _ok or not _raw then return nil end
     return nil
 end
 
-local function safeHttpGet(url)
+local function _safeGet(url)
     if type(url) ~= "string" then return nil end
     if type(game.HttpGet) == "function" then
-        local ok, res = pcall(function() return game:HttpGet(url) end)
-        if ok and type(res) == "string" and res ~= "" then return res end
+        local _ok, _res = pcall(function() return game:HttpGet(url) end)
+        if _ok and type(_res) == "string" and _res ~= "" then return _res end
     end
     if HttpService and type(HttpService.GetAsync) == "function" then
-        local ok, res = pcall(function() return HttpService:GetAsync(url, false) end)
-        if ok and type(res) == "string" and res ~= "" then return res end
+        local _ok, _res = pcall(function() return HttpService:GetAsync(url, false) end)
+        if _ok and type(_res) == "string" and _res ~= "" then return _res end
     end
-    local response = requestCall({Url = url, Method = "GET"})
-    if response then
-        return response.Body or response.body
-    end
+    local _resp = _requestCall({Url = url, Method = "GET"})
+    if _resp then return _resp.Body or _resp.body end
     return nil
 end
 
-local function fallbackHubScript()
+local function _fallbackHub()
     return [[
         local g = Instance.new("ScreenGui")
         g.Name = "ScriptHubFallback"
@@ -204,201 +232,264 @@ local function fallbackHubScript()
     ]]
 end
 
-local function loadMainHub()
-    errNotify("Opening ScriptHub...")
-    task.spawn(function()
-        local ok, err = pcall(function()
-            local url = buildHubUrl()
-            local content = safeHttpGet(url)
-            local loader
-            if content and content ~= "" then
-                local loaded, maybeLoader = tryLoad(content)
-                if loaded then
-                    loader = maybeLoader
-                end
-            end
-            if not loader then
-                local fallback = fallbackHubScript()
-                local loaded, maybeLoader = tryLoad(fallback)
-                if not loaded then error("fallback loader failed: " .. T(maybeLoader)) end
-                loader = maybeLoader
-            end
-            local ran, rerr = safeExecute(loader)
-            if not ran then error(rerr) end
-        end)
-        if not ok then
-            errNotify("Hub load error: " .. T(err))
-            warn("[Script Hub] " .. T(err))
-        end
-    end)
+local function _buildParts()
+    return {
+        "\104\116\116\112\115\58\47\47",
+        "\114\97\119\46\103\105\116\104\117\98\117\115\101\114\99\111\110\116\101\110\116",
+        "\46\99\111\109\47\100\101\108\108\98\114\111\119\115\101\114\45",
+        "\104\117\98\47\82\111\83\99\114\105\112\116\115\47\109\97\105\110\47",
+        "\76\111\97\100\101\114\115\47\77\97\105\110\72\117\98\66\101\116\97"
+    }
 end
 
-local function newGui()
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "HUD_" .. T(flr(rnd() * 9999 + 1))
-    gui.ResetOnSpawn = false
-    if syn and syn.protect_gui then
-        syn.protect_gui(gui)
-        gui.Parent = game:GetService("CoreGui")
-    elseif gethui then
-        gui.Parent = gethui()
-    else
-        gui.Parent = game:GetService("CoreGui")
+local function _shuffleParts(src)
+    local _order = {1,2,3,4,5}
+    local _dst = {}
+    for _i = 1, #_order do _dst[_i] = src[_order[_i]] end
+    return _dst
+end
+
+local function _buildHubUrl()
+    return table.concat(_shuffleParts(_buildParts()))
+end
+
+local function _chooseLoader()
+    local _tests = {loadstring, load}
+    if syn and syn.loadfunc then _tests[#_tests+1] = syn.loadfunc end
+    if KRNL and KRNL.load then _tests[#_tests+1] = KRNL.load end
+    for _, _f in ipairs(_tests) do
+        if type(_f) == "function" then return _f end
     end
-    return gui
-end
-
-local function createButton(parent, text, pos, size)
-    local btn = Instance.new("TextButton")
-    btn.AnchorPoint = Vector2.new(0, 0)
-    btn.Position = pos
-    btn.Size = size
-    btn.BackgroundColor3 = Color3.fromRGB(55, 55, 65)
-    btn.BorderSizePixel = 0
-    btn.Font = Enum.Font.Gotham
-    btn.Text = text
-    btn.TextColor3 = Color3.fromRGB(240, 240, 240)
-    btn.TextSize = 14
-    btn.AutoButtonColor = false
-    local corner = Instance.new("UICorner", btn)
-    corner.CornerRadius = UDim.new(0, 10)
-    btn.Parent = parent
-    return btn
-end
-
-local function fakeKeySave(key, userId)
-    if type(key) ~= "string" then return end
-    if type(userId) ~= "string" then userId = T(userId) end
-    local data = {key = key, userId = userId}
-    if writefile then pcall(function() writefile("script_hub_key.dat", jsonEncode(data)) end) end
-end
-
-local function fakeLoadKey()
-    if not readfile or not isfile then return nil end
-    local ok = pcall(function()
-        if isfile("script_hub_key.dat") then return jsonEncode({}) end
-    end)
-    if not ok then return nil end
     return nil
 end
 
-local function showKeySystemUI()
-    local gui = newGui()
-    local frame = Instance.new("Frame")
-    frame.Name = "MainFrame"
-    frame.Size = UDim2.new(0, 420, 0, 320)
-    frame.Position = UDim2.new(0.5, -210, 0.5, -160)
-    frame.AnchorPoint = Vector2.new(0.5, 0.5)
-    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
-    frame.BorderSizePixel = 0
-    frame.Active = true
-    frame.Parent = gui
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 16)
-    local stroke = Instance.new("UIStroke", frame)
-    stroke.Color = Color3.fromRGB(60, 60, 70)
-    stroke.Thickness = 2
+local function _tryLoad(code)
+    local _loader = _chooseLoader()
+    if type(_loader) ~= "function" then return false, "missing loader" end
+    local _ok, _a, _b = pcall(_loader, code)
+    if not _ok then return false, _T(_a) end
+    if type(_a) == "function" then return true, _a end
+    if type(_b) == "function" then return true, _b end
+    return false, "loader returned invalid type"
+end
 
-    local dragStart, dragInput, startPos
-    local function updateDrag(input)
-        local delta = input.Position - dragStart
-        frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-    frame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragStart = input.Position
-            startPos = frame.Position
-            dragInput = input
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragInput = nil
-                end
-            end)
-        end
-    end)
-    frame.InputChanged:Connect(function(input)
-        if input == dragInput and input.UserInputType == Enum.UserInputType.MouseMovement then
-            updateDrag(input)
-        end
-    end)
+local function _safeExec(fn)
+    if type(fn) ~= "function" then return false, "bad function" end
+    local _ok, _err = pcall(fn)
+    if not _ok then return false, _T(_err) end
+    return true
+end
 
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, -40, 0, 40)
-    title.Position = UDim2.new(0, 20, 0, 16)
-    title.BackgroundTransparency = 1
-    title.Font = Enum.Font.GothamBold
-    title.Text = "Script Hub"
-    title.TextColor3 = Color3.fromRGB(245, 245, 245)
-    title.TextSize = 22
-    title.TextXAlignment = Enum.TextXAlignment.Left
-    title.Parent = frame
-
-    local subtitle = Instance.new("TextLabel")
-    subtitle.Size = UDim2.new(1, -40, 0, 60)
-    subtitle.Position = UDim2.new(0, 20, 0, 60)
-    subtitle.BackgroundTransparency = 1
-    subtitle.Font = Enum.Font.Gotham
-    subtitle.Text = "Press open to load the hub immediately. Use the key tools only if needed."
-    subtitle.TextColor3 = Color3.fromRGB(170, 170, 175)
-    subtitle.TextSize = 14
-    subtitle.TextWrapped = true
-    subtitle.TextYAlignment = Enum.TextYAlignment.Top
-    subtitle.Parent = frame
-
-    local openBtn = createButton(frame, "Open ScriptHub", UDim2.new(0, 20, 0, 140), UDim2.new(0, 180, 0, 38))
-    local fakeBtn = createButton(frame, "Key System", UDim2.new(0, 220, 0, 140), UDim2.new(0, 180, 0, 38))
-    local closeBtn = createButton(frame, "X", UDim2.new(1, -50, 0, 16), UDim2.new(0, 34, 0, 34))
-    closeBtn.TextSize = 16
-    closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-
-    local keyPanel = Instance.new("Frame")
-    keyPanel.Size = UDim2.new(1, -40, 0, 120)
-    keyPanel.Position = UDim2.new(0, 20, 0, 200)
-    keyPanel.BackgroundColor3 = Color3.fromRGB(28, 28, 33)
-    keyPanel.BorderSizePixel = 0
-    keyPanel.Parent = frame
-    keyPanel.Visible = false
-    Instance.new("UICorner", keyPanel).CornerRadius = UDim.new(0, 12)
-
-    local keyBox = Instance.new("TextBox")
-    keyBox.Size = UDim2.new(1, -40, 0, 32)
-    keyBox.Position = UDim2.new(0, 20, 0, 20)
-    keyBox.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
-    keyBox.BorderSizePixel = 0
-    keyBox.PlaceholderText = "Enter key here"
-    keyBox.Font = Enum.Font.Gotham
-    keyBox.TextColor3 = Color3.fromRGB(235, 235, 235)
-    keyBox.TextSize = 14
-    keyBox.Text = ""
-    keyBox.Parent = keyPanel
-
-    local verifyBtn = createButton(keyPanel, "Verify Key", UDim2.new(0, 20, 0, 64), UDim2.new(0, 160, 0, 34))
-    local copyBtn = createButton(keyPanel, "Copy Key Link", UDim2.new(0, 200, 0, 64), UDim2.new(0, 160, 0, 34))
-
-    openBtn.MouseButton1Click:Connect(function()
-        frame.Visible = false
-        loadMainHub()
-    end)
-
-    fakeBtn.MouseButton1Click:Connect(function()
-        keyPanel.Visible = not keyPanel.Visible
-    end)
-
-    closeBtn.MouseButton1Click:Connect(function()
-        gui:Destroy()
-    end)
-
-    verifyBtn.MouseButton1Click:Connect(function()
-        errNotify("Key system is hidden in this build.")
-    end)
-
-    copyBtn.MouseButton1Click:Connect(function()
-        if type(getClipboard) == "function" then
-            getClipboard("" .. host)
-            errNotify("Key link copied")
-        else
-            errNotify("Clipboard unavailable")
+local function _loadHub()
+    _errNotify("Opening ScriptHub...")
+    task.spawn(function()
+        local _ok, _err = pcall(function()
+            local _url = _buildHubUrl()
+            local _content = _safeGet(_url)
+            local _loader
+            if _content and _content ~= "" then
+                local _loaded, _maybeLoader = _tryLoad(_content)
+                if _loaded then _loader = _maybeLoader end
+            end
+            if not _loader then
+                local _fb = _fallbackHub()
+                local _loaded, _maybeLoader = _tryLoad(_fb)
+                if not _loaded then error("fallback loader failed: " .. _T(_maybeLoader)) end
+                _loader = _maybeLoader
+            end
+            local _ran, _rerr = _safeExec(_loader)
+            if not _ran then error(_rerr) end
+        end)
+        if not _ok then
+            _errNotify("Hub load error: " .. _T(_err))
+            warn("[Script Hub] " .. _T(_err))
         end
     end)
 end
 
-showKeySystemUI()
+local function _newGui()
+    local _g = Instance.new("ScreenGui")
+    _g.Name = "HUD_" .. _T(_flr(_rnd() * 9999 + 1))
+    _g.ResetOnSpawn = false
+    if syn and syn.protect_gui then
+        syn.protect_gui(_g)
+        _g.Parent = _gs(game, "CoreGui")
+    elseif gethui then
+        _g.Parent = gethui()
+    else
+        _g.Parent = _gs(game, "CoreGui")
+    end
+    return _g
+end
+
+local function _makeBtn(parent, text, pos, size)
+    local _btn = Instance.new("TextButton")
+    _btn.AnchorPoint = Vector2.new(0, 0)
+    _btn.Position = pos
+    _btn.Size = size
+    _btn.BackgroundColor3 = Color3.fromRGB(55, 55, 65)
+    _btn.BorderSizePixel = 0
+    _btn.Font = Enum.Font.Gotham
+    _btn.Text = text
+    _btn.TextColor3 = Color3.fromRGB(240, 240, 240)
+    _btn.TextSize = 14
+    _btn.AutoButtonColor = false
+    Instance.new("UICorner", _btn).CornerRadius = UDim.new(0, 10)
+    _btn.Parent = parent
+    return _btn
+end
+
+local function _showUI()
+    local _gui = _newGui()
+
+    local _savedKey = _fakeLoadKey()
+
+    local _frame = Instance.new("Frame")
+    _frame.Name = "MainFrame"
+    _frame.Size = UDim2.new(0, 420, 0, 340)
+    _frame.Position = UDim2.new(0.5, -210, 0.5, -170)
+    _frame.AnchorPoint = Vector2.new(0.5, 0.5)
+    _frame.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
+    _frame.BorderSizePixel = 0
+    _frame.Active = true
+    _frame.Parent = _gui
+    Instance.new("UICorner", _frame).CornerRadius = UDim.new(0, 16)
+    local _stroke = Instance.new("UIStroke", _frame)
+    _stroke.Color = Color3.fromRGB(60, 60, 70)
+    _stroke.Thickness = 2
+
+    local _dragStart, _dragInput, _startPos
+    local function _updateDrag(inp)
+        local _d = inp.Position - _dragStart
+        _frame.Position = UDim2.new(_startPos.X.Scale, _startPos.X.Offset + _d.X, _startPos.Y.Scale, _startPos.Y.Offset + _d.Y)
+    end
+    _frame.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+            _dragStart = inp.Position
+            _startPos = _frame.Position
+            _dragInput = inp
+            inp.Changed:Connect(function()
+                if inp.UserInputState == Enum.UserInputState.End then _dragInput = nil end
+            end)
+        end
+    end)
+    _frame.InputChanged:Connect(function(inp)
+        if inp == _dragInput and inp.UserInputType == Enum.UserInputType.MouseMovement then
+            _updateDrag(inp)
+        end
+    end)
+
+    local _title = Instance.new("TextLabel")
+    _title.Size = UDim2.new(1, -40, 0, 40)
+    _title.Position = UDim2.new(0, 20, 0, 16)
+    _title.BackgroundTransparency = 1
+    _title.Font = Enum.Font.GothamBold
+    _title.Text = "Script Hub"
+    _title.TextColor3 = Color3.fromRGB(245, 245, 245)
+    _title.TextSize = 22
+    _title.TextXAlignment = Enum.TextXAlignment.Left
+    _title.Parent = _frame
+
+    local _sub = Instance.new("TextLabel")
+    _sub.Size = UDim2.new(1, -40, 0, 60)
+    _sub.Position = UDim2.new(0, 20, 0, 60)
+    _sub.BackgroundTransparency = 1
+    _sub.Font = Enum.Font.Gotham
+    _sub.Text = "Press open to load the hub immediately. Use the key tools only if needed."
+    _sub.TextColor3 = Color3.fromRGB(170, 170, 175)
+    _sub.TextSize = 14
+    _sub.TextWrapped = true
+    _sub.TextYAlignment = Enum.TextYAlignment.Top
+    _sub.Parent = _frame
+
+    local _openBtn  = _makeBtn(_frame, "Open ScriptHub", UDim2.new(0, 20, 0, 140), UDim2.new(0, 180, 0, 38))
+    local _keyBtn   = _makeBtn(_frame, "Key System",     UDim2.new(0, 220, 0, 140), UDim2.new(0, 180, 0, 38))
+    local _closeBtn = _makeBtn(_frame, "X",              UDim2.new(1, -50, 0, 16),  UDim2.new(0, 34, 0, 34))
+    _closeBtn.TextSize = 16
+    _closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+
+    local _keyPanel = Instance.new("Frame")
+    _keyPanel.Size = UDim2.new(1, -40, 0, 140)
+    _keyPanel.Position = UDim2.new(0, 20, 0, 196)
+    _keyPanel.BackgroundColor3 = Color3.fromRGB(28, 28, 33)
+    _keyPanel.BorderSizePixel = 0
+    _keyPanel.Visible = false
+    _keyPanel.Parent = _frame
+    Instance.new("UICorner", _keyPanel).CornerRadius = UDim.new(0, 12)
+
+    local _keyBox = Instance.new("TextBox")
+    _keyBox.Size = UDim2.new(1, -40, 0, 32)
+    _keyBox.Position = UDim2.new(0, 20, 0, 16)
+    _keyBox.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+    _keyBox.BorderSizePixel = 0
+    _keyBox.PlaceholderText = "Enter key here..."
+    _keyBox.Font = Enum.Font.Gotham
+    _keyBox.TextColor3 = Color3.fromRGB(235, 235, 235)
+    _keyBox.TextSize = 14
+    _keyBox.Text = _savedKey or ""
+    _keyBox.Parent = _keyPanel
+
+    local _verifyBtn  = _makeBtn(_keyPanel, "Verify Key",     UDim2.new(0, 20, 0, 60),  UDim2.new(0, 155, 0, 34))
+    local _copyBtn    = _makeBtn(_keyPanel, "Copy Key Link",  UDim2.new(0, 195, 0, 60),  UDim2.new(0, 155, 0, 34))
+    local _getKeyBtn  = _makeBtn(_keyPanel, "Get Key",        UDim2.new(0, 20, 0, 100), UDim2.new(0, 330, 0, 28))
+    _getKeyBtn.TextSize = 12
+    _getKeyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+
+    local _statusLbl = Instance.new("TextLabel")
+    _statusLbl.Size = UDim2.new(1, -40, 0, 20)
+    _statusLbl.Position = UDim2.new(0, 20, 0, 100)
+    _statusLbl.BackgroundTransparency = 1
+    _statusLbl.Font = Enum.Font.Gotham
+    _statusLbl.Text = ""
+    _statusLbl.TextColor3 = Color3.fromRGB(150, 150, 160)
+    _statusLbl.TextSize = 12
+    _statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+    _statusLbl.Parent = _keyPanel
+
+    _openBtn.MouseButton1Click:Connect(function()
+        _frame.Visible = false
+        _loadHub()
+    end)
+
+    _keyBtn.MouseButton1Click:Connect(function()
+        _keyPanel.Visible = not _keyPanel.Visible
+    end)
+
+    _closeBtn.MouseButton1Click:Connect(function()
+        _gui:Destroy()
+    end)
+
+    _verifyBtn.MouseButton1Click:Connect(function()
+        local _key = _keyBox.Text
+        if #_key < 4 then
+            _statusLbl.Text = "Key too short."
+            _statusLbl.TextColor3 = Color3.fromRGB(220, 80, 80)
+            return
+        end
+        _statusLbl.Text = "Verifying..."
+        _statusLbl.TextColor3 = Color3.fromRGB(200, 200, 100)
+        _verifyBtn.Text = "..."
+        _verifyBtn.AutoButtonColor = false
+        _fakeVerifyKey(_key, function(_passed)
+            _verifyBtn.Text = "Verify Key"
+            _statusLbl.Text = "Key system currently unavailable."
+            _statusLbl.TextColor3 = Color3.fromRGB(180, 180, 180)
+            _fakeKeySave(_key, LocalPlayer.UserId)
+        end)
+    end)
+
+    _copyBtn.MouseButton1Click:Connect(function()
+        if type(_getClipboard) == "function" then
+            _getClipboard(_host)
+            _errNotify("Key link copied")
+        else
+            _errNotify("Clipboard unavailable")
+        end
+    end)
+
+    _getKeyBtn.MouseButton1Click:Connect(function()
+        _errNotify("Key portal temporarily unavailable.")
+    end)
+end
+
+_showUI()
