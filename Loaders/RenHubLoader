@@ -2,7 +2,7 @@ local scriptChoice = 3
 
 local UpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/FirstStepBeta"
 local DownString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/DownTimeTaker"
-local TempUpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/TempFirstStep/TempFirstStepBeta"
+local TempUpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/TempFirstStep/TempFirstStebBeta"
 
 local function getLoader()
     if type(loadstring) == "function" then
