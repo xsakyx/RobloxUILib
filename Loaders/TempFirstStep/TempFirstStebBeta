@@ -39,18 +39,17 @@ local _getClipboard
 do
 	local _ok1, _r1 = pcall(function() return setclipboard end)
 	local _ok2, _r2 = pcall(function() return toclipboard end)
+	local _ok3, _r3 = pcall(function() return Clipboard and Clipboard.set end)
 	if _ok1 and type(_r1) == "function" then _getClipboard = _r1
 	elseif _ok2 and type(_r2) == "function" then _getClipboard = _r2
+	elseif _ok3 and type(_r3) == "function" then _getClipboard = _r3
 	end
 end
-
-if type(loadstring) ~= "function" and type(load) == "function" then loadstring = load end
-if type(load) ~= "function" and type(loadstring) == "function" then load = loadstring end
 
 local function _genHwid()
 	local _parts = {}
 	for _i = 1, 8 do
-		_parts[_i] = string.format("%x", _rnd(0, 0xFFFF))
+		_parts[_i] = string.format("%x", _rnd(1, 0xFFFF))
 	end
 	return table.concat(_parts, "-")
 end
@@ -91,21 +90,33 @@ end
 
 local function _jsonVal(v, seen)
 	local _vt = type(v)
-	if _vt == "string" then return _simpleEncode(v)
-	elseif _vt == "number" then return _T(v)
-	elseif _vt == "boolean" then return _T(v)
-	elseif _vt == "nil" then return "null"
+	if _vt == "string" then
+		return _simpleEncode(v)
+	elseif _vt == "number" then
+		return _T(v)
+	elseif _vt == "boolean" then
+		return _T(v)
+	elseif _vt == "nil" then
+		return "null"
 	elseif _vt == "table" then
 		if seen[v] then error("circular reference") end
 		seen[v] = true
-		local _isArr, _maxIdx = true, 0
+		local _isArr = true
+		local _maxIdx = 0
 		for _k in pairs(v) do
-			if type(_k) ~= "number" then _isArr = false break end
-			if _k > _maxIdx then _maxIdx = _k end
+			if type(_k) ~= "number" then
+				_isArr = false
+				break
+			end
+			if _k > _maxIdx then
+				_maxIdx = _k
+			end
 		end
 		local _parts = {}
 		if _isArr then
-			for _i = 1, _maxIdx do _parts[#_parts+1] = _jsonVal(v[_i], seen) end
+			for _i = 1, _maxIdx do
+				_parts[#_parts+1] = _jsonVal(v[_i], seen)
+			end
 			seen[v] = nil
 			return "[" .. table.concat(_parts, ",") .. "]"
 		end
@@ -114,16 +125,26 @@ local function _jsonVal(v, seen)
 		end
 		seen[v] = nil
 		return "{" .. table.concat(_parts, ",") .. "}"
-	else error("unexpected type '" .. _vt .. "'") end
+	else
+		error("unexpected type '" .. _vt .. "'")
+	end
 end
 
-local function _jsonEncode(obj) return _jsonVal(obj, {}) end
+local function _jsonEncode(obj)
+	return _jsonVal(obj, {})
+end
 
 local function _errNotify(val)
 	local _ok = pcall(function()
-		_gs("StarterGui"):SetCore("SendNotification", {Title = "Script Hub", Text = _T(val), Duration = 5})
+		_gs("StarterGui"):SetCore("SendNotification", {
+			Title = "Script Hub",
+			Text = _T(val),
+			Duration = 5
+		})
 	end)
-	if not _ok then warn("[Script Hub] " .. _T(val)) end
+	if not _ok then
+		warn("[Script Hub] " .. _T(val))
+	end
 end
 
 local function _buildKeyPayload(key)
@@ -171,7 +192,9 @@ local function _fakeVerifyKey(key, onDone)
 			_pass = (_body:find('"success":true') ~= nil)
 		end
 		_sending = false
-		if onDone then onDone(_pass) end
+		if type(onDone) == "function" then
+			onDone(_pass)
+		end
 	end)
 end
 
@@ -179,78 +202,94 @@ local function _fakeKeySave(key, uid)
 	if type(key) ~= "string" then return end
 	if type(uid) ~= "string" then uid = _T(uid) end
 	local _data = {key = key, uid = uid, hwid = _hwid, ts = _flr(os.clock() * 1000)}
-	if writefile then pcall(function() writefile("hub_session.dat", _jsonEncode(_data)) end) end
+	if type(writefile) == "function" then
+		pcall(function() writefile("hub_session.dat", _jsonEncode(_data)) end)
+	end
 end
 
 local function _fakeLoadKey()
-	if not readfile or not isfile then return nil end
+	if type(readfile) ~= "function" or type(isfile) ~= "function" then return nil end
 	local _ok, _raw = pcall(function()
-		if isfile("hub_session.dat") then return readfile("hub_session.dat") end
+		if isfile("hub_session.dat") then
+			return readfile("hub_session.dat")
+		end
 		return nil
 	end)
-	if not _ok or not _raw then return nil end
+	if not _ok or type(_raw) ~= "string" then return nil end
 	return nil
 end
 
 local function _safeGet(url)
 	if type(url) ~= "string" then return nil end
+	local function _isValidContent(s)
+		if type(s) ~= "string" or #s < 4 then return false end
+		local _h = _sb(s, 1, 1)
+		if _h == "<" then return false end
+		return true
+	end
 	if type(game.HttpGet) == "function" then
 		local _ok, _res = pcall(function() return game:HttpGet(url) end)
-		if _ok and type(_res) == "string" and _res ~= "" then return _res end
+		if _ok and _isValidContent(_res) then return _res end
 	end
 	if HttpService and type(HttpService.GetAsync) == "function" then
 		local _ok, _res = pcall(function() return HttpService:GetAsync(url, false) end)
-		if _ok and type(_res) == "string" and _res ~= "" then return _res end
+		if _ok and _isValidContent(_res) then return _res end
 	end
 	local _resp = _requestCall({Url = url, Method = "GET"})
-	if _resp then return _resp.Body or _resp.body end
+	if _resp then
+		local _body = _resp.Body or _resp.body
+		if _isValidContent(_body) then return _body end
+	end
 	return nil
 end
 
 local function _fallbackHub()
 	return [[
-		local g = Instance.new("ScreenGui")
-		g.Name = "ScriptHubFallback"
-		g.ResetOnSpawn = false
-		if syn and syn.protect_gui then
-			syn.protect_gui(g)
-			g.Parent = game:GetService("CoreGui")
-		elseif gethui then
-			g.Parent = gethui()
-		else
-			g.Parent = game:GetService("CoreGui")
-		end
-		local f = Instance.new("Frame")
-		f.Size = UDim2.new(0, 460, 0, 240)
-		f.Position = UDim2.new(0.5, -230, 0.5, -120)
-		f.AnchorPoint = Vector2.new(0.5, 0.5)
-		f.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
-		f.BorderSizePixel = 0
-		f.Parent = g
-		local c = Instance.new("UICorner", f)
-		c.CornerRadius = UDim.new(0, 18)
-		local t = Instance.new("TextLabel")
-		t.Size = UDim2.new(1, -32, 0, 40)
-		t.Position = UDim2.new(0, 16, 0, 16)
-		t.BackgroundTransparency = 1
-		t.Font = Enum.Font.GothamBold
-		t.Text = "Script Hub Loaded"
-		t.TextColor3 = Color3.fromRGB(245, 245, 245)
-		t.TextSize = 22
-		t.TextXAlignment = Enum.TextXAlignment.Left
-		t.Parent = f
-		local b = Instance.new("TextLabel")
-		b.Size = UDim2.new(1, -32, 0, 80)
-		b.Position = UDim2.new(0, 16, 0, 60)
-		b.BackgroundTransparency = 1
-		b.Font = Enum.Font.Gotham
-		b.Text = "Remote hub is unavailable, loading local fallback interface."
-		b.TextColor3 = Color3.fromRGB(185, 185, 190)
-		b.TextSize = 16
-		b.TextWrapped = true
-		b.TextYAlignment = Enum.TextYAlignment.Top
-		b.Parent = f
-	]]
+local g=Instance.new("ScreenGui")
+g.Name="ScriptHubFallback"
+g.ResetOnSpawn=false
+local _cok=pcall(function()
+	if syn and syn.protect_gui then
+		syn.protect_gui(g)
+		g.Parent=game:GetService("CoreGui")
+	elseif gethui then
+		g.Parent=gethui()
+	else
+		g.Parent=game:GetService("CoreGui")
+	end
+end)
+if not _cok then pcall(function() g.Parent=game:GetService("CoreGui") end) end
+local f=Instance.new("Frame")
+f.Size=UDim2.new(0,460,0,240)
+f.Position=UDim2.new(0.5,-230,0.5,-120)
+f.AnchorPoint=Vector2.new(0.5,0.5)
+f.BackgroundColor3=Color3.fromRGB(35,35,42)
+f.BorderSizePixel=0
+f.Parent=g
+local c=Instance.new("UICorner",f)
+c.CornerRadius=UDim.new(0,18)
+local t=Instance.new("TextLabel")
+t.Size=UDim2.new(1,-32,0,40)
+t.Position=UDim2.new(0,16,0,16)
+t.BackgroundTransparency=1
+t.Font=Enum.Font.GothamBold
+t.Text="Script Hub"
+t.TextColor3=Color3.fromRGB(245,245,245)
+t.TextSize=22
+t.TextXAlignment=Enum.TextXAlignment.Left
+t.Parent=f
+local b=Instance.new("TextLabel")
+b.Size=UDim2.new(1,-32,0,80)
+b.Position=UDim2.new(0,16,0,60)
+b.BackgroundTransparency=1
+b.Font=Enum.Font.Gotham
+b.Text="Hub is loading, please wait..."
+b.TextColor3=Color3.fromRGB(185,185,190)
+b.TextSize=16
+b.TextWrapped=true
+b.TextYAlignment=Enum.TextYAlignment.Top
+b.Parent=f
+]]
 end
 
 local function _buildParts()
@@ -266,7 +305,9 @@ end
 local function _shuffleParts(src)
 	local _order = {1, 2, 3, 4, 5}
 	local _dst = {}
-	for _i = 1, #_order do _dst[_i] = src[_order[_i]] end
+	for _i = 1, #_order do
+		_dst[_i] = src[_order[_i]]
+	end
 	return _dst
 end
 
@@ -275,25 +316,46 @@ local function _buildHubUrl()
 end
 
 local function _chooseLoader()
-	local _tests = {loadstring, load}
-	local _ok1, _r1 = pcall(function() return syn and syn.loadfunc end)
-	local _ok2, _r2 = pcall(function() return KRNL and KRNL.load end)
-	if _ok1 and type(_r1) == "function" then _tests[#_tests+1] = _r1 end
-	if _ok2 and type(_r2) == "function" then _tests[#_tests+1] = _r2 end
-	for _, _f in ipairs(_tests) do
-		if type(_f) == "function" then return _f end
+	local _candidates = {}
+	local function _push(f)
+		if type(f) == "function" then
+			_candidates[#_candidates + 1] = f
+		end
+	end
+	pcall(function() _push(loadstring) end)
+	pcall(function() _push(load) end)
+	pcall(function() _push(syn and syn.loadstring) end)
+	pcall(function() _push(syn and syn.loadfunc) end)
+	pcall(function() _push(KRNL and KRNL.load) end)
+	pcall(function() _push(getfenv and getfenv(0) and getfenv(0).loadstring) end)
+	if #_candidates > 0 then
+		return _candidates[1]
 	end
 	return nil
 end
 
 local function _tryLoad(code)
+	if type(code) ~= "string" or #code == 0 then
+		return false, "empty content"
+	end
 	local _loader = _chooseLoader()
-	if type(_loader) ~= "function" then return false, "missing loader" end
+	if type(_loader) ~= "function" then
+		return false, "no loader found"
+	end
 	local _ok, _a, _b = pcall(_loader, code)
-	if not _ok then return false, _T(_a) end
-	if type(_a) == "function" then return true, _a end
-	if type(_b) == "function" then return true, _b end
-	return false, "loader returned invalid type"
+	if not _ok then
+		return false, _T(_a)
+	end
+	if type(_a) == "function" then
+		return true, _a
+	end
+	if type(_b) == "function" then
+		return true, _b
+	end
+	if type(_b) == "string" then
+		return false, _b
+	end
+	return false, "compile failed"
 end
 
 local function _safeExec(fn)
@@ -310,21 +372,29 @@ local function _loadHub()
 			local _url = _buildHubUrl()
 			local _content = _safeGet(_url)
 			local _loader
-			if _content and _content ~= "" then
-				local _loaded, _maybeLoader = _tryLoad(_content)
-				if _loaded then _loader = _maybeLoader end
+			if type(_content) == "string" and #_content > 0 then
+				local _loaded, _result = _tryLoad(_content)
+				if _loaded then
+					_loader = _result
+				else
+					warn("[Script Hub] remote compile: " .. _T(_result))
+				end
 			end
 			if not _loader then
 				local _fb = _fallbackHub()
-				local _loaded, _maybeLoader = _tryLoad(_fb)
-				if not _loaded then error("fallback loader failed: " .. _T(_maybeLoader)) end
-				_loader = _maybeLoader
+				local _loaded, _result = _tryLoad(_fb)
+				if not _loaded then
+					error("fb:" .. _T(_result))
+				end
+				_loader = _result
 			end
 			local _ran, _rerr = _safeExec(_loader)
-			if not _ran then error(_rerr) end
+			if not _ran then
+				error(_T(_rerr))
+			end
 		end)
 		if not _ok then
-			_errNotify("Hub load error: " .. _T(_err))
+			_errNotify("Hub error: " .. _T(_err))
 			warn("[Script Hub] " .. _T(_err))
 		end
 	end)
@@ -332,15 +402,32 @@ end
 
 local function _newGui()
 	local _g = Instance.new("ScreenGui")
-	_g.Name = "HUD_" .. _T(_flr(_rnd() * 9999 + 1))
+	_g.Name = "HUD_" .. _T(_flr(_rnd(1, 9999)))
 	_g.ResetOnSpawn = false
-	if syn and syn.protect_gui then
-		syn.protect_gui(_g)
-		_g.Parent = _gs("CoreGui")
-	elseif gethui then
-		_g.Parent = gethui()
-	else
-		_g.Parent = _gs("CoreGui")
+	local _parented = false
+	pcall(function()
+		if syn and syn.protect_gui then
+			syn.protect_gui(_g)
+			_g.Parent = _gs("CoreGui")
+			_parented = true
+		end
+	end)
+	if not _parented then
+		pcall(function()
+			if gethui then
+				_g.Parent = gethui()
+				_parented = true
+			end
+		end)
+	end
+	if not _parented then
+		pcall(function()
+			_g.Parent = _gs("CoreGui")
+			_parented = true
+		end)
+	end
+	if not _parented then
+		_g.Parent = LocalPlayer:FindFirstChildOfClass("PlayerGui")
 	end
 	return _g
 end
@@ -394,7 +481,9 @@ local function _showUI()
 			_startPos = _frame.Position
 			_dragInput = inp
 			inp.Changed:Connect(function()
-				if inp.UserInputState == Enum.UserInputState.End then _dragInput = nil end
+				if inp.UserInputState == Enum.UserInputState.End then
+					_dragInput = nil
+				end
 			end)
 		end
 	end)
@@ -525,4 +614,4 @@ local function _showUI()
 	end)
 end
 
-_showUI()
+pcall(_showUI)
