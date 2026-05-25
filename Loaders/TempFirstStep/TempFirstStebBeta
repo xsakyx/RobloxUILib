@@ -383,6 +383,7 @@ local function _loadHub()
 			local _content = _safeGet(_url)
 			local _loader
 			if type(_content) == "string" and #_content > 0 then
+				 _content = "if not game.HttpGet and HttpGet then game.HttpGet = function(_,u) return HttpGet(u) end end; " .. _content
 				local _loaded, _result = _tryLoad(_content)
 				if _loaded then
 					_loader = _result
