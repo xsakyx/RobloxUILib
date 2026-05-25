@@ -33,10 +33,6 @@ local onMessage = (function()
     return function(message) end
 end)()
 
--- executor compatibility: make game:HttpGet work
-if not game.HttpGet and HttpGet then
-    game.HttpGet = function(_, url) return HttpGet(url) end
-end
 
 -------------------------------------------------------------------------------
 --! WAIT FOR GAME AND PLAYER TO LOAD
