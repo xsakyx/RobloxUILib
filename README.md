@@ -8,7 +8,7 @@ RenLib is a powerful, modern UI library designed for both **PC** and **mobile** 
 ## 📦 Loadstring (for RenHub project)
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/Loader"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/RenHubLoader"))()
 ```
 
 > **Note:** The above loads RenHub with its UI.  
