@@ -3,28 +3,28 @@ local RenLib = loadstring(game:HttpGet(
 ))()
 
 local Window = RenLib:CreateWindow({
-    Name = "RenLib V6 Showcase",
+    Name = "RenLib V6.1 Showcase",
     EnableGlobalSearch = true,
     EnableSidebarResize = true,
 })
 
-local Home = Window:CreateTab({Name = "Home", Emoji = "H"})
+local Home = Window:CreateTab({Name = "Home", Icon = "9080449299"})
 local Overview = Home:CreateSection({Name = "Overview", Side = "Left"})
 local Actions = Home:CreateSection({Name = "Actions", Side = "Right"})
 
 Overview:CreateParagraph({
-    Title = "Welcome to RenLib V6",
-    Content = "Resize or rotate the viewport to see this layout switch between two columns and one.",
+    Title = "Welcome to RenLib V6.1",
+    Content = "Drag the window freely, resize the sidebar, open the dropdown, and rotate the viewport to exercise the repaired layouts.",
 })
 Overview:CreateToggle({Name = "Enabled", Flag = "DemoEnabled", Default = true})
-Overview:CreateSlider({Name = "Intensity", Flag = "DemoIntensity", Min = 0, Max = 10, Step = 0.5, Default = 4.5})
+Overview:CreateSlider({Name = "Intensity", Flag = "DemoIntensity", Min = 0, Max = 10, Step = 0.5, Default = 4.5, CallbackMode = "Release"})
 Overview:CreateDropdown({Name = "Mode", Flag = "DemoMode", Values = {"Calm", "Fast", "Wild"}, Default = "Calm"})
 Overview:CreateInput({Name = "Message", Flag = "DemoMessage", Placeholder = "Say something..."})
 Overview:CreateColorPicker({Name = "Favorite color", Flag = "DemoColor", Default = Color3.fromRGB(89, 171, 255)})
 
 Actions:CreateButton({Name = "Show notification", Callback = function()
     RenLib:Notify({
-        Title = "RenLib V6",
+        Title = "RenLib V6.1",
         Content = "Notifications can now include actions and progress.",
         Duration = 6,
         Actions = {{Name = "Nice"}},
@@ -40,4 +40,4 @@ end})
 Actions:CreateButton({Name = "Use Nebula theme", Callback = function() RenLib:ApplyThemePreset("Nebula") end})
 Actions:CreateButton({Name = "Save demo config", Callback = function() RenLib:SaveConfig("showcase") end})
 
-RenLib:Notify({Title = "Loaded", Content = "RenLib V6 showcase is ready.", Duration = 4})
+RenLib:Notify({Title = "Loaded", Content = "RenLib V6.1 showcase is ready.", Duration = 4})
