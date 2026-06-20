@@ -1,4 +1,4 @@
--- RenLib V6.5.1
+-- RenLib V6.5.2
 -- Responsive Roblox UI library with mobile-first input, live theming,
 -- accessible motion, searchable controls, and deterministic cleanup.
 
@@ -104,7 +104,7 @@ local ICONS = {
 
 --// ROOT LIBRARY
 local Library = {}
-Library.Version = "6.5.1"
+Library.Version = "6.5.2"
 Library.Title = "RenLib"
 Library.Connections = {}
 Library.Tasks = {}
@@ -987,10 +987,7 @@ function Library:CreateWindow(options)
         ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
         Active = true,
         CanvasSize = UDim2.new(0, 0, 0, 0),
-        -- Keep the moving surface below the TabContainer sibling group. In
-        -- Sibling ZIndex mode, matching the container's ZIndex can place this
-        -- later-created frame over every icon and label inside that group.
-        ZIndex = 3,
+        ZIndex = 4,
         BorderSizePixel = 0
     })
 
@@ -1163,7 +1160,10 @@ function Library:CreateWindow(options)
         Position = UDim2.fromOffset(8, 78),
         Size = UDim2.fromOffset(42, 42),
         Visible = false,
-        ZIndex = 4,
+        -- Keep the moving surface below the TabContainer sibling group. In
+        -- Sibling ZIndex mode, matching the container's ZIndex can place this
+        -- later-created frame over every icon and label inside that group.
+        ZIndex = 3,
         BorderSizePixel = 0
     })
     Utility:RegisterProperty(NavigationSelection, "BackgroundColor3", "Accent")

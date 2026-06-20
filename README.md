@@ -1,6 +1,6 @@
-# RenLib V6.5.1 — Motion & Coherence
+# RenLib V6.5.2 — Motion & Coherence
 
-RenLib is a responsive Roblox/Luau interface library for desktop, tablet, and phone. V6.5.1 keeps the V6.5 shell and motion system while correcting active-tab compositing so labels and icons remain crisp above the sliding selection surface.
+RenLib is a responsive Roblox/Luau interface library for desktop, tablet, and phone. V6.5.2 keeps the V6.5 shell and motion system while correcting active-tab compositing so labels and icons remain crisp above the sliding selection surface.
 
 ```lua
 local RenLib = loadstring(game:HttpGet(
@@ -28,9 +28,9 @@ General:CreateToggle({
 
 ## What changed in V6.5
 
-### V6.5.1 patch
+### V6.5.2 patch
 
-- The shared navigation selection surface now renders below the tab-container group.
+- Corrected the sibling-layer assignment: the tab container renders on layer 4 and the shared selection surface renders on layer 3.
 - Active tab buttons no longer add a second translucent accent layer over their own label and icon.
 
 - The brand mark and sidebar-mode icon use semantic text contrast: bright on dark themes and dark on light themes.
@@ -287,8 +287,8 @@ All RenLib-managed connections, active tweens, registered theme/material objects
 
 ## Compatibility
 
-- `RenLib.lua` is the canonical V6.5.1 file.
-- `RenLibBêta.lua` and `RenLibTesting.lua` remain available for older loadstrings and mirror V6.5.1.
+- `RenLib.lua` is the canonical V6.5.2 file.
+- `RenLibBêta.lua` and `RenLibTesting.lua` remain available for older loadstrings and mirror V6.5.2.
 - Existing V4/V5 calls for windows, tabs, sections, buttons, toggles, sliders, dropdowns, labels, key pickers, warning boxes, images, and notifications remain supported.
 
 ## Design references
