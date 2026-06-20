@@ -1,4 +1,4 @@
--- RenLib V6.5
+-- RenLib V6.5.1
 -- Responsive Roblox UI library with mobile-first input, live theming,
 -- accessible motion, searchable controls, and deterministic cleanup.
 
@@ -104,7 +104,7 @@ local ICONS = {
 
 --// ROOT LIBRARY
 local Library = {}
-Library.Version = "6.5.0"
+Library.Version = "6.5.1"
 Library.Title = "RenLib"
 Library.Connections = {}
 Library.Tasks = {}
@@ -987,7 +987,10 @@ function Library:CreateWindow(options)
         ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
         Active = true,
         CanvasSize = UDim2.new(0, 0, 0, 0),
-        ZIndex = 4,
+        -- Keep the moving surface below the TabContainer sibling group. In
+        -- Sibling ZIndex mode, matching the container's ZIndex can place this
+        -- later-created frame over every icon and label inside that group.
+        ZIndex = 3,
         BorderSizePixel = 0
     })
 
@@ -1687,7 +1690,7 @@ function Library:CreateWindow(options)
                     tab.TabEmoji.ImageColor3 = Library.Theme[textKey]
                 end
             end
-            if tab.TabBtn then tab.TabBtn.BackgroundTransparency = tab.Active and 0.88 or 0.64 end
+            if tab.TabBtn then tab.TabBtn.BackgroundTransparency = tab.Active and 1 or 0.64 end
             if tab.TabStroke then
                 tab.TabStroke.Color = tab.Active and Library.Theme.Accent or Library.Theme.Stroke
                 tab.TabStroke.Transparency = tab.Active and 0.08 or 0.24
@@ -2582,7 +2585,9 @@ function Library:CreateWindow(options)
             Tab.Active = true
             Window.ActiveTab = Tab
             if Tab.TabBtn then
-                Utility:Tween(Tab.TabBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = 0.88})
+                -- The shared selection surface supplies the active fill. The
+                -- button stays transparent so it cannot wash out its content.
+                Utility:Tween(Tab.TabBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = 1})
             end
             if Tab.TabStroke then
                 Utility:Tween(Tab.TabStroke, TweenInfo.new(0.2), {Color = Library.Theme.Accent, Transparency = 0.08})
