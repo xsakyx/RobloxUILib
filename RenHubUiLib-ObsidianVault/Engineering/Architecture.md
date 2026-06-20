@@ -23,3 +23,14 @@ RenLib is currently a single-file Luau library so executor users can load it fro
 Luna and Starlight are visual and interaction references. RenLib uses an original implementation and keeps its public API stable. Reference repositories are studied for system-level lessons—density, navigation hierarchy, feedback, device behavior—not copied to inflate the codebase.
 
 Related: [[../Golden Rule - Feature Completion]], [[Feature Completion Checklist]], [[../Design/Visual System]].
+## V6.3 composition layers
+
+- `ThemePresets` provides semantic color tokens including a third accent stop.
+- `GradientRegistry` accepts any number of theme keys and rebuilds color sequences live.
+- `MaterialRegistry` owns solid and frosted transparency for each registered surface.
+- `SetMaterialMode` owns the Lighting blur lifecycle and synchronizes every registered surface.
+- Tabs expose a responsive header offset used by the dashboard hero.
+- Controllers can own a nested surface and reparent other controllers into it.
+- Section and page layout updates remain the single source of truth for expanded heights.
+
+The material registry and blur effect must always be cleared by `Unload()`.

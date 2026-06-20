@@ -1,4 +1,4 @@
--- RenLib V6.2
+-- RenLib V6.3
 -- Responsive Roblox UI library with mobile-first input, live theming,
 -- accessible motion, searchable controls, and deterministic cleanup.
 
@@ -11,6 +11,7 @@ local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
 local TextService = game:GetService("TextService")
 local GuiService = game:GetService("GuiService")
+local Lighting = game:GetService("Lighting")
 
 --// LOCAL SHORTCUTS
 local Plr = Players.LocalPlayer
@@ -89,12 +90,16 @@ local ICONS = {
     Profile = "rbxassetid://6022668898",
     Play = "rbxassetid://6026663699",
     Palette = "rbxassetid://6034316009",
-    Restore = "rbxassetid://6031260800"
+    Restore = "rbxassetid://6031260800",
+    Dashboard = "rbxassetid://6034287594",
+    Layers = "rbxassetid://6034328955",
+    Glass = "rbxassetid://6034925618",
+    Check = "rbxassetid://6031094667"
 }
 
 --// ROOT LIBRARY
 local Library = {}
-Library.Version = "6.2.0"
+Library.Version = "6.3.0"
 Library.Title = "RenLib"
 Library.Connections = {}
 Library.Tasks = {}
@@ -111,8 +116,12 @@ Library.ReducedMotion = false
 Library.MotionScale = 1
 Library.ActiveTweens = setmetatable({}, {__mode = "k"})
 Library.GradientRegistry = setmetatable({}, {__mode = "k"})
-Library.ActiveTheme = "Starlight"
+Library.ActiveTheme = "Celestial"
 Library.ScalePreview = nil
+Library.MaterialMode = "Solid"
+Library.MaterialIntensity = 18
+Library.MaterialRegistry = setmetatable({}, {__mode = "k"})
+Library.BlurEffect = nil
 
 -- Theme (can be changed at runtime)
 Library.Theme = {
@@ -128,6 +137,7 @@ Library.Theme = {
     Click = Color3.fromRGB(38, 39, 51),
     Accent = Color3.fromRGB(157, 112, 255),
     Accent2 = Color3.fromRGB(91, 190, 255),
+    Accent3 = Color3.fromRGB(255, 142, 216),
     Success = Color3.fromRGB(75, 215, 155),
     Warn = Color3.fromRGB(247, 190, 78),
     Error = Color3.fromRGB(247, 91, 121)
@@ -152,7 +162,7 @@ Library.ThemePresets = {
         Accent = Color3.fromRGB(170, 106, 255), Accent2 = Color3.fromRGB(89, 189, 255), Success = Color3.fromRGB(76, 218, 157),
         Warn = Color3.fromRGB(255, 198, 88), Error = Color3.fromRGB(255, 94, 117)
     },
-    Starlight = {
+    Celestial = {
         Main = Color3.fromRGB(15, 16, 22), Secondary = Color3.fromRGB(20, 21, 29),
         Surface = Color3.fromRGB(25, 26, 35), SurfaceAlt = Color3.fromRGB(31, 32, 43),
         Stroke = Color3.fromRGB(62, 64, 82), Divider = Color3.fromRGB(43, 45, 59),
@@ -185,8 +195,35 @@ Library.ThemePresets = {
         Stroke = Color3.fromRGB(84, 58, 46), Divider = Color3.fromRGB(64, 43, 35),
         Text = Color3.fromRGB(255, 247, 239), SubText = Color3.fromRGB(201, 169, 146),
         Hover = Color3.fromRGB(53, 36, 29), Click = Color3.fromRGB(62, 42, 33),
-        Accent = Color3.fromRGB(255, 132, 72), Accent2 = Color3.fromRGB(255, 83, 129), Success = Color3.fromRGB(87, 220, 153),
+        Accent = Color3.fromRGB(255, 132, 72), Accent2 = Color3.fromRGB(255, 83, 129), Accent3 = Color3.fromRGB(255, 202, 102), Success = Color3.fromRGB(87, 220, 153),
         Warn = Color3.fromRGB(255, 201, 87), Error = Color3.fromRGB(255, 83, 99)
+    },
+    ["Prism Frost"] = {
+        Main = Color3.fromRGB(218, 228, 232), Secondary = Color3.fromRGB(230, 238, 241),
+        Surface = Color3.fromRGB(242, 246, 248), SurfaceAlt = Color3.fromRGB(250, 252, 253),
+        Stroke = Color3.fromRGB(160, 177, 184), Divider = Color3.fromRGB(188, 201, 207),
+        Text = Color3.fromRGB(31, 39, 43), SubText = Color3.fromRGB(100, 111, 117),
+        Hover = Color3.fromRGB(224, 234, 239), Click = Color3.fromRGB(211, 224, 230),
+        Accent = Color3.fromRGB(168, 208, 255), Accent2 = Color3.fromRGB(255, 222, 166), Accent3 = Color3.fromRGB(186, 222, 255),
+        Success = Color3.fromRGB(67, 171, 127), Warn = Color3.fromRGB(218, 150, 51), Error = Color3.fromRGB(211, 75, 102)
+    },
+    ["Moss Archive"] = {
+        Main = Color3.fromRGB(31, 40, 42), Secondary = Color3.fromRGB(38, 48, 50),
+        Surface = Color3.fromRGB(45, 56, 57), SurfaceAlt = Color3.fromRGB(52, 65, 64),
+        Stroke = Color3.fromRGB(96, 111, 96), Divider = Color3.fromRGB(117, 119, 91),
+        Text = Color3.fromRGB(236, 235, 222), SubText = Color3.fromRGB(190, 181, 151),
+        Hover = Color3.fromRGB(52, 64, 63), Click = Color3.fromRGB(59, 72, 69),
+        Accent = Color3.fromRGB(156, 186, 105), Accent2 = Color3.fromRGB(196, 207, 148), Accent3 = Color3.fromRGB(126, 160, 89),
+        Success = Color3.fromRGB(113, 196, 128), Warn = Color3.fromRGB(223, 180, 88), Error = Color3.fromRGB(225, 104, 105)
+    },
+    ["Velvet Latte"] = {
+        Main = Color3.fromRGB(27, 28, 45), Secondary = Color3.fromRGB(35, 36, 56),
+        Surface = Color3.fromRGB(43, 44, 66), SurfaceAlt = Color3.fromRGB(52, 53, 78),
+        Stroke = Color3.fromRGB(101, 105, 143), Divider = Color3.fromRGB(76, 80, 113),
+        Text = Color3.fromRGB(232, 236, 255), SubText = Color3.fromRGB(175, 181, 215),
+        Hover = Color3.fromRGB(51, 52, 77), Click = Color3.fromRGB(59, 60, 87),
+        Accent = Color3.fromRGB(232, 164, 207), Accent2 = Color3.fromRGB(181, 148, 238), Accent3 = Color3.fromRGB(120, 174, 239),
+        Success = Color3.fromRGB(120, 207, 157), Warn = Color3.fromRGB(238, 190, 104), Error = Color3.fromRGB(239, 117, 144)
     }
 }
 
@@ -382,9 +419,31 @@ function Utility:RegisterProperty(instance, property, colorKey)
     instance[property] = Utility:GetColor(colorKey)
 end
 
-function Utility:RegisterGradient(instance, firstKey, secondKey)
-    Library.GradientRegistry[instance] = {firstKey, secondKey}
-    instance.Color = ColorSequence.new(Utility:GetColor(firstKey), Utility:GetColor(secondKey))
+local function buildGradient(keys)
+    local points = {}
+    local count = math.max(#keys, 2)
+    for index, key in ipairs(keys) do
+        table.insert(points, ColorSequenceKeypoint.new((index - 1) / (count - 1), Utility:GetColor(key)))
+    end
+    if #points == 1 then
+        table.insert(points, ColorSequenceKeypoint.new(1, points[1].Value))
+    end
+    return ColorSequence.new(points)
+end
+
+function Utility:RegisterGradient(instance, ...)
+    local keys = {...}
+    Library.GradientRegistry[instance] = keys
+    instance.Color = buildGradient(keys)
+end
+
+function Utility:RegisterMaterial(instance, frostedTransparency, solidTransparency)
+    Library.MaterialRegistry[instance] = {
+        Frosted = math.clamp(tonumber(frostedTransparency) or 0.18, 0, 1),
+        Solid = math.clamp(tonumber(solidTransparency) or instance.BackgroundTransparency or 0, 0, 1)
+    }
+    local state = Library.MaterialRegistry[instance]
+    instance.BackgroundTransparency = Library.MaterialMode == "Frosted" and state.Frosted or state.Solid
 end
 
 --// DYNAMIC THEME UPDATE
@@ -398,12 +457,15 @@ function Library:UpdateColors()
     end
     for gradient, keys in pairs(self.GradientRegistry) do
         pcall(function()
-            gradient.Color = ColorSequence.new(Utility:GetColor(keys[1]), Utility:GetColor(keys[2]))
+            gradient.Color = buildGradient(keys)
         end)
     end
 end
 
 function Library:SetTheme(newTheme)
+    local nextAccent = newTheme.Accent or self.Theme.Accent
+    local nextAccent2 = newTheme.Accent2 or nextAccent
+    newTheme.Accent3 = newTheme.Accent3 or nextAccent2
     for k, v in pairs(newTheme) do
         self.Theme[k] = v
     end
@@ -411,6 +473,7 @@ function Library:SetTheme(newTheme)
 end
 
 function Library:ApplyThemePreset(name)
+    if name == "Starlight" then name = "Celestial" end -- V6.2 compatibility alias
     local preset = self.ThemePresets[name]
     if not preset then
         return false, "Unknown theme preset: " .. tostring(name)
@@ -426,6 +489,63 @@ end
 
 function Library:SetMotionScale(scale)
     self.MotionScale = math.clamp(tonumber(scale) or 1, 0, 2)
+end
+
+function Library:SetMaterialIntensity(value)
+    self.MaterialIntensity = math.clamp(tonumber(value) or 18, 0, 32)
+    if self.BlurEffect then
+        self.BlurEffect.Size = self.IsMobile and math.min(self.MaterialIntensity, 12) or self.MaterialIntensity
+    end
+    return self.MaterialIntensity
+end
+
+function Library:RefreshMaterialVisibility()
+    if self.BlurEffect then
+        self.BlurEffect.Enabled = self.MaterialMode == "Frosted"
+            and not self.Unloaded
+            and not self.IsMinimized
+            and self.ScreenGui ~= nil
+    end
+end
+
+function Library:SetMaterialMode(mode)
+    mode = tostring(mode or "Solid")
+    if mode ~= "Solid" and mode ~= "Frosted" then
+        return false, "Unknown material mode: " .. mode
+    end
+    self.MaterialMode = mode
+    if mode == "Frosted" and not self.BlurEffect then
+        local ok, blur = pcall(function()
+            local effect = Instance.new("BlurEffect")
+            effect.Name = "RenLibFrost_" .. Utility:RandomString(8)
+            effect.Size = 0
+            effect.Enabled = true
+            effect.Parent = Lighting
+            return effect
+        end)
+        if not ok or not blur then
+            self.MaterialMode = "Solid"
+            self.Flags.__RenLibMaterial = "Solid"
+            if self.Notify then
+                self:Notify({Title = "Frost unavailable", Content = "This runtime blocked the blur effect, so RenLib stayed in solid mode.", Duration = 4})
+            end
+            return false, "BlurEffect unavailable"
+        end
+        self.BlurEffect = blur
+    end
+    for instance, state in pairs(self.MaterialRegistry) do
+        pcall(function()
+            Utility:Tween(instance, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                BackgroundTransparency = mode == "Frosted" and state.Frosted or state.Solid
+            })
+        end)
+    end
+    if self.BlurEffect then
+        local target = mode == "Frosted" and (self.IsMobile and math.min(self.MaterialIntensity, 12) or self.MaterialIntensity) or 0
+        Utility:Tween(self.BlurEffect, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = target})
+    end
+    self:RefreshMaterialVisibility()
+    return true
 end
 
 --// DPI SCALING
@@ -631,6 +751,7 @@ function Library:CreateWindow(options)
     local WindowIcon = Utility:NormalizeAssetId(options.Icon or options.Logo)
     local SettingsIcon = Utility:NormalizeAssetId(options.SettingsIcon, ICONS.Settings)
     local ShowUserProfile = options.ShowUserProfile == nil and true or options.ShowUserProfile
+    local RequestedMaterialMode = options.MaterialMode or self.MaterialMode or "Solid"
 
     local function createWindowMark(parent, textSize, zIndex)
         if WindowIcon then
@@ -725,6 +846,7 @@ function Library:CreateWindow(options)
         BorderSizePixel = 0
     })
     Utility:RegisterProperty(MainFrame, "BackgroundColor3", "Main")
+    Utility:RegisterMaterial(MainFrame, 0.24, 0)
     Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = MainFrame})
     local mainGradient = Utility:Create("UIGradient", {Parent = MainFrame, Rotation = 115})
     Utility:RegisterGradient(mainGradient, "Main", "Secondary")
@@ -743,7 +865,7 @@ function Library:CreateWindow(options)
     Utility:RegisterProperty(ambientRail, "BackgroundColor3", "Accent")
     Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = ambientRail})
     local ambientGradient = Utility:Create("UIGradient", {Parent = ambientRail})
-    Utility:RegisterGradient(ambientGradient, "Accent", "Accent2")
+    Utility:RegisterGradient(ambientGradient, "Accent", "Accent2", "Accent3")
 
     -- Shadow
     local Shadow = Utility:Create("ImageLabel", {
@@ -770,6 +892,7 @@ function Library:CreateWindow(options)
         BorderSizePixel = 0
     })
     Utility:RegisterProperty(Sidebar, "BackgroundColor3", "Secondary")
+    Utility:RegisterMaterial(Sidebar, 0.32, 0)
     Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = Sidebar})
     local sidebarGradient = Utility:Create("UIGradient", {Parent = Sidebar, Rotation = 90})
     Utility:RegisterGradient(sidebarGradient, "Secondary", "Main")
@@ -874,7 +997,7 @@ function Library:CreateWindow(options)
     Utility:RegisterProperty(SettingsBtn, "BackgroundColor3", "Accent")
     Utility:Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = SettingsBtn})
     local settingsGradient = Utility:Create("UIGradient", {Parent = SettingsBtn, Rotation = 18})
-    Utility:RegisterGradient(settingsGradient, "Accent", "Accent2")
+    Utility:RegisterGradient(settingsGradient, "Accent", "Accent2", "Accent3")
 
     local SettingsEmoji = Utility:Create("ImageLabel", {
         Parent = SettingsBtn,
@@ -926,6 +1049,7 @@ function Library:CreateWindow(options)
             BorderSizePixel = 0
         })
         Utility:RegisterProperty(ProfileCard, "BackgroundColor3", "Surface")
+        Utility:RegisterMaterial(ProfileCard, 0.28, 0)
         Utility:Create("UICorner", {CornerRadius = UDim.new(0, 9), Parent = ProfileCard})
         ProfileStroke = Utility:Create("UIStroke", {Parent = ProfileCard, Color = Library.Theme.Stroke, Thickness = 1, Enabled = not ProfileCompact})
         Utility:RegisterProperty(ProfileStroke, "Color", "Stroke")
@@ -1022,7 +1146,7 @@ function Library:CreateWindow(options)
         ProfileCompact = compact
         if not ProfileCard then return end
         ProfileCard.Visible = not hidden
-        ProfileCard.BackgroundTransparency = compact and 1 or 0
+        ProfileCard.BackgroundTransparency = compact and 1 or (Library.MaterialMode == "Frosted" and 0.28 or 0)
         ProfileCard.Position = compact and UDim2.new(0.5, -19, 1, -(settingsBtnSize + 62)) or UDim2.new(0, 10, 1, -110)
         ProfileCard.Size = compact and UDim2.fromOffset(38, 38) or UDim2.new(1, -20, 0, 48)
         ProfileAvatar.Position = compact and UDim2.fromScale(0, 0) or UDim2.fromOffset(6, 6)
@@ -1051,11 +1175,14 @@ function Library:CreateWindow(options)
     local TopBar = Utility:Create("Frame", {
         Name = "TopBar",
         Parent = MainFrame,
-        BackgroundTransparency = 1,
+        BackgroundColor3 = Library.Theme.Secondary,
+        BackgroundTransparency = 0.08,
         Size = UDim2.new(1, 0, 0, IsMobile and 88 or 60),
         ZIndex = 100,
         BorderSizePixel = 0
     })
+    Utility:RegisterProperty(TopBar, "BackgroundColor3", "Secondary")
+    Utility:RegisterMaterial(TopBar, 0.4, 0.08)
 
     Utility:MakeDraggable(TopBar, MainFrame)
 
@@ -1245,14 +1372,17 @@ function Library:CreateWindow(options)
             if mobileToggleDrag:ConsumeDrag() then return end
             if Library.IsMinimized then
                 Library.IsMinimized = false
+                Library:RefreshMaterialVisibility()
                 MinimizedIcon.Visible = false
                 MainFrame.Visible = true
                 MobileToggleBtn.Visible = false
             else
                 MainFrame.Visible = not MainFrame.Visible
+                Library.IsMinimized = not MainFrame.Visible
                 if not MainFrame.Visible then
                     MobileToggleBtn.Visible = true
                 end
+                Library:RefreshMaterialVisibility()
             end
         end)
     end
@@ -1260,6 +1390,9 @@ function Library:CreateWindow(options)
     -- Window Object (declared early so resizer can reference it)
     local Window = {
         Tabs = {},
+        TabCategories = {},
+        CurrentTabCategory = nil,
+        NextNavOrder = 0,
         ActiveTab = nil,
         Gui = ScreenGui,
         Main = MainFrame,
@@ -1413,6 +1546,9 @@ function Library:CreateWindow(options)
                 tab:ApplyResponsiveLayout(mobile, topBarHeight)
             end
         end
+        for _, category in ipairs(Window.TabCategories) do
+            category.Label.Visible = not isCompact
+        end
         if Library.IsMinimized then
             MobileToggleBtn.Visible = mobile
             MinimizedIcon.Visible = not mobile
@@ -1518,6 +1654,8 @@ function Library:CreateWindow(options)
     end
 
     Window:ApplyResponsiveLayout(true)
+    Library:SetMaterialIntensity(options.MaterialIntensity or Library.MaterialIntensity)
+    Library:SetMaterialMode(RequestedMaterialMode)
     if Camera then
         Library:Connect(Camera:GetPropertyChangedSignal("ViewportSize"), function()
             Window:ApplyResponsiveLayout(false)
@@ -1531,6 +1669,7 @@ function Library:CreateWindow(options)
         visibilityToken = visibilityToken + 1
         local token = visibilityToken
         Library.IsMinimized = true
+        Library:RefreshMaterialVisibility()
         if IsMobile then
             if MobileToggleBtn then
                 MobileToggleBtn.Visible = true
@@ -1548,12 +1687,15 @@ function Library:CreateWindow(options)
     function Window:Restore()
         visibilityToken = visibilityToken + 1
         Library.IsMinimized = false
+        Library:RefreshMaterialVisibility()
         MinimizedIcon.Visible = false
         MainFrame.Visible = true
         MainFrame.BackgroundTransparency = 1
         WindowScale.Scale = 0.96
         Utility:Tween(WindowScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1})
-        Utility:Tween(MainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 0})
+        local mainMaterial = Library.MaterialRegistry[MainFrame]
+        local restoredTransparency = mainMaterial and (Library.MaterialMode == "Frosted" and mainMaterial.Frosted or mainMaterial.Solid) or 0
+        Utility:Tween(MainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = restoredTransparency})
         if IsMobile and MobileToggleBtn then
             MobileToggleBtn.Visible = false
         end
@@ -1595,12 +1737,21 @@ function Library:CreateWindow(options)
     if SearchBox then
         local function searchInSection(section, searchText)
             local anyVisible = false
+            local visibleHolders = {}
             for _, element in ipairs(section.Elements or {}) do
                 if element.Holder then
                     local text = element.Text or element.Name or ""
                     local matches = searchText == "" or text:lower():find(searchText)
-                    element.Holder.Visible = matches
-                    if matches then anyVisible = true end
+                    if matches then
+                        visibleHolders[element.Holder] = true
+                        if element.NestedParentHolder then visibleHolders[element.NestedParentHolder] = true end
+                        anyVisible = true
+                    end
+                end
+            end
+            for _, element in ipairs(section.Elements or {}) do
+                if element.Holder then
+                    element.Holder.Visible = visibleHolders[element.Holder] == true
                 end
             end
             if section.SectionFrame then
@@ -1633,6 +1784,13 @@ function Library:CreateWindow(options)
                         tab.TabBtn.Visible = visible
                     end
                 end
+            end
+            for _, category in ipairs(Window.TabCategories) do
+                local hasVisibleTab = false
+                for _, categoryTab in ipairs(category.Tabs) do
+                    if categoryTab.TabBtn and categoryTab.TabBtn.Visible then hasVisibleTab = true; break end
+                end
+                category.Label.Visible = not isCompact and hasVisibleTab
             end
             if Window.ActiveTab and not Window.ActiveTab.Page.Visible then
                 for _, tab in ipairs(Window.Tabs) do
@@ -1804,23 +1962,45 @@ function Library:CreateWindow(options)
     end
 
     --// TABS
+    function Window:CreateTabCategory(name)
+        self.NextNavOrder = self.NextNavOrder + 1
+        local category = Utility:Create("TextLabel", {
+            Name = "Category_" .. tostring(name), Parent = TabContainer,
+            BackgroundTransparency = 1, Size = UDim2.new(1, -8, 0, 20),
+            Text = string.upper(tostring(name or "")), TextColor3 = Library.Theme.SubText,
+            Font = Enum.Font.GothamBold, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 5, Visible = not isCompact, LayoutOrder = self.NextNavOrder
+        })
+        Utility:RegisterProperty(category, "TextColor3", "SubText")
+        local categoryEntry = {Label = category, Tabs = {}}
+        table.insert(self.TabCategories, categoryEntry)
+        self.CurrentTabCategory = categoryEntry
+        return category
+    end
+
     function Window:CreateTab(options)
         options = options or {}
         local Name = options.Name or "Tab"
         local Emoji = options.Emoji
         local IsSettings = options.IsSettings or false
         local Icon = Utility:NormalizeAssetId(options.Icon)
+        self.NextNavOrder = self.NextNavOrder + 1
         if not Icon and Emoji == nil and not IsSettings then Icon = ICONS.Home end
 
         local Tab = {
             Name = Name,
             Active = false,
             Sections = {},
+            HeaderHeight = 0,
+            ResponsiveCallbacks = {},
             IsSettings = IsSettings,
             Page = nil,
             TabBtn = nil,
             TabLabel = nil
         }
+        if not IsSettings and self.CurrentTabCategory then
+            table.insert(self.CurrentTabCategory.Tabs, Tab)
+        end
 
         local TabBtn, TabEmoji, Indicator, TabGradient
         local tabBtnSize = IsMobile and 38 or 42
@@ -1835,12 +2015,13 @@ function Library:CreateWindow(options)
                 AutoButtonColor = false,
                 Text = "",
                 ZIndex = 5,
+                LayoutOrder = self.NextNavOrder,
                 BorderSizePixel = 0
             })
             Utility:RegisterProperty(TabBtn, "BackgroundColor3", "Accent")
             Utility:Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = TabBtn})
             TabGradient = Utility:Create("UIGradient", {Parent = TabBtn, Rotation = 18})
-            Utility:RegisterGradient(TabGradient, "Accent", "Accent2")
+            Utility:RegisterGradient(TabGradient, "Accent", "Accent2", "Accent3")
 
             if Icon then
                 TabEmoji = Utility:Create("ImageLabel", {
@@ -1977,7 +2158,7 @@ function Library:CreateWindow(options)
         local function UpdateCanvas()
             local LeftH = LeftLayout.AbsoluteContentSize.Y
             local RightH = useSingleColumn and 0 or RightLayout.AbsoluteContentSize.Y
-            Page.CanvasSize = UDim2.new(0, 0, 0, math.max(LeftH, RightH) + 20)
+            Page.CanvasSize = UDim2.new(0, 0, 0, Tab.HeaderHeight + math.max(LeftH, RightH) + 20)
         end
         Library:Connect(LeftLayout:GetPropertyChangedSignal("AbsoluteContentSize"), UpdateCanvas)
         Library:Connect(RightLayout:GetPropertyChangedSignal("AbsoluteContentSize"), UpdateCanvas)
@@ -1989,8 +2170,9 @@ function Library:CreateWindow(options)
             Page.Size = UDim2.new(1, mobile and -16 or -40, 1, -(pageTop + 10))
             Page.ScrollBarThickness = mobile and 3 or 2
             LeftColumn.Size = mobile and UDim2.new(1, 0, 1, 0) or UDim2.new(0.5, -6, 1, 0)
+            LeftColumn.Position = UDim2.new(0, 0, 0, Tab.HeaderHeight)
             RightColumn.Size = UDim2.new(0.5, -6, 1, 0)
-            RightColumn.Position = UDim2.new(0.5, 6, 0, 0)
+            RightColumn.Position = UDim2.new(0.5, 6, 0, Tab.HeaderHeight)
             RightColumn.Visible = not mobile
             LeftLayout.Padding = UDim.new(0, mobile and 10 or 12)
             for _, section in ipairs(Tab.Sections) do
@@ -2006,6 +2188,24 @@ function Library:CreateWindow(options)
             end
             UpdateCanvas()
             task.defer(UpdateCanvas)
+            for _, callback in ipairs(Tab.ResponsiveCallbacks) do
+                Utility:SafeCall(callback, mobile, Page.AbsoluteSize)
+            end
+        end
+
+        function Tab:OnResponsive(callback)
+            table.insert(self.ResponsiveCallbacks, callback)
+            return self
+        end
+
+        function Tab:SetHeader(frame, height)
+            frame.Parent = Page
+            frame.LayoutOrder = -1000
+            self.HeaderHeight = math.max(0, tonumber(height) or 0)
+            LeftColumn.Position = UDim2.new(0, 0, 0, self.HeaderHeight)
+            RightColumn.Position = UDim2.new(0.5, 6, 0, self.HeaderHeight)
+            UpdateCanvas()
+            return frame
         end
 
         function Tab:Activate()
@@ -2078,6 +2278,7 @@ function Library:CreateWindow(options)
             options = options or {}
             local SectionName = options.Name or "Section"
             local Side = options.Side or "Auto"
+            local SectionIcon = Utility:NormalizeAssetId(options.Icon)
 
             local ParentCol = LeftColumn
             if not useSingleColumn then
@@ -2096,15 +2297,23 @@ function Library:CreateWindow(options)
             local SectionFrame = Utility:Create("Frame", {
                 Name = SectionName,
                 Parent = ParentCol,
-                BackgroundColor3 = Library.Theme.Secondary,
+                BackgroundColor3 = Library.Theme.Surface,
                 Size = UDim2.new(1, 0, 0, 50),
                 -- Allow expanded controls to render above the section frame.
                 ClipsDescendants = false,
                 ZIndex = 3,
                 BorderSizePixel = 0
             })
-            Utility:RegisterProperty(SectionFrame, "BackgroundColor3", "Secondary")
-            Utility:Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = SectionFrame})
+            Utility:RegisterProperty(SectionFrame, "BackgroundColor3", "Surface")
+            Utility:RegisterMaterial(SectionFrame, 0.24, 0)
+            Utility:Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = SectionFrame})
+            Utility:Create("ImageLabel", {
+                Name = "DepthShadow", Parent = SectionFrame, BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(-12, -10), Size = UDim2.new(1, 24, 1, 24),
+                Image = "rbxassetid://6014261993", ImageColor3 = Color3.new(0, 0, 0),
+                ImageTransparency = 0.58, ScaleType = Enum.ScaleType.Slice,
+                SliceCenter = Rect.new(49, 49, 450, 450), ZIndex = 2
+            })
             local sectionStroke = Utility:Create("UIStroke", {
                 Parent = SectionFrame,
                 Color = Library.Theme.Stroke,
@@ -2112,24 +2321,34 @@ function Library:CreateWindow(options)
             })
             Utility:RegisterProperty(sectionStroke, "Color", "Stroke")
             local sectionGradient = Utility:Create("UIGradient", {Parent = SectionFrame, Rotation = 105})
-            Utility:RegisterGradient(sectionGradient, "Secondary", "Main")
+            Utility:RegisterGradient(sectionGradient, "SurfaceAlt", "Surface")
             local sectionAccent = Utility:Create("Frame", {
                 Parent = SectionFrame,
                 BackgroundColor3 = Library.Theme.Accent,
-                Position = UDim2.fromOffset(12, 7),
-                Size = UDim2.fromOffset(26, 2),
+                Position = UDim2.fromOffset(12, 12),
+                Size = UDim2.fromOffset(3, 16),
                 BorderSizePixel = 0,
                 ZIndex = 5
             })
             Utility:RegisterProperty(sectionAccent, "BackgroundColor3", "Accent")
             Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = sectionAccent})
+            if SectionIcon then
+                sectionAccent.Visible = false
+                local sectionIcon = Utility:Create("ImageLabel", {
+                    Parent = SectionFrame, BackgroundTransparency = 1,
+                    Position = UDim2.fromOffset(10, 9), Size = UDim2.fromOffset(20, 20),
+                    Image = SectionIcon, ImageColor3 = Library.Theme.Accent,
+                    ScaleType = Enum.ScaleType.Fit, ZIndex = 5
+                })
+                Utility:RegisterProperty(sectionIcon, "ImageColor3", "Accent")
+            end
             Section.SectionFrame = SectionFrame
 
             local Head = Utility:Create("TextLabel", {
                 Parent = SectionFrame,
                 BackgroundTransparency = 1,
-                Position = UDim2.new(0, 12, 0, IsMobile and 10 or 12),
-                Size = UDim2.new(1, -24, 0, 20),
+                Position = UDim2.new(0, SectionIcon and 38 or 22, 0, 10),
+                Size = UDim2.new(1, SectionIcon and -50 or -34, 0, 20),
                 Font = Enum.Font.GothamBold,
                 Text = SectionName,
                 TextColor3 = Library.Theme.Text,
@@ -2141,11 +2360,22 @@ function Library:CreateWindow(options)
 
             local ContentContainer = Utility:Create("Frame", {
                 Parent = SectionFrame,
-                BackgroundTransparency = 1,
-                Position = UDim2.new(0, 10, 0, IsMobile and 30 or 35),
-                Size = UDim2.new(1, -20, 0, 0),
+                BackgroundColor3 = Library.Theme.Main,
+                BackgroundTransparency = 0.12,
+                Position = UDim2.new(0, 8, 0, IsMobile and 34 or 36),
+                Size = UDim2.new(1, -16, 0, 0),
                 ZIndex = 4,
                 BorderSizePixel = 0
+            })
+            Utility:RegisterProperty(ContentContainer, "BackgroundColor3", "Main")
+            Utility:RegisterMaterial(ContentContainer, 0.4, 0.12)
+            Utility:Create("UICorner", {CornerRadius = UDim.new(0, 9), Parent = ContentContainer})
+            local contentStroke = Utility:Create("UIStroke", {Parent = ContentContainer, Color = Library.Theme.Divider, Thickness = 1, Transparency = 0.2})
+            Utility:RegisterProperty(contentStroke, "Color", "Divider")
+            Utility:Create("UIPadding", {
+                Parent = ContentContainer,
+                PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8),
+                PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8)
             })
             Section.ContentContainer = ContentContainer
 
@@ -2156,14 +2386,14 @@ function Library:CreateWindow(options)
             })
 
             local function RefreshLayout()
-                ContentContainer.Size = UDim2.new(1, -20, 0, ContentLayout.AbsoluteContentSize.Y)
-                SectionFrame.Size = UDim2.new(1, 0, 0, ContentLayout.AbsoluteContentSize.Y + (IsMobile and 38 or 45))
+                ContentContainer.Size = UDim2.new(1, -16, 0, ContentLayout.AbsoluteContentSize.Y + 16)
+                SectionFrame.Size = UDim2.new(1, 0, 0, ContentLayout.AbsoluteContentSize.Y + (IsMobile and 58 or 60))
             end
 
             Library:Connect(ContentLayout:GetPropertyChangedSignal("AbsoluteContentSize"), function()
-                ContentContainer.Size = UDim2.new(1, -20, 0, ContentLayout.AbsoluteContentSize.Y)
+                ContentContainer.Size = UDim2.new(1, -16, 0, ContentLayout.AbsoluteContentSize.Y + 16)
                 Utility:Tween(SectionFrame, TweenInfo.new(0.2), {
-                    Size = UDim2.new(1, 0, 0, ContentLayout.AbsoluteContentSize.Y + (IsMobile and 38 or 45))
+                    Size = UDim2.new(1, 0, 0, ContentLayout.AbsoluteContentSize.Y + (IsMobile and 58 or 60))
                 })
             end)
 
@@ -2180,6 +2410,65 @@ function Library:CreateWindow(options)
                 controller.Holder = holder
                 controller.Name = name
                 controller.Locked = false
+                if holder:IsA("GuiObject") and holder.BackgroundTransparency < 0.98 and not Library.MaterialRegistry[holder] then
+                    Utility:RegisterMaterial(holder, math.min(0.48, holder.BackgroundTransparency + 0.3), holder.BackgroundTransparency)
+                end
+                local nestedHost, nestedLayout
+                local nestedBaseHeight = holder.Size.Y.Offset
+                local nestedVisible = true
+
+                local function refreshNested()
+                    if not nestedHost then return end
+                    local nestedHeight = nestedVisible and (nestedLayout.AbsoluteContentSize.Y + 16) or 0
+                    nestedHost.Visible = nestedVisible
+                    nestedHost.Size = UDim2.new(1, -16, 0, nestedHeight)
+                    holder.Size = UDim2.new(holder.Size.X.Scale, holder.Size.X.Offset, 0, nestedBaseHeight + (nestedHeight > 0 and nestedHeight + 8 or 0))
+                    RefreshLayout()
+                end
+
+                function controller:AddNested(childController)
+                    if not childController or not childController.Holder then return self end
+                    if not nestedHost then
+                        holder.ClipsDescendants = true
+                        nestedHost = Utility:Create("Frame", {
+                            Name = "NestedControls", Parent = holder, BackgroundColor3 = Library.Theme.Main,
+                            BackgroundTransparency = 0.22, Position = UDim2.new(0, 8, 0, nestedBaseHeight),
+                            Size = UDim2.new(1, -16, 0, 0), BorderSizePixel = 0,
+                            ClipsDescendants = true, ZIndex = holder.ZIndex + 2
+                        })
+                        Utility:RegisterProperty(nestedHost, "BackgroundColor3", "Main")
+                        Utility:RegisterMaterial(nestedHost, 0.48, 0.22)
+                        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 7), Parent = nestedHost})
+                        local nestedStroke = Utility:Create("UIStroke", {Parent = nestedHost, Color = Library.Theme.Divider, Thickness = 1, Transparency = 0.15})
+                        Utility:RegisterProperty(nestedStroke, "Color", "Divider")
+                        Utility:Create("UIPadding", {
+                            Parent = nestedHost, PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8),
+                            PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8)
+                        })
+                        nestedLayout = Utility:Create("UIListLayout", {
+                            Parent = nestedHost, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6)
+                        })
+                        Library:Connect(nestedLayout:GetPropertyChangedSignal("AbsoluteContentSize"), refreshNested)
+                    end
+                    childController.Holder.Parent = nestedHost
+                    childController.NestedParent = self
+                    for _, sectionElement in ipairs(Section.Elements) do
+                        if sectionElement.Holder == childController.Holder then
+                            sectionElement.NestedParentHolder = holder
+                            break
+                        end
+                    end
+                    childController.Holder.LayoutOrder = #nestedHost:GetChildren()
+                    Library:Connect(childController.Holder:GetPropertyChangedSignal("Size"), refreshNested)
+                    task.defer(refreshNested)
+                    return self
+                end
+
+                function controller:SetNestedVisible(visible)
+                    nestedVisible = visible == true
+                    refreshNested()
+                    return self
+                end
                 local blocker
                 function controller:SetVisible(visible)
                     holder.Visible = visible == true
@@ -2328,6 +2617,60 @@ function Library:CreateWindow(options)
                 }, container, title)
                 addElement({Holder = container, Text = title .. " " .. content})
                 task.defer(resize)
+                return controller
+            end
+
+            function Section:CreateMetric(options)
+                options = options or {}
+                local name = tostring(options.Name or "Metric")
+                local value = tostring(options.Value or "--")
+                local detail = tostring(options.Detail or "")
+                local container = Utility:Create("Frame", {
+                    Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Surface,
+                    Size = UDim2.new(1, 0, 0, detail ~= "" and 54 or 42),
+                    BorderSizePixel = 0,
+                    ZIndex = 5
+                })
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 7), Parent = container})
+                local accent = Utility:Create("Frame", {
+                    Parent = container, BackgroundColor3 = Library.Theme.Accent,
+                    Position = UDim2.new(0, 0, 0, 8), Size = UDim2.new(0, 3, 1, -16),
+                    BorderSizePixel = 0, ZIndex = 6
+                })
+                Utility:RegisterProperty(accent, "BackgroundColor3", "Accent")
+                Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = accent})
+                local nameLabel = Utility:Create("TextLabel", {
+                    Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 5),
+                    Size = UDim2.new(0.62, -12, 0, 20), Text = name, TextColor3 = Library.Theme.Text,
+                    Font = Enum.Font.GothamMedium, TextSize = IsMobile and 11 or 12,
+                    TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+                })
+                Utility:RegisterProperty(nameLabel, "TextColor3", "Text")
+                local valueLabel = Utility:Create("TextLabel", {
+                    Parent = container, BackgroundTransparency = 1, Position = UDim2.new(0.62, 0, 0, 5),
+                    Size = UDim2.new(0.38, -12, 0, 20), Text = value, TextColor3 = Library.Theme.Accent,
+                    Font = Enum.Font.GothamBold, TextSize = IsMobile and 12 or 14,
+                    TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 6
+                })
+                Utility:RegisterProperty(valueLabel, "TextColor3", "Accent")
+                local detailLabel
+                if detail ~= "" then
+                    detailLabel = Utility:Create("TextLabel", {
+                        Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 27),
+                        Size = UDim2.new(1, -24, 0, 17), Text = detail, TextColor3 = Library.Theme.SubText,
+                        Font = Enum.Font.Gotham, TextSize = 10, TextTruncate = Enum.TextTruncate.AtEnd,
+                        TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+                    })
+                    Utility:RegisterProperty(detailLabel, "TextColor3", "SubText")
+                end
+                local controller = finishController({
+                    Type = "Metric",
+                    SetValue = function(self, nextValue) valueLabel.Text = tostring(nextValue) end,
+                    SetDetail = function(self, nextDetail) if detailLabel then detailLabel.Text = tostring(nextDetail) end end
+                }, container, name)
+                addElement({Holder = container, Text = name .. " " .. value .. " " .. detail})
                 return controller
             end
 
@@ -2670,7 +3013,7 @@ function Library:CreateWindow(options)
                 })
                 Utility:RegisterProperty(Fill, "BackgroundColor3", "Accent")
                 local fillGradient = Utility:Create("UIGradient", {Parent = Fill})
-                Utility:RegisterGradient(fillGradient, "Accent", "Accent2")
+                Utility:RegisterGradient(fillGradient, "Accent", "Accent2", "Accent3")
                 Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = Fill})
                 local Dragging = false
                 local DragInput = nil
@@ -2748,8 +3091,24 @@ function Library:CreateWindow(options)
                 local Callback = options.Callback or function() end
                 local Flag = options.Flag or Name
 
-                local CurrentValue = Default
+                local function normalizeMulti(value)
+                    if not Multi then return value end
+                    local normalized = {}
+                    if type(value) == "table" then
+                        for key, selected in pairs(value) do
+                            if type(key) == "number" then
+                                normalized[selected] = true
+                            elseif selected == true then
+                                normalized[key] = true
+                            end
+                        end
+                    end
+                    return normalized
+                end
+
+                local CurrentValue = normalizeMulti(Default)
                 if Library.Flags[Flag] ~= nil then CurrentValue = Library.Flags[Flag] end
+                CurrentValue = normalizeMulti(CurrentValue)
                 Library.Flags[Flag] = CurrentValue
 
                 local headerHeight = IsMobile and 38 or 44
@@ -2840,6 +3199,7 @@ function Library:CreateWindow(options)
                     Visible = false
                 })
                 Utility:RegisterProperty(ListFrame, "BackgroundColor3", "Surface")
+                Utility:RegisterMaterial(ListFrame, 0.24, 0)
                 Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = ListFrame})
                 local listStroke = Utility:Create("UIStroke", {Parent = ListFrame, Color = Library.Theme.Stroke, Thickness = 1})
                 Utility:RegisterProperty(listStroke, "Color", "Stroke")
@@ -2858,14 +3218,26 @@ function Library:CreateWindow(options)
                     if Library.ReducedMotion and not Expanded then ListFrame.Visible = false end
                 end
 
-                local function Refresh()
+                local function UpdateStatus()
                     if Multi then
-                        local Count = 0
-                        for k, v in pairs(CurrentValue) do if v then Count = Count + 1 end end
-                        Status.Text = Count .. " Selected"
+                        local selected = {}
+                        for _, optionValue in ipairs(Values) do
+                            if CurrentValue[optionValue] then table.insert(selected, tostring(optionValue)) end
+                        end
+                        if #selected == 0 then
+                            Status.Text = "None selected"
+                        elseif #selected <= 2 then
+                            Status.Text = table.concat(selected, ", ")
+                        else
+                            Status.Text = selected[1] .. ", " .. selected[2] .. " +" .. tostring(#selected - 2)
+                        end
                     else
                         Status.Text = tostring(CurrentValue)
                     end
+                end
+
+                local function Refresh()
+                    UpdateStatus()
                     Library.Flags[Flag] = CurrentValue
                     Utility:SafeCall(Callback, CurrentValue)
                     for _, listener in ipairs(changeListeners) do
@@ -2887,19 +3259,30 @@ function Library:CreateWindow(options)
                             BackgroundTransparency = 1,
                             Size = UDim2.new(1, 0, 0, itemHeight),
                             AutoButtonColor = false,
-                            Font = Enum.Font.Gotham,
-                            Text = tostring(val),
-                            TextColor3 = Library.Theme.SubText,
-                            TextSize = IsMobile and 12 or 13,
+                            Text = "",
                             ZIndex = 21,
                             BorderSizePixel = 0
                         })
                         Utility:RegisterProperty(Item, "BackgroundColor3", "SurfaceAlt")
                         Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = Item})
                         local IsSelected = Multi and CurrentValue[val] or (not Multi and CurrentValue == val)
+                        local itemText = Utility:Create("TextLabel", {
+                            Parent = Item, BackgroundTransparency = 1, Position = UDim2.fromOffset(9, 0),
+                            Size = UDim2.new(1, -38, 1, 0), Text = tostring(val),
+                            TextColor3 = IsSelected and Library.Theme.Text or Library.Theme.SubText,
+                            Font = Enum.Font.Gotham, TextSize = IsMobile and 12 or 13,
+                            TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 22
+                        })
+                        Utility:RegisterProperty(itemText, "TextColor3", IsSelected and "Text" or "SubText")
+                        local checkIcon = Utility:Create("ImageLabel", {
+                            Parent = Item, BackgroundTransparency = 1, Position = UDim2.new(1, -25, 0.5, -7),
+                            Size = UDim2.fromOffset(14, 14), Image = ICONS.Check,
+                            ImageColor3 = Library.Theme.Accent, ImageTransparency = IsSelected and 0 or 1,
+                            ScaleType = Enum.ScaleType.Fit, ZIndex = 22
+                        })
+                        Utility:RegisterProperty(checkIcon, "ImageColor3", "Accent")
                         if IsSelected then
-                            Item.TextColor3 = Library.Theme.Text
-                            Item.BackgroundTransparency = 0
+                            Item.BackgroundTransparency = 0.08
                         end
                         Library:Connect(Item.MouseButton1Click, function()
                             if Multi then
@@ -2923,12 +3306,13 @@ function Library:CreateWindow(options)
                     SetExpanded(not Expanded)
                 end)
                 BuildList()
+                UpdateStatus()
                 addElement({Holder = DropdownContainer, Text = Name})
 
                 local dropObj = {
                     Type = "Dropdown",
                     Set = function(self, val)
-                        CurrentValue = val
+                        CurrentValue = normalizeMulti(val)
                         Refresh()
                         BuildList()
                     end,
@@ -2937,6 +3321,26 @@ function Library:CreateWindow(options)
                         BuildList()
                     end,
                     Get = function() return CurrentValue end,
+                    GetList = function()
+                        local selected = {}
+                        if Multi then
+                            for _, value in ipairs(Values) do if CurrentValue[value] then table.insert(selected, value) end end
+                        elseif CurrentValue ~= nil then
+                            table.insert(selected, CurrentValue)
+                        end
+                        return selected
+                    end,
+                    Clear = function(self)
+                        if Multi then CurrentValue = {} else CurrentValue = nil end
+                        Refresh(); BuildList()
+                    end,
+                    SelectAll = function(self)
+                        if Multi then
+                            CurrentValue = {}
+                            for _, value in ipairs(Values) do CurrentValue[value] = true end
+                            Refresh(); BuildList()
+                        end
+                    end,
                     OnChanged = function(self, fn)
                         table.insert(changeListeners, fn)
                     end,
@@ -2945,6 +3349,12 @@ function Library:CreateWindow(options)
                 finishController(dropObj, DropdownContainer, Name)
                 Library.Options[Flag] = dropObj
                 return dropObj
+            end
+
+            function Section:CreateMultiDropdown(options)
+                options = options or {}
+                options.Multi = true
+                return self:CreateDropdown(options)
             end
 
             -- LABEL
@@ -3609,6 +4019,145 @@ function Library:CreateWindow(options)
         return Tab
     end
 
+    function Window:CreateDashboard(options)
+        options = options or {}
+        local dashboardTab = Window:CreateTab({
+            Name = options.Name or "Overview",
+            Icon = options.Icon or ICONS.Dashboard
+        })
+        local heroHeight = IsMobile and 118 or 132
+        local hero = Utility:Create("Frame", {
+            Name = "DashboardHero", Parent = dashboardTab.Page,
+            BackgroundColor3 = Library.Theme.Surface, BackgroundTransparency = 0,
+            Position = UDim2.fromOffset(0, 0), Size = UDim2.new(1, -4, 0, heroHeight),
+            BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 3
+        })
+        Utility:RegisterProperty(hero, "BackgroundColor3", "Surface")
+        Utility:RegisterMaterial(hero, 0.28, 0)
+        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 13), Parent = hero})
+        local heroStroke = Utility:Create("UIStroke", {Parent = hero, Color = Library.Theme.Stroke, Thickness = 1})
+        Utility:RegisterProperty(heroStroke, "Color", "Stroke")
+        local heroGradient = Utility:Create("UIGradient", {Parent = hero, Rotation = 12})
+        Utility:RegisterGradient(heroGradient, "SurfaceAlt", "Surface", "Main")
+        local heroRail = Utility:Create("Frame", {
+            Parent = hero, BackgroundColor3 = Library.Theme.Accent,
+            Size = UDim2.new(1, 0, 0, 3), BorderSizePixel = 0, ZIndex = 4
+        })
+        Utility:RegisterProperty(heroRail, "BackgroundColor3", "Accent")
+        local heroRailGradient = Utility:Create("UIGradient", {Parent = heroRail})
+        Utility:RegisterGradient(heroRailGradient, "Accent", "Accent2", "Accent3")
+
+        local avatar = Utility:Create("ImageLabel", {
+            Parent = hero, BackgroundColor3 = Library.Theme.Main,
+            Position = UDim2.fromOffset(20, 20), Size = UDim2.fromOffset(88, 88),
+            Image = Utility:NormalizeAssetId(options.Avatar, ICONS.Profile),
+            ScaleType = Enum.ScaleType.Crop, BorderSizePixel = 0, ZIndex = 5
+        })
+        Utility:RegisterProperty(avatar, "BackgroundColor3", "Main")
+        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 13), Parent = avatar})
+        local avatarStroke = Utility:Create("UIStroke", {Parent = avatar, Color = Library.Theme.Accent, Thickness = 1})
+        Utility:RegisterProperty(avatarStroke, "Color", "Accent")
+
+        local greeting = Utility:Create("TextLabel", {
+            Parent = hero, BackgroundTransparency = 1, Position = UDim2.fromOffset(128, 31),
+            Size = UDim2.new(1, -330, 0, 30), Font = Enum.Font.GothamBold,
+            Text = tostring(options.Greeting or ("Welcome, " .. (Plr.DisplayName or Plr.Name))),
+            TextColor3 = Library.Theme.Text, TextSize = 22, TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 5
+        })
+        Utility:RegisterProperty(greeting, "TextColor3", "Text")
+        local subtitle = Utility:Create("TextLabel", {
+            Parent = hero, BackgroundTransparency = 1, Position = UDim2.fromOffset(128, 63),
+            Size = UDim2.new(1, -330, 0, 22), Font = Enum.Font.Gotham,
+            Text = tostring(options.Subtitle or ("Your control center · @" .. Plr.Name)),
+            TextColor3 = Library.Theme.SubText, TextSize = 13,
+            TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 5
+        })
+        Utility:RegisterProperty(subtitle, "TextColor3", "SubText")
+        local clock = Utility:Create("TextLabel", {
+            Parent = hero, BackgroundTransparency = 1, Position = UDim2.new(1, -176, 0, 31),
+            Size = UDim2.fromOffset(150, 28), Font = Enum.Font.GothamBold,
+            Text = "", TextColor3 = Library.Theme.Text, TextSize = 18,
+            TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 5
+        })
+        Utility:RegisterProperty(clock, "TextColor3", "Text")
+        local dateLabel = Utility:Create("TextLabel", {
+            Parent = hero, BackgroundTransparency = 1, Position = UDim2.new(1, -176, 0, 61),
+            Size = UDim2.fromOffset(150, 20), Font = Enum.Font.Gotham,
+            Text = "", TextColor3 = Library.Theme.SubText, TextSize = 12,
+            TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 5
+        })
+        Utility:RegisterProperty(dateLabel, "TextColor3", "SubText")
+
+        local clockAccumulator = 1
+        local function updateClock()
+            clock.Text = os.date("%H:%M:%S")
+            dateLabel.Text = os.date("%d %b %Y")
+        end
+        updateClock()
+        Library:Connect(RunService.Heartbeat, function(delta)
+            clockAccumulator = clockAccumulator + delta
+            if clockAccumulator >= 1 then clockAccumulator = 0; updateClock() end
+        end)
+
+        if not Utility:NormalizeAssetId(options.Avatar) then
+            task.spawn(function()
+                local ok, image = pcall(function()
+                    return Players:GetUserThumbnailAsync(tonumber(options.UserId) or Plr.UserId, Enum.ThumbnailType.AvatarBust, Enum.ThumbnailSize.Size180x180)
+                end)
+                if ok and avatar.Parent then avatar.Image = image end
+            end)
+        end
+
+        dashboardTab:SetHeader(hero, heroHeight + 12)
+        dashboardTab:OnResponsive(function(mobile)
+            heroHeight = mobile and 112 or 132
+            hero.Size = UDim2.new(1, -4, 0, heroHeight)
+            avatar.Position = mobile and UDim2.fromOffset(14, 20) or UDim2.fromOffset(20, 20)
+            avatar.Size = mobile and UDim2.fromOffset(58, 58) or UDim2.fromOffset(88, 88)
+            greeting.Position = mobile and UDim2.fromOffset(84, 24) or UDim2.fromOffset(128, 31)
+            greeting.Size = mobile and UDim2.new(1, -98, 0, 26) or UDim2.new(1, -330, 0, 30)
+            greeting.TextSize = mobile and 17 or 22
+            subtitle.Position = mobile and UDim2.fromOffset(84, 51) or UDim2.fromOffset(128, 63)
+            subtitle.Size = mobile and UDim2.new(1, -98, 0, 34) or UDim2.new(1, -330, 0, 22)
+            subtitle.TextWrapped = mobile
+            clock.Visible = not mobile
+            dateLabel.Visible = not mobile
+            dashboardTab:SetHeader(hero, heroHeight + 12)
+        end)
+
+        local dashboard = {Tab = dashboardTab, Hero = hero, Cards = {}}
+        function dashboard:AddCard(cardOptions)
+            cardOptions = cardOptions or {}
+            local section = dashboardTab:CreateSection({
+                Name = cardOptions.Name or "Card",
+                Side = cardOptions.Side or "Auto",
+                Icon = cardOptions.Icon
+            })
+            if cardOptions.Description then
+                section:CreateParagraph({Content = cardOptions.Description})
+            end
+            for _, metric in ipairs(cardOptions.Metrics or {}) do
+                section:CreateMetric(metric)
+            end
+            if cardOptions.Action then
+                section:CreateButton({
+                    Name = cardOptions.Action.Name or "Open",
+                    Description = cardOptions.Action.Description,
+                    Icon = cardOptions.Action.Icon,
+                    Callback = cardOptions.Action.Callback
+                })
+            end
+            table.insert(self.Cards, section)
+            return section
+        end
+        function dashboard:SetGreeting(text) greeting.Text = tostring(text) end
+        function dashboard:SetSubtitle(text) subtitle.Text = tostring(text) end
+        function dashboard:SetAvatar(asset) avatar.Image = Utility:NormalizeAssetId(asset, avatar.Image) end
+        for _, card in ipairs(options.Cards or {}) do dashboard:AddCard(card) end
+        return dashboard
+    end
+
     -- Create Settings Tab
     local SettingsTab = Window:CreateTab({
         Name = "UI Settings",
@@ -3643,12 +4192,31 @@ function Library:CreateWindow(options)
     local AppearanceSection = SettingsTab:CreateSection({ Name = "Appearance & motion", Side = "Right" })
     AppearanceSection:CreateDropdown({
         Name = "Theme preset",
-        Values = {"Midnight", "Nebula", "Starlight", "Rose", "Aurora", "Ember"},
+        Values = {"Midnight", "Nebula", "Celestial", "Rose", "Aurora", "Ember", "Prism Frost", "Moss Archive", "Velvet Latte"},
         Default = Library.ActiveTheme or "Midnight",
         Flag = "__RenLibTheme",
         Callback = function(theme)
             Library:ApplyThemePreset(theme)
         end
+    })
+    AppearanceSection:CreateDropdown({
+        Name = "Window material",
+        Values = {"Solid", "Frosted"},
+        Default = Library.MaterialMode,
+        Flag = "__RenLibMaterial",
+        Callback = function(mode)
+            Library:SetMaterialMode(mode)
+        end
+    })
+    AppearanceSection:CreateSlider({
+        Name = "Frost intensity",
+        Min = 0,
+        Max = 32,
+        Step = 2,
+        Default = Library.MaterialIntensity,
+        Flag = "__RenLibFrostIntensity",
+        CallbackMode = "Release",
+        Callback = function(value) Library:SetMaterialIntensity(value) end
     })
     local ScaleSlider = AppearanceSection:CreateSlider({
         Name = "UI scale",
@@ -3679,7 +4247,7 @@ function Library:CreateWindow(options)
     })
     AppearanceSection:CreateParagraph({
         Title = "Responsive by default",
-        Content = "RenLib reflows for phones, tablets, rotation, narrow windows, and the selected UI scale. Scale changes must be kept within 10 seconds or they safely revert."
+        Content = "RenLib reflows for phones, tablets, rotation, narrow windows, and the selected UI scale. Frosted material uses a lighter blur on mobile, cleans itself up, and scale changes still revert safely."
     })
 
     if options.ShowInfiniteYield == nil or options.ShowInfiniteYield then
@@ -3738,6 +4306,10 @@ function Library:Unload(reason)
     if self.Unloaded then return end
     self.Unloaded = true
     self.ScalePreview = nil
+    if self.BlurEffect then
+        pcall(function() self.BlurEffect:Destroy() end)
+        self.BlurEffect = nil
+    end
     for _, tween in pairs(self.ActiveTweens) do
         pcall(function() tween:Cancel() end)
     end
@@ -3750,6 +4322,7 @@ function Library:Unload(reason)
     table.clear(self.Connections)
     table.clear(self.Registry)
     table.clear(self.GradientRegistry)
+    table.clear(self.MaterialRegistry)
     table.clear(self.Scales)
     table.clear(self.Options)
     self.Window = nil

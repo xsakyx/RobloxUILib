@@ -2,47 +2,143 @@ local RenLib = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/RenLib.lua"
 ))()
 
+RenLib:ApplyThemePreset("Prism Frost")
+
 local Window = RenLib:CreateWindow({
-    Name = "RenLib V6.2 Showcase",
+    Name = "RenLib V6.3 Harmony Showcase",
     Icon = "6034316009",
     SettingsIcon = "6031280882",
     ShowUserProfile = true,
-    ProfileSubtitle = "Showcase session",
+    ProfileSubtitle = "Harmony session",
     EnableGlobalSearch = true,
     EnableSidebarResize = true,
+    MaterialMode = "Frosted",
+    MaterialIntensity = 18,
 })
 
-local Home = Window:CreateTab({Name = "Home", Icon = "9080449299"})
-local Overview = Home:CreateSection({Name = "Overview", Side = "Left"})
-local Actions = Home:CreateSection({Name = "Actions", Side = "Right"})
-
-Overview:CreateParagraph({
-    Title = "Welcome to RenLib V6.2",
-    Content = "Try a narrow Roblox window, expand the color picker, preview a new UI scale, and replace any example icon with your own Roblox image ID.",
+Window:CreateTabCategory("Start")
+local Dashboard = Window:CreateDashboard({
+    Name = "Overview",
+    Greeting = "Welcome back, " .. game:GetService("Players").LocalPlayer.DisplayName,
+    Subtitle = "Your RenLib control center · everything useful stays one glance away",
+    Cards = {
+        {
+            Name = "Interface health",
+            Side = "Left",
+            Icon = "6034287594",
+            Description = "Live information about this responsive UI session.",
+            Metrics = {
+                {Name = "Device mode", Value = RenLib.DeviceMode, Detail = "Reflows automatically as the viewport changes"},
+                {Name = "Material", Value = RenLib.MaterialMode, Detail = "Frost is performance-capped on mobile"},
+                {Name = "UI scale", Value = math.floor(RenLib.DPIScale * 100) .. "%", Detail = "Protected by the ten-second recovery flow"},
+            },
+        },
+        {
+            Name = "Session",
+            Side = "Right",
+            Icon = "6022668898",
+            Metrics = {
+                {Name = "Players", Value = tostring(#game:GetService("Players"):GetPlayers()), Detail = "Currently connected"},
+                {Name = "Capacity", Value = tostring(game:GetService("Players").MaxPlayers), Detail = "Maximum server size"},
+                {Name = "Library", Value = "V" .. RenLib.Version, Detail = "Harmony release"},
+            },
+        },
+        {
+            Name = "Quick launch",
+            Side = "Right",
+            Icon = "6026663699",
+            Description = "Jump directly into the full component playground.",
+            Action = {
+                Name = "Open playground",
+                Description = "Nested controls, multi-select, colors, and motion.",
+                Icon = "6034328955",
+                Callback = function()
+                    RenLib:Notify({Title = "Playground", Content = "Choose the Elements tab from the sidebar.", Duration = 3})
+                end,
+            },
+        },
+    },
 })
-Overview:CreateToggle({Name = "Enabled", Flag = "DemoEnabled", Default = true})
-Overview:CreateSlider({Name = "Intensity", Flag = "DemoIntensity", Min = 0, Max = 10, Step = 0.5, Default = 4.5, CallbackMode = "Release"})
-Overview:CreateDropdown({Name = "Mode", Flag = "DemoMode", Values = {"Calm", "Fast", "Wild"}, Default = "Calm"})
-Overview:CreateInput({Name = "Message", Flag = "DemoMessage", Placeholder = "Say something..."})
-Overview:CreateColorPicker({Name = "Favorite color", Flag = "DemoColor", Default = Color3.fromRGB(89, 171, 255)})
+
+Window:CreateTabCategory("Playground")
+local Elements = Window:CreateTab({Name = "Elements", Icon = "6034328955"})
+local Core = Elements:CreateSection({Name = "Core controls", Side = "Left", Icon = "6031280882"})
+local Nested = Elements:CreateSection({Name = "Nested composition", Side = "Right", Icon = "6034328955"})
+
+Core:CreateParagraph({
+    Title = "Hierarchy you can feel",
+    Content = "Sections, inner surfaces, controls, and active states now have distinct depth instead of being separated by one lonely line.",
+})
+Core:CreateToggle({Name = "Enabled", Flag = "DemoEnabled", Default = true})
+Core:CreateSlider({Name = "Intensity", Flag = "DemoIntensity", Min = 0, Max = 10, Step = 0.5, Default = 4.5, CallbackMode = "Release"})
+Core:CreateDropdown({Name = "Mode", Flag = "DemoMode", Values = {"Calm", "Fast", "Wild"}, Default = "Calm"})
+Core:CreateMultiDropdown({
+    Name = "Active roles",
+    Flag = "DemoRoles",
+    Values = {"Scout", "Builder", "Support", "Navigator", "Tester"},
+    Default = {"Builder", "Tester"},
+})
+Core:CreateInput({Name = "Message", Flag = "DemoMessage", Placeholder = "Say something..."})
+
+local AdvancedToggle = Nested:CreateToggle({Name = "Advanced styling", Flag = "DemoAdvanced", Default = true})
+local NestedMode = Nested:CreateDropdown({
+    Name = "Surface behavior",
+    Flag = "DemoSurface",
+    Values = {"Quiet", "Raised", "Luminous"},
+    Default = "Raised",
+})
+local NestedColor = Nested:CreateColorPicker({
+    Name = "Nested accent",
+    Flag = "DemoNestedColor",
+    Default = Color3.fromRGB(157, 112, 255),
+})
+AdvancedToggle:AddNested(NestedMode):AddNested(NestedColor)
+
+local LabelHost = Nested:CreateLabel("A label can host useful controls too")
+local LabelMulti = Nested:CreateMultiDropdown({
+    Name = "Visible modules",
+    Flag = "DemoModules",
+    Values = {"Status", "Friends", "Server", "Changelog"},
+    Default = {"Status", "Server"},
+})
+LabelHost:AddNested(LabelMulti)
+
+Window:CreateTabCategory("Actions")
+local ActionsTab = Window:CreateTab({Name = "Actions", Icon = "6026663699"})
+local Actions = ActionsTab:CreateSection({Name = "Experience controls", Side = "Left", Icon = "6026663699"})
+local Themes = ActionsTab:CreateSection({Name = "Original palettes", Side = "Right", Icon = "6034316009"})
 
 Actions:CreateButton({Name = "Show notification", Description = "Exercise actions and timed progress.", Icon = "6034304908", Callback = function()
     RenLib:Notify({
-        Title = "RenLib V6.2",
-        Content = "Notifications can now include actions and progress.",
+        Title = "RenLib V6.3",
+        Content = "Layered surfaces, responsive composition, and frosted material are active.",
         Duration = 6,
-        Actions = {{Name = "Nice"}},
+        Actions = {{Name = "Lovely"}},
     })
 end})
 Actions:CreateButton({Name = "Open dialog", Description = "Responsive confirmation surface.", Icon = "6031094678", Callback = function()
     Window:Dialog({
         Title = "Try the dialog API",
-        Content = "Dialogs are responsive and support any number of actions.",
+        Content = "Dialogs inherit the active palette and remain usable at narrow widths.",
         Actions = {{Name = "Close"}, {Name = "Confirm", Primary = true}},
     })
 end})
-Actions:CreateButton({Name = "Use Aurora theme", Icon = "6034316009", Callback = function() RenLib:ApplyThemePreset("Aurora") end})
-Actions:CreateButton({Name = "Preview 125% scale", Description = "Auto-reverts after 10 seconds unless kept.", Icon = "6031260800", Callback = function() RenLib:PreviewDPIScale(125, 10) end})
-Actions:CreateButton({Name = "Save demo config", Icon = "6023426951", Callback = function() RenLib:SaveConfig("showcase") end})
+Actions:CreateButton({Name = "Preview 125% scale", Description = "Auto-reverts after 10 seconds unless kept.", Icon = "6031260800", Callback = function()
+    RenLib:PreviewDPIScale(125, 10)
+end})
 
-RenLib:Notify({Title = "Loaded", Content = "RenLib V6.2 showcase is ready.", Duration = 4})
+Themes:CreateButton({Name = "Prism Frost", Description = "Airy ice, warm light, and clear dark text.", Icon = "6034316009", Callback = function()
+    RenLib:ApplyThemePreset("Prism Frost")
+    RenLib:SetMaterialMode("Frosted")
+end})
+Themes:CreateButton({Name = "Moss Archive", Description = "Charcoal forest surfaces with sage and parchment.", Icon = "6034316009", Callback = function()
+    RenLib:ApplyThemePreset("Moss Archive")
+end})
+Themes:CreateButton({Name = "Velvet Latte", Description = "Deep indigo with rose, lilac, and blue light.", Icon = "6034316009", Callback = function()
+    RenLib:ApplyThemePreset("Velvet Latte")
+end})
+Themes:CreateButton({Name = "Toggle frosted material", Description = "Switches material safely and cleans up its blur.", Icon = "6034925618", Callback = function()
+    RenLib:SetMaterialMode(RenLib.MaterialMode == "Frosted" and "Solid" or "Frosted")
+end})
+
+RenLib:Notify({Title = "Harmony loaded", Content = "RenLib V6.3 showcase is ready.", Duration = 4})

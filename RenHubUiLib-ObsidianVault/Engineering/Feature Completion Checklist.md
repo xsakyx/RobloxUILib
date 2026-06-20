@@ -41,3 +41,18 @@ Use this checklist before every commit that adds or changes user-facing behavior
 - [ ] Luau syntax validation passes.
 
 See [[../Golden Rule - Feature Completion]].
+
+## V6.3 harmony checks
+
+- [ ] Every preset keeps readable text, icons, strokes, hover states, and gradients in Solid mode.
+- [ ] Every preset remains readable in Frosted mode over both bright and dark Roblox scenes.
+- [ ] Frost intensity is capped on mobile and the effect disables while minimized.
+- [ ] Unload removes the managed blur effect.
+- [ ] Dashboard hero and cards collapse into one readable column on phone-sized viewports.
+- [ ] Live clock stops updating after cleanup because its managed connection is disconnected.
+- [ ] Nested controls expand their parent when dropdowns and color pickers open.
+- [ ] Searching for a nested control keeps its parent visible.
+- [ ] Multi-select accepts both arrays and keyed selection maps.
+- [ ] Multi-select summaries remain useful with zero, one, two, and many selected options.
+- [ ] Navigation category labels disappear in compact mode without leaving dead spacing.
+- [ ] Reference-led work satisfies [[../Golden Rule - Transform Inspiration]].

@@ -23,3 +23,5 @@ Before calling anything complete, ask:
 - The implementation passes syntax checks and the release test matrix.
 
 This rule is the gate for every release. Never label a feature “done” merely because code for it exists.
+
+For work guided by another product or screenshot, completion must also satisfy [[Golden Rule - Transform Inspiration]].

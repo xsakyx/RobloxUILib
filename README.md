@@ -1,6 +1,6 @@
-# RenLib V6.2
+# RenLib V6.3 — Harmony
 
-RenLib is a responsive Roblox/Luau interface library for desktop, tablet, and phone. V6.2 completes the darker Starlight-inspired visual system with scale-aware layouts, recovery paths, custom image icons, a Roblox avatar surface, and documented interaction contracts.
+RenLib is a responsive Roblox/Luau interface library for desktop, tablet, and phone. V6.3 adds a clearer layered visual hierarchy, original light and dark palettes, optional frosted material, dashboard composition, nested controls, and intentional multi-select behavior while preserving V6.2's recovery and mobile contracts.
 
 ```lua
 local RenLib = loadstring(game:HttpGet(
@@ -26,7 +26,21 @@ General:CreateToggle({
 })
 ```
 
-## What changed in V6.2
+## What changed in V6.3
+
+- Sections now own a distinct inset surface, so organizational cards and their controls no longer blur into one layer.
+- Three-stop live gradients add controlled depth to active navigation, fills, and emphasis rails.
+- New original palettes: `Prism Frost`, `Moss Archive`, and `Velvet Latte`.
+- Optional `Frosted` material with adjustable blur, mobile intensity limits, minimize awareness, live switching, and unload cleanup.
+- `Window:CreateDashboard()` builds a responsive identity hero, avatar, live clock, metric cards, and quick actions.
+- `Window:CreateTabCategory()` adds navigational groups without wasting space in compact mode.
+- Any returned control can own child controls with `AddNested()` and `SetNestedVisible()`.
+- `CreateMultiDropdown()` shows selected names and checks and adds `GetList`, `Clear`, and `SelectAll`.
+- Added `CreateMetric()` for readable status/value/detail rows.
+- The visible `Starlight` preset name is replaced by the original `Celestial` name; legacy calls still work.
+- The Obsidian vault now contains two golden rules: feature completion and transformed inspiration.
+
+## V6.2 foundations retained
 
 - Color previews now live below the H/S/V tracks instead of drifting over them.
 - Responsive sizing uses the effective viewport after UI scale, with scrollable compact pages and dense-height fallbacks.
@@ -43,7 +57,7 @@ General:CreateToggle({
 - Touch-sized sliders, dropdowns, color controls, draggable windows, and a floating mobile restore button.
 - One active RenLib session. Loading RenLib again unloads the old session and disconnects its events.
 - Cancellable animation system with reduced-motion and motion-speed controls.
-- Six live presets: `Midnight`, `Nebula`, `Starlight`, `Rose`, `Aurora`, and `Ember`.
+- Nine live presets: `Midnight`, `Nebula`, `Celestial`, `Rose`, `Aurora`, `Ember`, `Prism Frost`, `Moss Archive`, and `Velvet Latte`.
 - Search on desktop and mobile.
 - Real JSON config save/load/autoload when filesystem APIs are available.
 - Safe callbacks: an error in user code is reported without breaking the entire UI.
@@ -69,6 +83,8 @@ local Window = RenLib:CreateWindow({
     ShowInfiniteYield = true,
     EnableGlobalSearch = true,
     EnableSidebarResize = true,
+    MaterialMode = "Frosted", -- or "Solid"
+    MaterialIntensity = 18,
     OnDeviceChanged = function(mode)
         print(mode) -- "Desktop", "Tablet", or "Phone"
     end,
@@ -87,8 +103,9 @@ Window:Close()
 ## Tabs, sections, and controls
 
 ```lua
+Window:CreateTabCategory("Player tools")
 local PlayerTab = Window:CreateTab({Name = "Player", Icon = "6034287594"})
-local Movement = PlayerTab:CreateSection({Name = "Movement", Side = "Auto"})
+local Movement = PlayerTab:CreateSection({Name = "Movement", Side = "Auto", Icon = "6034287594"})
 
 local speed = Movement:CreateSlider({
     Name = "Walk speed",
@@ -138,6 +155,18 @@ Movement:CreateButton({
     Icon = "6031260800",
     Callback = function() speed:Set(16) end,
 })
+
+local advanced = Movement:CreateToggle({Name = "Advanced", Default = true})
+local nestedMode = Movement:CreateDropdown({Name = "Nested mode", Values = {"Safe", "Fast"}})
+local nestedColor = Movement:CreateColorPicker({Name = "Nested color"})
+advanced:AddNested(nestedMode):AddNested(nestedColor)
+
+local roles = Movement:CreateMultiDropdown({
+    Name = "Roles",
+    Values = {"Builder", "Scout", "Tester"},
+    Default = {"Builder", "Tester"},
+})
+print(table.concat(roles:GetList(), ", "))
 ```
 
 Stateful controls support `Set`, `Get`, and usually `OnChanged`. Every returned control also supports:
@@ -153,6 +182,9 @@ speed:Destroy()
 
 ```lua
 RenLib:ApplyThemePreset("Nebula")
+RenLib:ApplyThemePreset("Prism Frost")
+RenLib:SetMaterialMode("Frosted")
+RenLib:SetMaterialIntensity(18)
 RenLib:SetReducedMotion(true)
 RenLib:SetMotionScale(0.75)
 RenLib:SetDPIScale(110)
@@ -165,6 +197,29 @@ RenLib:SetTheme({
 ```
 
 Theme changes are applied live; the interface does not need to restart.
+
+## Dashboard
+
+```lua
+local Dashboard = Window:CreateDashboard({
+    Name = "Overview",
+    Greeting = "Welcome back",
+    Subtitle = "Everything useful in one glance",
+    Cards = {
+        {
+            Name = "Session",
+            Side = "Left",
+            Metrics = {
+                {Name = "Players", Value = "12", Detail = "Currently connected"},
+                {Name = "Latency", Value = "48 ms", Detail = "Healthy"},
+            },
+        },
+    },
+})
+
+Dashboard:AddCard({Name = "Quick actions", Side = "Right"})
+Dashboard:SetGreeting("Good evening")
+```
 
 ## Built-in Infinite Yield action
 
@@ -214,18 +269,18 @@ Configs are stored in `RenLib/Configs`. These methods return `false, reason` whe
 RenLib:Unload()
 ```
 
-All RenLib-managed connections, active tweens, registered theme objects, and the ScreenGui are cleaned up. Loading a second RenLib session automatically unloads the first.
+All RenLib-managed connections, active tweens, registered theme/material objects, the managed blur effect, and the ScreenGui are cleaned up. Loading a second RenLib session automatically unloads the first.
 
 ## Compatibility
 
-- `RenLib.lua` is the canonical V6.2 file.
-- `RenLibBêta.lua` and `RenLibTesting.lua` remain available for older loadstrings and mirror V6.2.
+- `RenLib.lua` is the canonical V6.3 file.
+- `RenLibBêta.lua` and `RenLibTesting.lua` remain available for older loadstrings and mirror V6.3.
 - Existing V4/V5 calls for windows, tabs, sections, buttons, toggles, sliders, dropdowns, labels, key pickers, warning boxes, images, and notifications remain supported.
 
 ## Design references
 
-V6.2 studies interaction ideas from [Luna Interface Suite](https://github.com/Nebula-Softworks/Luna-Interface-Suite) and [Starlight Interface Suite](https://github.com/Nebula-Softworks/Starlight-Interface-Suite). RenLib's implementation is original; no Starlight source code is copied.
+V6.3 studies hierarchy and interaction principles from [Luna Interface Suite](https://github.com/Nebula-Softworks/Luna-Interface-Suite) and [Starlight Interface Suite](https://github.com/Nebula-Softworks/Starlight-Interface-Suite). RenLib's names, palette values, APIs, architecture, and implementation are original; no Starlight source code is copied.
 
-The Obsidian-ready project memory is in [`RenHubUiLib-ObsidianVault`](./RenHubUiLib-ObsidianVault/Welcome.md), including the Golden Rule and release checklist.
+The Obsidian-ready project memory is in [`RenHubUiLib-ObsidianVault`](./RenHubUiLib-ObsidianVault/Welcome.md), including both golden rules, reference reasoning, and the release checklist.
 
 See [`Showcase.lua`](./Showcase.lua) for a fuller example.
