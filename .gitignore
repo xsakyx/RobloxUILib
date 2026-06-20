@@ -1,0 +1,5 @@
+# Obsidian keeps window/layout state per computer. Preserve it locally without
+# turning one contributor's open panes into shared project state.
+RenHubUiLib-ObsidianVault/.obsidian/workspace.json
+RenHubUiLib-ObsidianVault/.obsidian/workspace-mobile.json
+RenHubUiLib-ObsidianVault/.trash/
