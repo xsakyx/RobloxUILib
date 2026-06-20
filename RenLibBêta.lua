@@ -1,4 +1,4 @@
--- RenLib V6.1
+-- RenLib V6.2
 -- Responsive Roblox UI library with mobile-first input, live theming,
 -- accessible motion, searchable controls, and deterministic cleanup.
 
@@ -23,23 +23,25 @@ local function getViewport()
     return Camera and Camera.ViewportSize or Vector2.new(800, 600)
 end
 
-local function getDeviceMode()
+local function getDeviceMode(scale)
     local viewport = getViewport()
-    if viewport.X <= 540 then
+    local effectiveWidth = viewport.X / math.max(tonumber(scale) or 1, 0.01)
+    if effectiveWidth <= 620 then
         return "Phone"
-    elseif viewport.X <= 900 or (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled) then
+    elseif effectiveWidth <= 960 or (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled) then
         return "Tablet"
     end
     return "Desktop"
 end
 
-local DeviceMode = getDeviceMode()
+local DeviceMode = getDeviceMode(1)
 local IsMobile = DeviceMode ~= "Desktop"
 local ScreenSize = getViewport()
 
 --// CONSTANTS
 local CONFIG_FOLDER = "RenLib/Configs"
 local RUNTIME_KEY = "__RENLIB_V6_RUNTIME"
+local INFINITE_YIELD_URL = "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"
 local RuntimeEnvironment = (getgenv and getgenv()) or shared or _G
 
 -- Only one RenLib session may own input and UI at a time.
@@ -82,12 +84,17 @@ local ICONS = {
     Close = "rbxassetid://6031094678",
     Minimize = "rbxassetid://6026568240",
     ChevronDown = "rbxassetid://6034818372",
-    ChevronRight = "rbxassetid://6034818365"
+    ChevronRight = "rbxassetid://6034818365",
+    Home = "rbxassetid://9080449299",
+    Profile = "rbxassetid://6022668898",
+    Play = "rbxassetid://6026663699",
+    Palette = "rbxassetid://6034316009",
+    Restore = "rbxassetid://6031260800"
 }
 
 --// ROOT LIBRARY
 local Library = {}
-Library.Version = "6.1.0"
+Library.Version = "6.2.0"
 Library.Title = "RenLib"
 Library.Connections = {}
 Library.Tasks = {}
@@ -105,6 +112,7 @@ Library.MotionScale = 1
 Library.ActiveTweens = setmetatable({}, {__mode = "k"})
 Library.GradientRegistry = setmetatable({}, {__mode = "k"})
 Library.ActiveTheme = "Starlight"
+Library.ScalePreview = nil
 
 -- Theme (can be changed at runtime)
 Library.Theme = {
@@ -161,6 +169,24 @@ Library.ThemePresets = {
         Hover = Color3.fromRGB(53, 34, 45), Click = Color3.fromRGB(45, 29, 39),
         Accent = Color3.fromRGB(255, 105, 180), Accent2 = Color3.fromRGB(177, 117, 255), Success = Color3.fromRGB(73, 219, 157),
         Warn = Color3.fromRGB(255, 198, 91), Error = Color3.fromRGB(255, 86, 107)
+    },
+    Aurora = {
+        Main = Color3.fromRGB(9, 18, 23), Secondary = Color3.fromRGB(13, 25, 31),
+        Surface = Color3.fromRGB(18, 34, 41), SurfaceAlt = Color3.fromRGB(24, 43, 51),
+        Stroke = Color3.fromRGB(53, 84, 91), Divider = Color3.fromRGB(37, 63, 70),
+        Text = Color3.fromRGB(238, 253, 252), SubText = Color3.fromRGB(147, 185, 185),
+        Hover = Color3.fromRGB(24, 45, 52), Click = Color3.fromRGB(29, 53, 61),
+        Accent = Color3.fromRGB(48, 226, 183), Accent2 = Color3.fromRGB(102, 149, 255), Success = Color3.fromRGB(64, 226, 158),
+        Warn = Color3.fromRGB(255, 205, 94), Error = Color3.fromRGB(255, 92, 117)
+    },
+    Ember = {
+        Main = Color3.fromRGB(23, 15, 13), Secondary = Color3.fromRGB(31, 20, 17),
+        Surface = Color3.fromRGB(41, 27, 22), SurfaceAlt = Color3.fromRGB(51, 34, 27),
+        Stroke = Color3.fromRGB(84, 58, 46), Divider = Color3.fromRGB(64, 43, 35),
+        Text = Color3.fromRGB(255, 247, 239), SubText = Color3.fromRGB(201, 169, 146),
+        Hover = Color3.fromRGB(53, 36, 29), Click = Color3.fromRGB(62, 42, 33),
+        Accent = Color3.fromRGB(255, 132, 72), Accent2 = Color3.fromRGB(255, 83, 129), Success = Color3.fromRGB(87, 220, 153),
+        Warn = Color3.fromRGB(255, 201, 87), Error = Color3.fromRGB(255, 83, 99)
     }
 }
 
@@ -204,6 +230,18 @@ function Utility:RandomString(length)
         result = result .. chars:sub(rand, rand)
     end
     return result
+end
+
+function Utility:NormalizeAssetId(asset, fallback)
+    if asset == nil or asset == "" then return fallback end
+    local value = tostring(asset)
+    if value:match("^%d+$") then
+        return "rbxassetid://" .. value
+    end
+    if value:match("^rbxassetid://%d+$") or value:match("^https?://") then
+        return value
+    end
+    return fallback
 end
 
 function Utility:Create(class, properties)
@@ -260,6 +298,34 @@ function Utility:MakeDraggable(topbar, object)
         return moved
     end
 
+    local function keepRecoverable()
+        if not object or not object.Parent then return end
+        local viewport = getViewport()
+        local position = object.AbsolutePosition
+        local size = object.AbsoluteSize
+        local minimumVisible = math.min(52, math.max(28, viewport.X * 0.12))
+        local deltaX, deltaY = 0, 0
+        if position.X + size.X < minimumVisible then
+            deltaX = minimumVisible - (position.X + size.X)
+        elseif position.X > viewport.X - minimumVisible then
+            deltaX = (viewport.X - minimumVisible) - position.X
+        end
+        if position.Y + 40 < 0 then
+            deltaY = -(position.Y + 40)
+        elseif position.Y > viewport.Y - minimumVisible then
+            deltaY = (viewport.Y - minimumVisible) - position.Y
+        end
+        if deltaX ~= 0 or deltaY ~= 0 then
+            local scale = math.max(0.01, Library.DPIScale)
+            object.Position = UDim2.new(
+                object.Position.X.Scale,
+                object.Position.X.Offset + deltaX / scale,
+                object.Position.Y.Scale,
+                object.Position.Y.Offset + deltaY / scale
+            )
+        end
+    end
+
     Library:Connect(topbar.InputBegan, function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
@@ -271,6 +337,7 @@ function Utility:MakeDraggable(topbar, object)
             Library:Connect(input.Changed, function()
                 if input.UserInputState == Enum.UserInputState.End then
                     dragging = false
+                    task.defer(keepRecoverable)
                 end
             end)
         end
@@ -363,11 +430,83 @@ end
 
 --// DPI SCALING
 function Library:SetDPIScale(percent)
-    local scale = math.clamp(percent / 100, 0.5, 2)
+    percent = math.clamp(tonumber(percent) or 100, 60, 150)
+    local scale = percent / 100
     for _, uiScale in ipairs(self.Scales) do
         uiScale.Scale = scale
     end
     self.DPIScale = scale
+    if self.Window and self.Window.ApplyResponsiveLayout then
+        task.defer(function()
+            if self.Window and not self.Unloaded then self.Window:ApplyResponsiveLayout(true) end
+        end)
+    end
+    return percent
+end
+
+function Library:KeepDPIScale(token)
+    local preview = self.ScalePreview
+    if not preview or (token and preview.Token ~= token) then return false end
+    preview.Kept = true
+    self.ScalePreview = nil
+    return true
+end
+
+function Library:RevertDPIScale(token)
+    local preview = self.ScalePreview
+    if not preview or (token and preview.Token ~= token) then return false end
+    self.ScalePreview = nil
+    self:SetDPIScale(preview.OriginalPercent)
+    self.Flags.__RenLibScale = preview.OriginalPercent
+    local scaleOption = self.Options.__RenLibScale
+    if scaleOption and scaleOption.SetSilent then scaleOption:SetSilent(preview.OriginalPercent) end
+    return true
+end
+
+function Library:PreviewDPIScale(percent, timeout)
+    timeout = math.clamp(tonumber(timeout) or 10, 5, 30)
+    local activePreview = self.ScalePreview
+    local originalPercent = activePreview and activePreview.OriginalPercent or math.floor(self.DPIScale * 100 + 0.5)
+    local token = Utility:RandomString(12)
+    local candidate = self:SetDPIScale(percent)
+    self.Flags.__RenLibScale = candidate
+    self.ScalePreview = {
+        Token = token,
+        OriginalPercent = originalPercent,
+        CandidatePercent = candidate,
+        Kept = false
+    }
+
+    if self.Notify then
+        self:Notify({
+            Title = "Keep this UI size?",
+            Content = tostring(candidate) .. "% preview. It will reset in " .. tostring(timeout) .. " seconds unless you keep it.",
+            Duration = timeout,
+            Actions = {
+                {Name = "Keep", Callback = function()
+                    if self:KeepDPIScale(token) and self.Notify then
+                        self:Notify({Title = "UI size kept", Content = tostring(candidate) .. "%", Duration = 2})
+                    end
+                end},
+                {Name = "Revert", Callback = function()
+                    if self:RevertDPIScale(token) and self.Notify then
+                        self:Notify({Title = "UI size restored", Content = tostring(originalPercent) .. "%", Duration = 2})
+                    end
+                end}
+            }
+        })
+    end
+
+    task.delay(timeout, function()
+        local preview = self.ScalePreview
+        if preview and preview.Token == token and not preview.Kept then
+            self:RevertDPIScale(token)
+            if self.Notify and not self.Unloaded then
+                self:Notify({Title = "UI size restored", Content = "The preview timed out safely.", Duration = 3})
+            end
+        end
+    end)
+    return token
 end
 
 local function hasFileSystem()
@@ -452,6 +591,36 @@ function Library:LoadAutoloadConfig()
     return self:LoadConfig(readfile("RenLib/autoload.txt"))
 end
 
+function Library:LaunchInfiniteYield()
+    if type(loadstring) ~= "function" then
+        if self.Notify then self:Notify({Title = "Infinite Yield unavailable", Content = "This environment does not expose loadstring.", Duration = 4}) end
+        return false, "loadstring is unavailable"
+    end
+
+    local ok, source = pcall(function()
+        return game:HttpGet(INFINITE_YIELD_URL)
+    end)
+    if not ok or type(source) ~= "string" or source == "" then
+        if self.Notify then self:Notify({Title = "Infinite Yield failed", Content = tostring(source), Duration = 5}) end
+        return false, source
+    end
+
+    local chunk, compileError = loadstring(source)
+    if not chunk then
+        if self.Notify then self:Notify({Title = "Infinite Yield failed", Content = tostring(compileError), Duration = 5}) end
+        return false, compileError
+    end
+
+    task.spawn(function()
+        local ran, runtimeError = pcall(chunk)
+        if not ran and self.Notify and not self.Unloaded then
+            self:Notify({Title = "Infinite Yield error", Content = tostring(runtimeError), Duration = 5})
+        end
+    end)
+    if self.Notify then self:Notify({Title = "Infinite Yield launched", Content = "Loaded from the official EdgeIY source.", Duration = 3}) end
+    return true
+end
+
 --// CORE UI: WINDOW
 function Library:CreateWindow(options)
     options = options or {}
@@ -459,30 +628,65 @@ function Library:CreateWindow(options)
     local EnableSidebarResize = options.EnableSidebarResize == nil and true or options.EnableSidebarResize
     local EnableGlobalSearch = options.EnableGlobalSearch == nil and true or options.EnableGlobalSearch
     local SidebarCompactMode = options.SidebarCompactMode or false
+    local WindowIcon = Utility:NormalizeAssetId(options.Icon or options.Logo)
+    local SettingsIcon = Utility:NormalizeAssetId(options.SettingsIcon, ICONS.Settings)
+    local ShowUserProfile = options.ShowUserProfile == nil and true or options.ShowUserProfile
+
+    local function createWindowMark(parent, textSize, zIndex)
+        if WindowIcon then
+            local mark = Utility:Create("ImageLabel", {
+                Parent = parent,
+                BackgroundTransparency = 1,
+                Position = UDim2.fromScale(0.18, 0.18),
+                Size = UDim2.fromScale(0.64, 0.64),
+                Image = WindowIcon,
+                ImageColor3 = Library.Theme.Text,
+                ScaleType = Enum.ScaleType.Fit,
+                ZIndex = zIndex
+            })
+            Utility:RegisterProperty(mark, "ImageColor3", "Text")
+            return mark
+        end
+        local mark = Utility:Create("TextLabel", {
+            Parent = parent,
+            BackgroundTransparency = 1,
+            Size = UDim2.fromScale(1, 1),
+            Font = Enum.Font.GothamBold,
+            Text = EMOJIS.Code,
+            TextColor3 = Library.Theme.Accent,
+            TextSize = textSize,
+            TextXAlignment = Enum.TextXAlignment.Center,
+            TextYAlignment = Enum.TextYAlignment.Center,
+            ZIndex = zIndex
+        })
+        Utility:RegisterProperty(mark, "TextColor3", "Accent")
+        return mark
+    end
 
     if self.ScreenGui then
         pcall(function() self.ScreenGui:Destroy() end)
         self.ScreenGui = nil
     end
     self.Unloaded = false
-    DeviceMode = getDeviceMode()
+    DeviceMode = getDeviceMode(self.DPIScale)
     IsMobile = DeviceMode ~= "Desktop"
     self.DeviceMode = DeviceMode
     self.IsMobile = IsMobile
 
     -- Calculate sizes based on device
+    local initialViewport = getViewport()
+    local initialLayoutWidth = initialViewport.X / math.max(self.DPIScale, 0.01)
+    local initialLayoutHeight = initialViewport.Y / math.max(self.DPIScale, 0.01)
     local WinWidth, WinHeight, SidebarWidth, FontScale
     if IsMobile then
-        local vpX = Camera.ViewportSize.X
-        local vpY = Camera.ViewportSize.Y
-        WinWidth = math.clamp(vpX - 40, 300, 600)
-        WinHeight = math.clamp(vpY - 80, 280, 450)
-        SidebarWidth = 62
+        WinWidth = math.min(720, math.max(1, initialLayoutWidth - 12))
+        WinHeight = math.min(680, math.max(1, initialLayoutHeight - 12))
+        SidebarWidth = WinWidth < 340 and 54 or 60
         FontScale = 0.9
         EnableSidebarResize = false
     else
-        WinWidth = options.Width or 860
-        WinHeight = options.Height or 560
+        WinWidth = math.min(options.Width or 880, math.max(1, initialLayoutWidth - 32))
+        WinHeight = math.min(options.Height or 580, math.max(1, initialLayoutHeight - 32))
         SidebarWidth = 190
         FontScale = 1
     end
@@ -527,6 +731,19 @@ function Library:CreateWindow(options)
     local WindowScale = Utility:Create("UIScale", {Parent = MainFrame, Scale = 1})
     local mainStroke = Utility:Create("UIStroke", {Parent = MainFrame, Color = Library.Theme.Stroke, Thickness = 1})
     Utility:RegisterProperty(mainStroke, "Color", "Stroke")
+    local ambientRail = Utility:Create("Frame", {
+        Parent = MainFrame,
+        BackgroundColor3 = Library.Theme.Accent,
+        BackgroundTransparency = 0.18,
+        Position = UDim2.fromOffset(14, 0),
+        Size = UDim2.new(1, -28, 0, 2),
+        BorderSizePixel = 0,
+        ZIndex = 92
+    })
+    Utility:RegisterProperty(ambientRail, "BackgroundColor3", "Accent")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = ambientRail})
+    local ambientGradient = Utility:Create("UIGradient", {Parent = ambientRail})
+    Utility:RegisterGradient(ambientGradient, "Accent", "Accent2")
 
     -- Shadow
     local Shadow = Utility:Create("ImageLabel", {
@@ -573,6 +790,9 @@ function Library:CreateWindow(options)
         Position = UDim2.new(0, IsMobile and 0 or 8, 0, IsMobile and 70 or 78),
         Size = UDim2.new(1, IsMobile and 0 or -16, 1, IsMobile and -122 or -142),
         ScrollBarThickness = 0,
+        ScrollingDirection = Enum.ScrollingDirection.Y,
+        ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
+        Active = true,
         CanvasSize = UDim2.new(0, 0, 0, 0),
         ZIndex = 4,
         BorderSizePixel = 0
@@ -605,20 +825,8 @@ function Library:CreateWindow(options)
     local logoStroke = Utility:Create("UIStroke", {Parent = LogoContainer, Color = Library.Theme.Accent, Thickness = 2})
     Utility:RegisterProperty(logoStroke, "Color", "Accent")
 
-    local Logo = Utility:Create("TextLabel", {
-        Name = "Logo",
-        Parent = LogoContainer,
-        BackgroundTransparency = 1,
-        Size = UDim2.new(1, 0, 1, 0),
-        Font = Enum.Font.GothamBold,
-        Text = EMOJIS.Code,
-        TextColor3 = Library.Theme.Accent,
-        TextSize = IsMobile and 14 or 18,
-        TextXAlignment = Enum.TextXAlignment.Center,
-        TextYAlignment = Enum.TextYAlignment.Center,
-        ZIndex = 101
-    })
-    Utility:RegisterProperty(Logo, "TextColor3", "Accent")
+    local Logo = createWindowMark(LogoContainer, IsMobile and 14 or 18, 101)
+    Logo.Name = "Logo"
 
     local BrandLabel = Utility:Create("TextLabel", {
         Parent = Sidebar,
@@ -671,9 +879,9 @@ function Library:CreateWindow(options)
     local SettingsEmoji = Utility:Create("ImageLabel", {
         Parent = SettingsBtn,
         BackgroundTransparency = 1,
-        Position = IsMobile and UDim2.fromScale(0, 0) or UDim2.fromOffset(8, 5),
-        Size = IsMobile and UDim2.fromScale(1, 1) or UDim2.fromOffset(32, 32),
-        Image = ICONS.Settings,
+        Position = IsMobile and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(8, 5),
+        Size = IsMobile and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32),
+        Image = SettingsIcon,
         ImageColor3 = Library.Theme.SubText,
         ScaleType = Enum.ScaleType.Fit,
         ZIndex = 101
@@ -700,6 +908,132 @@ function Library:CreateWindow(options)
     })
     Utility:RegisterProperty(SettingsIndicator, "BackgroundColor3", "Accent")
     Utility:Create("UICorner", {CornerRadius = UDim.new(0, 2), Parent = SettingsIndicator})
+
+    -- USER PROFILE
+    local ProfileCard, ProfileAvatar, ProfileNameLabel, ProfileSubtitleLabel, ProfileStroke
+    local ProfileCompact = IsMobile
+    local SetProfileData = function() end
+    if ShowUserProfile then
+        ProfileCard = Utility:Create("Frame", {
+            Name = "UserProfile",
+            Parent = Sidebar,
+            BackgroundColor3 = Library.Theme.Surface,
+            BackgroundTransparency = ProfileCompact and 1 or 0,
+            Position = ProfileCompact and UDim2.new(0.5, -19, 1, -(settingsBtnSize + 62)) or UDim2.new(0, 10, 1, -110),
+            Size = ProfileCompact and UDim2.fromOffset(38, 38) or UDim2.new(1, -20, 0, 48),
+            ClipsDescendants = true,
+            ZIndex = 98,
+            BorderSizePixel = 0
+        })
+        Utility:RegisterProperty(ProfileCard, "BackgroundColor3", "Surface")
+        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 9), Parent = ProfileCard})
+        ProfileStroke = Utility:Create("UIStroke", {Parent = ProfileCard, Color = Library.Theme.Stroke, Thickness = 1, Enabled = not ProfileCompact})
+        Utility:RegisterProperty(ProfileStroke, "Color", "Stroke")
+
+        ProfileAvatar = Utility:Create("ImageLabel", {
+            Parent = ProfileCard,
+            BackgroundColor3 = Library.Theme.SurfaceAlt,
+            Position = ProfileCompact and UDim2.fromScale(0, 0) or UDim2.fromOffset(6, 6),
+            Size = ProfileCompact and UDim2.fromScale(1, 1) or UDim2.fromOffset(36, 36),
+            Image = Utility:NormalizeAssetId(options.ProfileAvatar, ICONS.Profile),
+            ImageColor3 = Color3.new(1, 1, 1),
+            ScaleType = Enum.ScaleType.Crop,
+            ZIndex = 99
+        })
+        Utility:RegisterProperty(ProfileAvatar, "BackgroundColor3", "SurfaceAlt")
+        Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = ProfileAvatar})
+        local avatarStroke = Utility:Create("UIStroke", {Parent = ProfileAvatar, Color = Library.Theme.Accent, Thickness = 1})
+        Utility:RegisterProperty(avatarStroke, "Color", "Accent")
+
+        ProfileNameLabel = Utility:Create("TextLabel", {
+            Parent = ProfileCard,
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(50, 7),
+            Size = UDim2.new(1, -58, 0, 18),
+            Font = Enum.Font.GothamMedium,
+            Text = tostring(options.ProfileTitle or Plr.DisplayName or Plr.Name),
+            TextColor3 = Library.Theme.Text,
+            TextSize = 11,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Visible = not ProfileCompact,
+            ZIndex = 99
+        })
+        Utility:RegisterProperty(ProfileNameLabel, "TextColor3", "Text")
+        ProfileSubtitleLabel = Utility:Create("TextLabel", {
+            Parent = ProfileCard,
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(50, 24),
+            Size = UDim2.new(1, -58, 0, 16),
+            Font = Enum.Font.Gotham,
+            Text = tostring(options.ProfileSubtitle or ("@" .. Plr.Name)),
+            TextColor3 = Library.Theme.SubText,
+            TextSize = 9,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Visible = not ProfileCompact,
+            ZIndex = 99
+        })
+        Utility:RegisterProperty(ProfileSubtitleLabel, "TextColor3", "SubText")
+
+        local ProfileButton = Utility:Create("TextButton", {
+            Parent = ProfileCard,
+            BackgroundTransparency = 1,
+            Size = UDim2.fromScale(1, 1),
+            Text = "",
+            AutoButtonColor = false,
+            ZIndex = 100
+        })
+        Library:Connect(ProfileButton.MouseEnter, function()
+            if not ProfileCompact then Utility:Tween(ProfileCard, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme.Hover}) end
+        end)
+        Library:Connect(ProfileButton.MouseLeave, function()
+            Utility:Tween(ProfileCard, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme.Surface})
+        end)
+        Library:Connect(ProfileButton.MouseButton1Click, function()
+            Utility:SafeCall(options.OnProfileClick, Plr)
+        end)
+
+        SetProfileData = function(data)
+            data = data or {}
+            if data.Title ~= nil then ProfileNameLabel.Text = tostring(data.Title) end
+            if data.Subtitle ~= nil then ProfileSubtitleLabel.Text = tostring(data.Subtitle) end
+            local customAvatar = Utility:NormalizeAssetId(data.Avatar)
+            if customAvatar then ProfileAvatar.Image = customAvatar end
+        end
+
+        if not Utility:NormalizeAssetId(options.ProfileAvatar) then
+            local profileUserId = tonumber(options.ProfileUserId) or Plr.UserId
+            task.spawn(function()
+                local ok, thumbnail = pcall(function()
+                    return Players:GetUserThumbnailAsync(profileUserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+                end)
+                if ok and ProfileAvatar and ProfileAvatar.Parent then ProfileAvatar.Image = thumbnail end
+            end)
+        end
+    end
+
+    local function getNavigationBottomInset(compact, mobile, hideProfile)
+        if ShowUserProfile and not hideProfile then return compact and 170 or 202 end
+        return mobile and 122 or 142
+    end
+
+    local function applyProfileLayout(compact, hidden)
+        ProfileCompact = compact
+        if not ProfileCard then return end
+        ProfileCard.Visible = not hidden
+        ProfileCard.BackgroundTransparency = compact and 1 or 0
+        ProfileCard.Position = compact and UDim2.new(0.5, -19, 1, -(settingsBtnSize + 62)) or UDim2.new(0, 10, 1, -110)
+        ProfileCard.Size = compact and UDim2.fromOffset(38, 38) or UDim2.new(1, -20, 0, 48)
+        ProfileAvatar.Position = compact and UDim2.fromScale(0, 0) or UDim2.fromOffset(6, 6)
+        ProfileAvatar.Size = compact and UDim2.fromScale(1, 1) or UDim2.fromOffset(36, 36)
+        ProfileNameLabel.Visible = not compact
+        ProfileSubtitleLabel.Visible = not compact
+        ProfileStroke.Enabled = not compact
+    end
+
+    applyProfileLayout(IsMobile)
+    TabContainer.Size = UDim2.new(1, IsMobile and 0 or -16, 1, -getNavigationBottomInset(IsMobile, IsMobile))
 
     -- Content Area
     local Pages = Utility:Create("Frame", {
@@ -872,19 +1206,7 @@ function Library:CreateWindow(options)
     Utility:Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = MinimizedIcon})
     local minIconStroke = Utility:Create("UIStroke", {Parent = MinimizedIcon, Color = Library.Theme.Accent, Thickness = 2})
     Utility:RegisterProperty(minIconStroke, "Color", "Accent")
-    local MinimizedLogo = Utility:Create("TextLabel", {
-        Parent = MinimizedIcon,
-        BackgroundTransparency = 1,
-        Size = UDim2.new(1, 0, 1, 0),
-        Font = Enum.Font.GothamBold,
-        Text = EMOJIS.Code,
-        TextColor3 = Library.Theme.Accent,
-        TextSize = 20,
-        TextXAlignment = Enum.TextXAlignment.Center,
-        TextYAlignment = Enum.TextYAlignment.Center,
-        ZIndex = 301
-    })
-    Utility:RegisterProperty(MinimizedLogo, "TextColor3", "Accent")
+    local MinimizedLogo = createWindowMark(MinimizedIcon, 20, 301)
     local MinIconBtn = Utility:Create("TextButton", {
         Parent = MinimizedIcon,
         BackgroundTransparency = 1,
@@ -910,19 +1232,7 @@ function Library:CreateWindow(options)
         Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = MobileToggleBtn})
         local mobileStroke = Utility:Create("UIStroke", {Parent = MobileToggleBtn, Color = Library.Theme.Accent, Thickness = 2})
         Utility:RegisterProperty(mobileStroke, "Color", "Accent")
-        local MobileToggleLogo = Utility:Create("TextLabel", {
-            Parent = MobileToggleBtn,
-            BackgroundTransparency = 1,
-            Size = UDim2.new(1, 0, 1, 0),
-            Font = Enum.Font.GothamBold,
-            Text = EMOJIS.Code,
-            TextColor3 = Library.Theme.Accent,
-            TextSize = 16,
-            TextXAlignment = Enum.TextXAlignment.Center,
-            TextYAlignment = Enum.TextYAlignment.Center,
-            ZIndex = 401
-        })
-        Utility:RegisterProperty(MobileToggleLogo, "TextColor3", "Accent")
+        local MobileToggleLogo = createWindowMark(MobileToggleBtn, 16, 401)
         local MobileToggleTapBtn = Utility:Create("TextButton", {
             Parent = MobileToggleBtn,
             BackgroundTransparency = 1,
@@ -956,6 +1266,10 @@ function Library:CreateWindow(options)
         SettingsTab = nil,
         SearchBox = SearchBox
     }
+
+    function Window:SetProfile(data)
+        SetProfileData(data)
+    end
 
     -- RESIZABLE SIDEBAR (PC only)
     local sidebarResizer = nil
@@ -1010,12 +1324,13 @@ function Library:CreateWindow(options)
                 BrandLabel.Visible = not isCompact
                 BrandSubtitle.Visible = not isCompact
                 TabContainer.Position = UDim2.new(0, isCompact and 0 or 8, 0, 78)
-                TabContainer.Size = UDim2.new(1, isCompact and 0 or -16, 1, -142)
+                TabContainer.Size = UDim2.new(1, isCompact and 0 or -16, 1, -getNavigationBottomInset(isCompact, false))
                 SettingsBtn.Position = isCompact and UDim2.new(0.5, -settingsBtnSize / 2, 1, -(settingsBtnSize + 12)) or UDim2.new(0, 10, 1, -54)
                 SettingsBtn.Size = isCompact and UDim2.fromOffset(settingsBtnSize, settingsBtnSize) or UDim2.new(1, -20, 0, 42)
-                SettingsEmoji.Position = isCompact and UDim2.fromScale(0, 0) or UDim2.fromOffset(8, 5)
-                SettingsEmoji.Size = isCompact and UDim2.fromScale(1, 1) or UDim2.fromOffset(32, 32)
+                SettingsEmoji.Position = isCompact and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(8, 5)
+                SettingsEmoji.Size = isCompact and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32)
                 SettingsLabel.Visible = not isCompact
+                applyProfileLayout(isCompact)
                 for _, tab in ipairs(Window.Tabs) do
                     if tab.ApplyNavigationLayout then tab:ApplyNavigationLayout(false, isCompact) end
                 end
@@ -1026,50 +1341,76 @@ function Library:CreateWindow(options)
     local lastDeviceMode = DeviceMode
     function Window:ApplyResponsiveLayout(recenter)
         local viewport = getViewport()
-        local mode = getDeviceMode()
+        local scale = math.max(Library.DPIScale, 0.01)
+        local layoutViewport = Vector2.new(viewport.X / scale, viewport.Y / scale)
+        local mode = getDeviceMode(scale)
         local mobile = mode ~= "Desktop"
-        local sidebarWidth = mobile and 62 or math.clamp(currentSidebarWidth, 62, 240)
-        local width = mobile and math.clamp(viewport.X - 16, 300, 720) or math.clamp(options.Width or 860, 680, math.max(680, viewport.X - 32))
-        local height = mobile and math.clamp(viewport.Y - 24, 300, 620) or math.clamp(options.Height or 550, 420, math.max(420, viewport.Y - 32))
+        local horizontalMargin = mobile and 6 or 16
+        local verticalMargin = mobile and 6 or 16
+        local maximumWidth = math.max(1, layoutViewport.X - horizontalMargin * 2)
+        local maximumHeight = math.max(1, layoutViewport.Y - verticalMargin * 2)
+        local width = math.min(mobile and 720 or (options.Width or 880), maximumWidth)
+        local height = math.min(mobile and 680 or (options.Height or 580), maximumHeight)
+        if self.Maximized then
+            width = maximumWidth
+            height = maximumHeight
+        end
+        local sidebarWidth = mobile and (width < 340 and 54 or 60) or math.clamp(currentSidebarWidth, 62, math.min(240, width * 0.32))
+        local shortViewport = mobile and height < 420
+        local hideSearch = mobile and height < 300
+        local hideProfile = height < 380
+        local topBarHeight = mobile and (hideSearch and 48 or (shortViewport and 74 or 88)) or 60
+        Window.ContentTopInset = topBarHeight
 
         DeviceMode = mode
         IsMobile = mobile
         Library.DeviceMode = mode
         Library.IsMobile = mobile
         MainFrame.Size = UDim2.fromOffset(width, height)
-        if recenter or MainFrame.AbsolutePosition.X > viewport.X - 40 or MainFrame.AbsolutePosition.Y > viewport.Y - 40 then
+        local absolutePosition = MainFrame.AbsolutePosition
+        local absoluteSize = MainFrame.AbsoluteSize
+        local unreachable = absolutePosition.X + absoluteSize.X < 40
+            or absolutePosition.Y + 40 < 0
+            or absolutePosition.X > viewport.X - 40
+            or absolutePosition.Y > viewport.Y - 40
+        if recenter or unreachable then
             MainFrame.Position = UDim2.new(0.5, -width / 2, 0.5, -height / 2)
         end
         Sidebar.Size = UDim2.new(0, sidebarWidth, 1, 0)
         Pages.Position = UDim2.new(0, sidebarWidth, 0, 0)
         Pages.Size = UDim2.new(1, -sidebarWidth, 1, 0)
         isCompact = mobile or sidebarWidth < 132
-        TitleLabel.Position = UDim2.new(0, sidebarWidth + 20, 0, mobile and 13 or 16)
+        TitleLabel.Position = UDim2.new(0, sidebarWidth + 16, 0, mobile and (hideSearch and 9 or 11) or 16)
+        TitleLabel.Size = UDim2.new(1, -(sidebarWidth + (mobile and 108 or 430)), 0, 30)
         TitleLabel.TextSize = mobile and 17 or 19
-        TopBar.Size = UDim2.new(1, 0, 0, mobile and 88 or 60)
-        TopDivider.Position = UDim2.new(0, sidebarWidth, 0, mobile and 87 or 59)
+        TopBar.Size = UDim2.new(1, 0, 0, topBarHeight)
+        TopDivider.Position = UDim2.new(0, sidebarWidth, 0, topBarHeight - 1)
         TopDivider.Size = UDim2.new(1, -sidebarWidth, 0, 1)
+        MinimizeBtn.Position = UDim2.new(1, -76, 0, mobile and 8 or 15)
+        CloseBtn.Position = UDim2.new(1, -40, 0, mobile and 8 or 15)
         LogoContainer.Position = isCompact and UDim2.new(0.5, -logoSize / 2, 0, mobile and 14 or 16) or UDim2.fromOffset(14, 16)
         BrandLabel.Visible = not isCompact
         BrandSubtitle.Visible = not isCompact
         TabContainer.Position = UDim2.new(0, isCompact and 0 or 8, 0, mobile and 70 or 78)
-        TabContainer.Size = UDim2.new(1, isCompact and 0 or -16, 1, mobile and -122 or -142)
+        TabContainer.Size = UDim2.new(1, isCompact and 0 or -16, 1, -getNavigationBottomInset(isCompact, mobile, hideProfile))
         SettingsBtn.Position = isCompact and UDim2.new(0.5, -settingsBtnSize / 2, 1, -(settingsBtnSize + 12)) or UDim2.new(0, 10, 1, -54)
         SettingsBtn.Size = isCompact and UDim2.fromOffset(settingsBtnSize, settingsBtnSize) or UDim2.new(1, -20, 0, 42)
-        SettingsEmoji.Position = isCompact and UDim2.fromScale(0, 0) or UDim2.fromOffset(8, 5)
-        SettingsEmoji.Size = isCompact and UDim2.fromScale(1, 1) or UDim2.fromOffset(32, 32)
+        SettingsEmoji.Position = isCompact and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(8, 5)
+        SettingsEmoji.Size = isCompact and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32)
         SettingsLabel.Visible = not isCompact
+        applyProfileLayout(isCompact, hideProfile)
         NotifyArea.Position = UDim2.new(1, mobile and -12 or -20, 1, -20)
-        NotifyArea.Size = UDim2.new(0, mobile and math.min(300, viewport.X - 24) or 300, 1, 0)
+        NotifyArea.Size = UDim2.new(0, mobile and math.max(180, math.min(300, layoutViewport.X - 24)) or 300, 1, 0)
         if SearchBox then
-            SearchBox.Position = mobile and UDim2.new(0, sidebarWidth + 12, 0, 50) or UDim2.new(1, -390, 0, 15)
-            SearchBox.Size = mobile and UDim2.new(1, -(sidebarWidth + 24), 0, 30) or UDim2.new(0, 270, 0, 30)
+            SearchBox.Visible = not hideSearch
+            SearchBox.Position = mobile and UDim2.new(0, sidebarWidth + 8, 0, shortViewport and 41 or 50) or UDim2.new(1, -390, 0, 15)
+            SearchBox.Size = mobile and UDim2.new(1, -(sidebarWidth + 16), 0, shortViewport and 26 or 30) or UDim2.new(0, 270, 0, 30)
         end
         if dividerLine then dividerLine.Visible = not mobile end
         for _, tab in ipairs(Window.Tabs) do
             if tab.ApplyNavigationLayout then tab:ApplyNavigationLayout(mobile, isCompact) end
             if tab.ApplyResponsiveLayout then
-                tab:ApplyResponsiveLayout(mobile)
+                tab:ApplyResponsiveLayout(mobile, topBarHeight)
             end
         end
         if Library.IsMinimized then
@@ -1105,9 +1446,11 @@ function Library:CreateWindow(options)
         end
         self.Maximized = maximized == true
         local viewport = getViewport()
+        local scale = math.max(Library.DPIScale, 0.01)
+        local margin = 8 / scale
         Utility:Tween(MainFrame, TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-            Position = self.Maximized and UDim2.fromOffset(8, 8) or normalPosition,
-            Size = self.Maximized and UDim2.fromOffset(viewport.X - 16, viewport.Y - 16) or normalSize
+            Position = self.Maximized and UDim2.fromOffset(margin, margin) or normalPosition,
+            Size = self.Maximized and UDim2.fromOffset(viewport.X / scale - margin * 2, viewport.Y / scale - margin * 2) or normalSize
         })
     end
 
@@ -1118,9 +1461,10 @@ function Library:CreateWindow(options)
             BackgroundTransparency = 1, Size = UDim2.fromScale(1,1), Text = "",
             AutoButtonColor = false, ZIndex = 800
         })
+        local dialogLayoutWidth = getViewport().X / math.max(Library.DPIScale, 0.01)
         local card = Utility:Create("Frame", {
             Parent = overlay, AnchorPoint = Vector2.new(0.5,0.5), Position = UDim2.fromScale(0.5,0.5),
-            Size = UDim2.fromOffset(IsMobile and math.min(320, getViewport().X - 32) or 400, 0),
+            Size = UDim2.fromOffset(math.max(1, math.min(IsMobile and 320 or 400, dialogLayoutWidth - 24)), 0),
             AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Library.Theme.Main,
             BorderSizePixel = 0, ZIndex = 801
         })
@@ -1463,9 +1807,10 @@ function Library:CreateWindow(options)
     function Window:CreateTab(options)
         options = options or {}
         local Name = options.Name or "Tab"
-        local Emoji = options.Emoji or EMOJIS.Home
+        local Emoji = options.Emoji
         local IsSettings = options.IsSettings or false
-        local Icon = options.Icon
+        local Icon = Utility:NormalizeAssetId(options.Icon)
+        if not Icon and Emoji == nil and not IsSettings then Icon = ICONS.Home end
 
         local Tab = {
             Name = Name,
@@ -1498,43 +1843,25 @@ function Library:CreateWindow(options)
             Utility:RegisterGradient(TabGradient, "Accent", "Accent2")
 
             if Icon then
-                Icon = tostring(Icon)
-                if Icon:match("^%d+$") or Icon:match("rbxasset") or Icon:match("http") then
-                    TabEmoji = Utility:Create("ImageLabel", {
-                        Parent = TabBtn,
-                        BackgroundTransparency = 1,
-                        Position = (IsMobile or isCompact) and UDim2.fromScale(0, 0) or UDim2.fromOffset(6, 5),
-                        Size = (IsMobile or isCompact) and UDim2.fromScale(1, 1) or UDim2.fromOffset(32, 32),
-                        Image = Icon:match("^%d+$") and ("rbxassetid://" .. Icon) or Icon,
-                        ImageColor3 = Library.Theme.SubText,
-                        ScaleType = Enum.ScaleType.Fit,
-                        ZIndex = 6
-                    })
-                    Utility:RegisterProperty(TabEmoji, "ImageColor3", "SubText")
-                else
-                    TabEmoji = Utility:Create("TextLabel", {
-                        Parent = TabBtn,
-                        BackgroundTransparency = 1,
-                        Position = (IsMobile or isCompact) and UDim2.fromScale(0, 0) or UDim2.fromOffset(6, 5),
-                        Size = (IsMobile or isCompact) and UDim2.fromScale(1, 1) or UDim2.fromOffset(32, 32),
-                        Font = Enum.Font.GothamBold,
-                        Text = Icon,
-                        TextColor3 = Library.Theme.SubText,
-                        TextSize = IsMobile and 16 or 20,
-                        TextXAlignment = Enum.TextXAlignment.Center,
-                        TextYAlignment = Enum.TextYAlignment.Center,
-                        ZIndex = 6
-                    })
-                    Utility:RegisterProperty(TabEmoji, "TextColor3", "SubText")
-                end
+                TabEmoji = Utility:Create("ImageLabel", {
+                    Parent = TabBtn,
+                    BackgroundTransparency = 1,
+                    Position = (IsMobile or isCompact) and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(6, 5),
+                    Size = (IsMobile or isCompact) and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32),
+                    Image = Icon,
+                    ImageColor3 = Library.Theme.SubText,
+                    ScaleType = Enum.ScaleType.Fit,
+                    ZIndex = 6
+                })
+                Utility:RegisterProperty(TabEmoji, "ImageColor3", "SubText")
             else
                 TabEmoji = Utility:Create("TextLabel", {
                     Parent = TabBtn,
                     BackgroundTransparency = 1,
-                    Position = (IsMobile or isCompact) and UDim2.fromScale(0, 0) or UDim2.fromOffset(6, 5),
-                    Size = (IsMobile or isCompact) and UDim2.fromScale(1, 1) or UDim2.fromOffset(32, 32),
+                    Position = (IsMobile or isCompact) and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(6, 5),
+                    Size = (IsMobile or isCompact) and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32),
                     Font = Enum.Font.GothamBold,
-                    Text = Emoji,
+                    Text = Emoji or "",
                     TextColor3 = Library.Theme.SubText,
                     TextSize = IsMobile and 16 or 20,
                     TextXAlignment = Enum.TextXAlignment.Center,
@@ -1590,8 +1917,8 @@ function Library:CreateWindow(options)
             local iconOnly = mobile or compact
             self.TabBtn.Size = iconOnly and UDim2.fromOffset(tabBtnSize, tabBtnSize) or UDim2.new(1, 0, 0, tabBtnSize)
             if self.TabEmoji then
-                self.TabEmoji.Position = iconOnly and UDim2.fromScale(0, 0) or UDim2.fromOffset(6, 5)
-                self.TabEmoji.Size = iconOnly and UDim2.fromScale(1, 1) or UDim2.fromOffset(32, 32)
+                self.TabEmoji.Position = iconOnly and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(6, 5)
+                self.TabEmoji.Size = iconOnly and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32)
             end
             if self.TabLabel then self.TabLabel.Visible = not iconOnly end
         end
@@ -1605,6 +1932,10 @@ function Library:CreateWindow(options)
             Size = UDim2.new(1, IsMobile and -20 or -40, 1, IsMobile and -102 or -90),
             ScrollBarThickness = 2,
             ScrollBarImageColor3 = Library.Theme.Accent,
+            ScrollingDirection = Enum.ScrollingDirection.Y,
+            ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
+            VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
+            Active = true,
             CanvasSize = UDim2.new(0, 0, 0, 0),
             Visible = false,
             ZIndex = 2,
@@ -1651,10 +1982,12 @@ function Library:CreateWindow(options)
         Library:Connect(LeftLayout:GetPropertyChangedSignal("AbsoluteContentSize"), UpdateCanvas)
         Library:Connect(RightLayout:GetPropertyChangedSignal("AbsoluteContentSize"), UpdateCanvas)
 
-        function Tab:ApplyResponsiveLayout(mobile)
+        function Tab:ApplyResponsiveLayout(mobile, topInset)
             useSingleColumn = mobile
-            Page.Position = UDim2.new(0, mobile and 10 or 20, 0, mobile and 92 or 70)
-            Page.Size = UDim2.new(1, mobile and -20 or -40, 1, mobile and -102 or -90)
+            local pageTop = mobile and ((topInset or 88) + 4) or 70
+            Page.Position = UDim2.new(0, mobile and 8 or 20, 0, pageTop)
+            Page.Size = UDim2.new(1, mobile and -16 or -40, 1, -(pageTop + 10))
+            Page.ScrollBarThickness = mobile and 3 or 2
             LeftColumn.Size = mobile and UDim2.new(1, 0, 1, 0) or UDim2.new(0.5, -6, 1, 0)
             RightColumn.Size = UDim2.new(0.5, -6, 1, 0)
             RightColumn.Position = UDim2.new(0.5, 6, 0, 0)
@@ -1672,6 +2005,7 @@ function Library:CreateWindow(options)
                 end
             end
             UpdateCanvas()
+            task.defer(UpdateCanvas)
         end
 
         function Tab:Activate()
@@ -1697,6 +2031,7 @@ function Library:CreateWindow(options)
             if Indicator then
                 Utility:Tween(Indicator, TweenInfo.new(0.2), {BackgroundTransparency = 0, Position = UDim2.new(0, 3, 0.5, -9)})
             end
+            TitleLabel.Text = Name
             Page.Visible = true
             Page.CanvasPosition = Vector2.new(0, 0)
         end
@@ -1724,9 +2059,16 @@ function Library:CreateWindow(options)
 
         if TabBtn then
             Library:Connect(TabBtn.MouseButton1Click, function() Tab:Activate() end)
+            Library:Connect(TabBtn.MouseEnter, function()
+                if not Tab.Active then Utility:Tween(TabBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0.78}) end
+            end)
+            Library:Connect(TabBtn.MouseLeave, function()
+                if not Tab.Active then Utility:Tween(TabBtn, TweenInfo.new(0.15), {BackgroundTransparency = 1}) end
+            end)
         end
 
         table.insert(Window.Tabs, Tab)
+        Tab:ApplyResponsiveLayout(IsMobile, Window.ContentTopInset)
         if not IsSettings and not Window.ActiveTab then
             Tab:Activate()
         end
@@ -1769,12 +2111,24 @@ function Library:CreateWindow(options)
                 Thickness = 1
             })
             Utility:RegisterProperty(sectionStroke, "Color", "Stroke")
+            local sectionGradient = Utility:Create("UIGradient", {Parent = SectionFrame, Rotation = 105})
+            Utility:RegisterGradient(sectionGradient, "Secondary", "Main")
+            local sectionAccent = Utility:Create("Frame", {
+                Parent = SectionFrame,
+                BackgroundColor3 = Library.Theme.Accent,
+                Position = UDim2.fromOffset(12, 7),
+                Size = UDim2.fromOffset(26, 2),
+                BorderSizePixel = 0,
+                ZIndex = 5
+            })
+            Utility:RegisterProperty(sectionAccent, "BackgroundColor3", "Accent")
+            Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = sectionAccent})
             Section.SectionFrame = SectionFrame
 
             local Head = Utility:Create("TextLabel", {
                 Parent = SectionFrame,
                 BackgroundTransparency = 1,
-                Position = UDim2.new(0, 12, 0, IsMobile and 8 or 10),
+                Position = UDim2.new(0, 12, 0, IsMobile and 10 or 12),
                 Size = UDim2.new(1, -24, 0, 20),
                 Font = Enum.Font.GothamBold,
                 Text = SectionName,
@@ -2006,8 +2360,10 @@ function Library:CreateWindow(options)
                 options = options or {}
                 local Name = options.Name or "Button"
                 local Callback = options.Callback or function() end
+                local Description = tostring(options.Description or "")
+                local ButtonIconAsset = Utility:NormalizeAssetId(options.Icon)
 
-                local btnHeight = IsMobile and 40 or 40
+                local btnHeight = Description ~= "" and (IsMobile and 56 or 54) or (IsMobile and 44 or 42)
                 local ButtonContainer = Utility:Create("Frame", {
                     Name = Name,
                     Parent = ContentContainer,
@@ -2030,17 +2386,56 @@ function Library:CreateWindow(options)
                     Parent = ButtonContainer,
                     BackgroundTransparency = 1,
                     Size = UDim2.new(1, 0, 1, 0),
-                    Font = Enum.Font.Gotham,
+                    Text = "",
+                    AutoButtonColor = false,
+                    ZIndex = 9,
+                    BorderSizePixel = 0
+                })
+
+                local textInset = ButtonIconAsset and 44 or 12
+                if ButtonIconAsset then
+                    local ButtonIcon = Utility:Create("ImageLabel", {
+                        Parent = ButtonContainer,
+                        BackgroundTransparency = 1,
+                        Position = UDim2.new(0, 12, 0.5, -10),
+                        Size = UDim2.fromOffset(20, 20),
+                        Image = ButtonIconAsset,
+                        ImageColor3 = Library.Theme.SubText,
+                        ScaleType = Enum.ScaleType.Fit,
+                        ZIndex = 7
+                    })
+                    Utility:RegisterProperty(ButtonIcon, "ImageColor3", "SubText")
+                end
+                local ButtonTitle = Utility:Create("TextLabel", {
+                    Parent = ButtonContainer,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, textInset, 0, Description ~= "" and 7 or 0),
+                    Size = UDim2.new(1, -(textInset + 32), 0, Description ~= "" and 20 or btnHeight),
+                    Font = Enum.Font.GothamMedium,
                     Text = Name,
                     TextColor3 = Library.Theme.Text,
                     TextSize = IsMobile and 12 or 13,
                     TextXAlignment = Enum.TextXAlignment.Left,
-                    AutoButtonColor = false,
-                    ZIndex = 6,
-                    BorderSizePixel = 0
+                    ZIndex = 7
                 })
-                Utility:RegisterProperty(Btn, "TextColor3", "Text")
-                Utility:Create("UIPadding", {Parent = Btn, PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 28)})
+                Utility:RegisterProperty(ButtonTitle, "TextColor3", "Text")
+                local ButtonDescription
+                if Description ~= "" then
+                    ButtonDescription = Utility:Create("TextLabel", {
+                        Parent = ButtonContainer,
+                        BackgroundTransparency = 1,
+                        Position = UDim2.new(0, textInset, 0, 27),
+                        Size = UDim2.new(1, -(textInset + 32), 0, 17),
+                        Font = Enum.Font.Gotham,
+                        Text = Description,
+                        TextColor3 = Library.Theme.SubText,
+                        TextSize = IsMobile and 10 or 11,
+                        TextTruncate = Enum.TextTruncate.AtEnd,
+                        TextXAlignment = Enum.TextXAlignment.Left,
+                        ZIndex = 7
+                    })
+                    Utility:RegisterProperty(ButtonDescription, "TextColor3", "SubText")
+                end
                 local ButtonArrow = Utility:Create("ImageLabel", {
                     Parent = ButtonContainer,
                     BackgroundTransparency = 1,
@@ -2072,8 +2467,13 @@ function Library:CreateWindow(options)
                     end
                     Utility:SafeCall(Callback)
                 end)
-                addElement({Holder = ButtonContainer, Text = Name})
-                return finishController({SetText = function(self, text) Btn.Text = tostring(text) end}, ButtonContainer, Name)
+                addElement({Holder = ButtonContainer, Text = Name .. " " .. Description})
+                return finishController({
+                    SetText = function(self, text) ButtonTitle.Text = tostring(text) end,
+                    SetDescription = function(self, text)
+                        if ButtonDescription then ButtonDescription.Text = tostring(text) end
+                    end
+                }, ButtonContainer, Name)
             end
 
             -- TOGGLE
@@ -2273,6 +2673,7 @@ function Library:CreateWindow(options)
                 Utility:RegisterGradient(fillGradient, "Accent", "Accent2")
                 Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = Fill})
                 local Dragging = false
+                local DragInput = nil
                 local pendingCallback = false
 
                 local function EmitValue()
@@ -2295,11 +2696,14 @@ function Library:CreateWindow(options)
                 Library:Connect(Track.InputBegan, function(input)
                     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                         Dragging = true
+                        DragInput = input.UserInputType == Enum.UserInputType.Touch and input or nil
                         UpdateSlider(input)
                     end
                 end)
                 Library:Connect(UserInputService.InputChanged, function(input)
-                    if Dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                    local pointerMove = input.UserInputType == Enum.UserInputType.MouseMovement
+                        or (input.UserInputType == Enum.UserInputType.Touch and input == DragInput)
+                    if Dragging and pointerMove then
                         UpdateSlider(input)
                     end
                 end)
@@ -2313,15 +2717,20 @@ function Library:CreateWindow(options)
                 end)
 
                 addElement({Holder = SliderContainer, Text = Name})
+                local function SetValue(val, fire)
+                    Value = math.clamp(tonumber(val) or Min, Min, Max)
+                    ValueLabel.Text = tostring(Value)
+                    Library.Flags[Flag] = Value
+                    Utility:Tween(Fill, TweenInfo.new(0.1), {Size = UDim2.new((Value - Min) / math.max(0.000001, Max - Min), 0, 1, 0)})
+                    pendingCallback = false
+                    if fire ~= false then EmitValue() end
+                end
                 local sliderObj = {
                     Type = "Slider",
                     Set = function(self, val)
-                        Value = math.clamp(val, Min, Max)
-                        ValueLabel.Text = tostring(Value)
-                        Library.Flags[Flag] = Value
-                        Utility:Tween(Fill, TweenInfo.new(0.1), {Size = UDim2.new((Value - Min) / (Max - Min), 0, 1, 0)})
-                        EmitValue()
+                        SetValue(val, true)
                     end,
+                    SetSilent = function(self, val) SetValue(val, false) end,
                     Get = function() return Value end
                 }
                 finishController(sliderObj, SliderContainer, Name)
@@ -2916,11 +3325,20 @@ function Library:CreateWindow(options)
                 Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
                 Utility:RegisterProperty(stroke, "Color", "Stroke")
 
-                local label = Utility:Create("TextLabel", {
+                local headerButton = Utility:Create("TextButton", {
                     Parent = container,
                     BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, headerHeight),
+                    Text = "",
+                    AutoButtonColor = false,
+                    ZIndex = 7
+                })
+
+                local label = Utility:Create("TextLabel", {
+                    Parent = headerButton,
+                    BackgroundTransparency = 1,
                     Position = UDim2.new(0, 12, 0, 0),
-                    Size = UDim2.new(0.55, 0, 0, headerHeight),
+                    Size = UDim2.new(1, -92, 0, headerHeight),
                     Font = Enum.Font.Gotham,
                     Text = name,
                     TextColor3 = Library.Theme.Text,
@@ -2930,26 +3348,34 @@ function Library:CreateWindow(options)
                 })
                 Utility:RegisterProperty(label, "TextColor3", "Text")
 
-                local colorDisplay = Utility:Create("TextButton", {
-                    Parent = container,
+                local headerSwatch = Utility:Create("Frame", {
+                    Parent = headerButton,
                     BackgroundColor3 = currentColor,
-                    Position = UDim2.new(1, -104, 0.5, -13),
-                    Size = UDim2.new(0, 92, 0, 26),
-                    Text = "",
-                    TextColor3 = Color3.new(1, 1, 1),
-                    Font = Enum.Font.GothamBold,
-                    TextSize = 11,
-                    AutoButtonColor = false,
-                    ZIndex = 6
+                    Position = UDim2.new(1, -58, 0.5, -10),
+                    Size = UDim2.fromOffset(20, 20),
+                    BorderSizePixel = 0,
+                    ZIndex = 8
                 })
-                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = colorDisplay})
-                local colorStroke = Utility:Create("UIStroke", {Parent = colorDisplay, Color = Library.Theme.Stroke, Thickness = 1})
+                Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = headerSwatch})
+                local colorStroke = Utility:Create("UIStroke", {Parent = headerSwatch, Color = Library.Theme.Stroke, Thickness = 1})
                 Utility:RegisterProperty(colorStroke, "Color", "Stroke")
+
+                local headerArrow = Utility:Create("ImageLabel", {
+                    Parent = headerButton,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(1, -28, 0.5, -8),
+                    Size = UDim2.fromOffset(16, 16),
+                    Image = ICONS.ChevronDown,
+                    ImageColor3 = Library.Theme.SubText,
+                    ScaleType = Enum.ScaleType.Fit,
+                    ZIndex = 8
+                })
+                Utility:RegisterProperty(headerArrow, "ImageColor3", "SubText")
 
                 local editor = Utility:Create("Frame", {
                     Parent = container, BackgroundTransparency = 1,
                     Position = UDim2.new(0, 12, 0, headerHeight + 4),
-                    Size = UDim2.new(1, -24, 0, 96), ZIndex = 6
+                    Size = UDim2.new(1, -24, 0, 132), ZIndex = 6
                 })
 
                 local hueGradient = ColorSequence.new({
@@ -2990,11 +3416,30 @@ function Library:CreateWindow(options)
                 local satTrack, satMarker, satGradient = createColorTrack("S", 30, ColorSequence.new(Color3.new(1,1,1), Color3.fromHSV(hue,1,1)))
                 local valTrack, valMarker, valGradient = createColorTrack("V", 60, ColorSequence.new(Color3.new(0,0,0), Color3.fromHSV(hue,saturation,1)))
 
+                local colorDisplay = Utility:Create("TextButton", {
+                    Parent = editor,
+                    BackgroundColor3 = currentColor,
+                    Position = UDim2.new(0, 24, 0, 94),
+                    Size = UDim2.new(1, -24, 0, 30),
+                    Text = "",
+                    TextColor3 = Color3.new(1, 1, 1),
+                    Font = Enum.Font.GothamBold,
+                    TextSize = 11,
+                    AutoButtonColor = false,
+                    ZIndex = 7
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 7), Parent = colorDisplay})
+                local previewStroke = Utility:Create("UIStroke", {Parent = colorDisplay, Color = Library.Theme.Stroke, Thickness = 1})
+                Utility:RegisterProperty(previewStroke, "Color", "Stroke")
+
                 local function refreshColor(fire)
                     currentColor = Color3.fromHSV(hue, saturation, value)
                     Library.Flags[flag] = currentColor
+                    headerSwatch.BackgroundColor3 = currentColor
                     colorDisplay.BackgroundColor3 = currentColor
                     colorDisplay.Text = string.format("#%02X%02X%02X", math.floor(currentColor.R * 255 + 0.5), math.floor(currentColor.G * 255 + 0.5), math.floor(currentColor.B * 255 + 0.5))
+                    local luminance = currentColor.R * 0.299 + currentColor.G * 0.587 + currentColor.B * 0.114
+                    colorDisplay.TextColor3 = luminance > 0.62 and Color3.fromRGB(18, 18, 24) or Color3.new(1, 1, 1)
                     hueMarker.Position = UDim2.new(hue, 0, 0.5, 0)
                     satMarker.Position = UDim2.new(saturation, 0, 0.5, 0)
                     valMarker.Position = UDim2.new(value, 0, 0.5, 0)
@@ -3008,6 +3453,7 @@ function Library:CreateWindow(options)
 
                 local function bindTrack(track, setter)
                     local dragging = false
+                    local dragInput = nil
                     local function update(input)
                         setter(math.clamp((input.Position.X - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X), 0, 1))
                         refreshColor(true)
@@ -3015,11 +3461,14 @@ function Library:CreateWindow(options)
                     Library:Connect(track.InputBegan, function(input)
                         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                             dragging = true
+                            dragInput = input.UserInputType == Enum.UserInputType.Touch and input or nil
                             update(input)
                         end
                     end)
                     Library:Connect(UserInputService.InputChanged, function(input)
-                        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then update(input) end
+                        local pointerMove = input.UserInputType == Enum.UserInputType.MouseMovement
+                            or (input.UserInputType == Enum.UserInputType.Touch and input == dragInput)
+                        if dragging and pointerMove then update(input) end
                     end)
                     Library:Connect(UserInputService.InputEnded, function(input)
                         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
@@ -3031,13 +3480,20 @@ function Library:CreateWindow(options)
 
                 local function setExpanded(open)
                     expanded = open == true
+                    Utility:Tween(headerArrow, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Rotation = expanded and 180 or 0})
                     Utility:Tween(container, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                        Size = UDim2.new(1, 0, 0, expanded and (headerHeight + 108) or headerHeight)
+                        Size = UDim2.new(1, 0, 0, expanded and (headerHeight + 142) or headerHeight)
                     })
                     task.delay(Library.ReducedMotion and 0 or 0.23, RefreshLayout)
                 end
-                Library:Connect(colorDisplay.MouseButton1Click, function()
+                Library:Connect(headerButton.MouseButton1Click, function()
                     setExpanded(not expanded)
+                end)
+                Library:Connect(colorDisplay.MouseButton1Click, function()
+                    if type(setclipboard) == "function" then
+                        setclipboard(colorDisplay.Text)
+                        Library:Notify({Title = "Color copied", Content = colorDisplay.Text, Duration = 2})
+                    end
                 end)
                 refreshColor(false)
                 addElement({Holder = container, Text = name})
@@ -3181,29 +3637,38 @@ function Library:CreateWindow(options)
     else
         UISection:CreateLabel("Tap the floating </> button to toggle UI")
     end
-    UISection:CreateButton({ Name = "Minimize UI", Callback = function() Window:Minimize() end })
-    UISection:CreateButton({ Name = "Close UI", Callback = function() Window:Close() end })
+    UISection:CreateButton({ Name = "Minimize UI", Icon = ICONS.Minimize, Callback = function() Window:Minimize() end })
+    UISection:CreateButton({ Name = "Close UI", Icon = ICONS.Close, Callback = function() Window:Close() end })
 
     local AppearanceSection = SettingsTab:CreateSection({ Name = "Appearance & motion", Side = "Right" })
     AppearanceSection:CreateDropdown({
         Name = "Theme preset",
-        Values = {"Midnight", "Nebula", "Starlight", "Rose"},
+        Values = {"Midnight", "Nebula", "Starlight", "Rose", "Aurora", "Ember"},
         Default = Library.ActiveTheme or "Midnight",
         Flag = "__RenLibTheme",
         Callback = function(theme)
             Library:ApplyThemePreset(theme)
         end
     })
-    AppearanceSection:CreateSlider({
+    local ScaleSlider = AppearanceSection:CreateSlider({
         Name = "UI scale",
-        Min = 65,
-        Max = 140,
+        Min = 60,
+        Max = 150,
         Step = 5,
         Default = math.floor(Library.DPIScale * 100),
         Flag = "__RenLibScale",
         CallbackMode = "Release",
         Callback = function(scale)
-            task.defer(function() Library:SetDPIScale(scale) end)
+            task.defer(function() Library:PreviewDPIScale(scale, 10) end)
+        end
+    })
+    AppearanceSection:CreateButton({
+        Name = "Reset UI size",
+        Description = "Preview the safe 100% size with the same 10-second recovery.",
+        Icon = ICONS.Restore,
+        Callback = function()
+            ScaleSlider:SetSilent(100)
+            Library:PreviewDPIScale(100, 10)
         end
     })
     AppearanceSection:CreateToggle({
@@ -3214,8 +3679,27 @@ function Library:CreateWindow(options)
     })
     AppearanceSection:CreateParagraph({
         Title = "Responsive by default",
-        Content = "RenLib automatically reflows for phones, tablets, rotation, and narrow desktop windows. Theme changes apply instantly."
+        Content = "RenLib reflows for phones, tablets, rotation, narrow windows, and the selected UI scale. Scale changes must be kept within 10 seconds or they safely revert."
     })
+
+    if options.ShowInfiniteYield == nil or options.ShowInfiniteYield then
+        local UtilitySection = SettingsTab:CreateSection({ Name = "Utilities", Side = "Right" })
+        UtilitySection:CreateButton({
+            Name = "Launch Infinite Yield",
+            Description = "Fetch the current official EdgeIY source after confirmation.",
+            Icon = ICONS.Play,
+            Callback = function()
+                Window:Dialog({
+                    Title = "Launch Infinite Yield?",
+                    Content = "This downloads and runs the current script directly from the official EdgeIY/infiniteyield repository.",
+                    Actions = {
+                        {Name = "Cancel"},
+                        {Name = "Launch", Primary = true, Callback = function() Library:LaunchInfiniteYield() end}
+                    }
+                })
+            end
+        })
+    end
 
     local ConfigSection = SettingsTab:CreateSection({ Name = "Configuration", Side = "Left" })
     local configName = "default"
@@ -3253,6 +3737,7 @@ end
 function Library:Unload(reason)
     if self.Unloaded then return end
     self.Unloaded = true
+    self.ScalePreview = nil
     for _, tween in pairs(self.ActiveTweens) do
         pcall(function() tween:Cancel() end)
     end
