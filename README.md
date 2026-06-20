@@ -1,6 +1,6 @@
-# RenLib V6.3 — Harmony
+# RenLib V6.4 — Clarity
 
-RenLib is a responsive Roblox/Luau interface library for desktop, tablet, and phone. V6.3 adds a clearer layered visual hierarchy, original light and dark palettes, optional frosted material, dashboard composition, nested controls, and intentional multi-select behavior while preserving V6.2's recovery and mobile contracts.
+RenLib is a responsive Roblox/Luau interface library for desktop, tablet, and phone. V6.4 repairs live theme contrast, makes Frosted material local to the window, keeps controls readable at every supported scale, and introduces a compact navigation rail that expands on hover.
 
 ```lua
 local RenLib = loadstring(game:HttpGet(
@@ -26,24 +26,22 @@ General:CreateToggle({
 })
 ```
 
-## What changed in V6.3
+## What changed in V6.4
 
-- Sections now own a distinct inset surface, so organizational cards and their controls no longer blur into one layer.
-- Three-stop live gradients add controlled depth to active navigation, fills, and emphasis rails.
-- New original palettes: `Prism Frost`, `Moss Archive`, and `Velvet Latte`.
-- Optional `Frosted` material with adjustable blur, mobile intensity limits, minimize awareness, live switching, and unload cleanup.
-- `Window:CreateDashboard()` builds a responsive identity hero, avatar, live clock, metric cards, and quick actions.
-- `Window:CreateTabCategory()` adds navigational groups without wasting space in compact mode.
-- Any returned control can own child controls with `AddNested()` and `SetNestedVisible()`.
-- `CreateMultiDropdown()` shows selected names and checks and adds `GetList`, `Clear`, and `SelectAll`.
-- Added `CreateMetric()` for readable status/value/detail rows.
-- The visible `Starlight` preset name is replaced by the original `Celestial` name; legacy calls still work.
-- The Obsidian vault now contains two golden rules: feature completion and transformed inspiration.
+- Every semantic color is registered automatically, so theme changes cannot leave dark labels on dark surfaces or light icons on light surfaces.
+- Frosted mode now uses window-local transparency, tint, grain, and edge treatment. It never creates a global Lighting blur or changes the game screen.
+- The supported scale range is 75–150%; visible-width breakpoints force a safe one-column layout before controls can overlap.
+- Navigation defaults to `Dynamic`: a 68 px icon rail expands while hovered, and the header button pins or releases the full sidebar.
+- Inactive tabs and chrome controls keep visible boundaries in both light and dark themes.
+- Section depth no longer uses oversized shadow sprites, eliminating the gray title plates visible in Prism Frost.
+- The dashboard hero keeps identity and context without copying a live time/date display.
+- Each dark preset now has its own recognizable background family instead of sharing near-black chrome.
+- The default brand mark is fetched from [`Assets/Brand/icon.txt`](./Assets/Brand/icon.txt), so the repository owner can replace it without editing RenLib.
 
 ## V6.2 foundations retained
 
 - Color previews now live below the H/S/V tracks instead of drifting over them.
-- Responsive sizing uses the effective viewport after UI scale, with scrollable compact pages and dense-height fallbacks.
+- Responsive sizing uses the physical visible width after UI scale, with scrollable compact pages and dense-height fallbacks.
 - Scale changes use a ten-second preview with **Keep**, **Revert**, timeout recovery, and a 100% reset action.
 - Window dragging preserves a recoverable edge so the interface cannot be permanently lost off-screen.
 - Window, settings, tab, and button icons accept custom Roblox image IDs.
@@ -51,7 +49,6 @@ General:CreateToggle({
 - Buttons support optional icons and descriptions.
 - Settings include an optional confirmed launcher for the current official Infinite Yield source.
 - Added `Aurora` and `Ember` alongside the existing theme presets.
-- Added an Obsidian-ready project vault and the Golden Rule feature-completion gate.
 
 - Live responsive reflow: two columns become one as the viewport narrows, including rotation and split-screen changes.
 - Touch-sized sliders, dropdowns, color controls, draggable windows, and a floating mobile restore button.
@@ -83,8 +80,9 @@ local Window = RenLib:CreateWindow({
     ShowInfiniteYield = true,
     EnableGlobalSearch = true,
     EnableSidebarResize = true,
+    SidebarMode = "Dynamic", -- "Dynamic", "Expanded", or "Compact"
     MaterialMode = "Frosted", -- or "Solid"
-    MaterialIntensity = 18,
+    MaterialIntensity = 18, -- local glass transparency; never a screen blur
     OnDeviceChanged = function(mode)
         print(mode) -- "Desktop", "Tablet", or "Phone"
     end,
@@ -97,6 +95,7 @@ Window:Minimize()
 Window:Restore()
 Window:Toggle()
 Window:SetProfile({Title = "New name", Subtitle = "Online", Avatar = "1234567890"})
+Window:SetSidebarMode("Expanded")
 Window:Close()
 ```
 
@@ -269,18 +268,18 @@ Configs are stored in `RenLib/Configs`. These methods return `false, reason` whe
 RenLib:Unload()
 ```
 
-All RenLib-managed connections, active tweens, registered theme/material objects, the managed blur effect, and the ScreenGui are cleaned up. Loading a second RenLib session automatically unloads the first.
+All RenLib-managed connections, active tweens, registered theme/material objects, local glass decorations, and the ScreenGui are cleaned up. Loading a second RenLib session automatically unloads the first.
 
 ## Compatibility
 
-- `RenLib.lua` is the canonical V6.3 file.
-- `RenLibBêta.lua` and `RenLibTesting.lua` remain available for older loadstrings and mirror V6.3.
+- `RenLib.lua` is the canonical V6.4 file.
+- `RenLibBêta.lua` and `RenLibTesting.lua` remain available for older loadstrings and mirror V6.4.
 - Existing V4/V5 calls for windows, tabs, sections, buttons, toggles, sliders, dropdowns, labels, key pickers, warning boxes, images, and notifications remain supported.
 
 ## Design references
 
-V6.3 studies hierarchy and interaction principles from [Luna Interface Suite](https://github.com/Nebula-Softworks/Luna-Interface-Suite) and [Starlight Interface Suite](https://github.com/Nebula-Softworks/Starlight-Interface-Suite). RenLib's names, palette values, APIs, architecture, and implementation are original; no Starlight source code is copied.
+V6.4 studies hierarchy and interaction principles from [Luna Interface Suite](https://github.com/Nebula-Softworks/Luna-Interface-Suite) and [Starlight Interface Suite](https://github.com/Nebula-Softworks/Starlight-Interface-Suite). RenLib's names, palette values, APIs, architecture, and implementation are original; no Starlight source code is copied.
 
-The Obsidian-ready project memory is in [`RenHubUiLib-ObsidianVault`](./RenHubUiLib-ObsidianVault/Welcome.md), including both golden rules, reference reasoning, and the release checklist.
+The project Obsidian vault is intentionally local-only and excluded from this repository.
 
 See [`Showcase.lua`](./Showcase.lua) for a fuller example.

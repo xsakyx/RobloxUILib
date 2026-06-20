@@ -1,4 +1,4 @@
--- RenLib V6.3
+-- RenLib V6.4
 -- Responsive Roblox UI library with mobile-first input, live theming,
 -- accessible motion, searchable controls, and deterministic cleanup.
 
@@ -11,7 +11,6 @@ local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
 local TextService = game:GetService("TextService")
 local GuiService = game:GetService("GuiService")
-local Lighting = game:GetService("Lighting")
 
 --// LOCAL SHORTCUTS
 local Plr = Players.LocalPlayer
@@ -26,7 +25,12 @@ end
 
 local function getDeviceMode(scale)
     local viewport = getViewport()
-    local effectiveWidth = viewport.X / math.max(tonumber(scale) or 1, 0.01)
+    local normalizedScale = math.max(tonumber(scale) or 1, 0.01)
+    -- Both very large and very small UI scales reduce the amount of usable
+    -- physical space. Measuring only the logical canvas made a 60% window
+    -- incorrectly choose a two-column desktop layout.
+    local scalePressure = normalizedScale < 1 and normalizedScale or (1 / normalizedScale)
+    local effectiveWidth = viewport.X * scalePressure
     if effectiveWidth <= 620 then
         return "Phone"
     elseif effectiveWidth <= 960 or (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled) then
@@ -43,6 +47,7 @@ local ScreenSize = getViewport()
 local CONFIG_FOLDER = "RenLib/Configs"
 local RUNTIME_KEY = "__RENLIB_V6_RUNTIME"
 local INFINITE_YIELD_URL = "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"
+local BRAND_ICON_MANIFEST_URL = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Assets/Brand/icon.txt"
 local RuntimeEnvironment = (getgenv and getgenv()) or shared or _G
 
 -- Only one RenLib session may own input and UI at a time.
@@ -94,12 +99,13 @@ local ICONS = {
     Dashboard = "rbxassetid://6034287594",
     Layers = "rbxassetid://6034328955",
     Glass = "rbxassetid://6034925618",
-    Check = "rbxassetid://6031094667"
+    Check = "rbxassetid://6031094667",
+    Menu = "rbxassetid://6031091002"
 }
 
 --// ROOT LIBRARY
 local Library = {}
-Library.Version = "6.3.0"
+Library.Version = "6.4.0"
 Library.Title = "RenLib"
 Library.Connections = {}
 Library.Tasks = {}
@@ -121,20 +127,23 @@ Library.ScalePreview = nil
 Library.MaterialMode = "Solid"
 Library.MaterialIntensity = 18
 Library.MaterialRegistry = setmetatable({}, {__mode = "k"})
-Library.BlurEffect = nil
+Library.MaterialDecorations = setmetatable({}, {__mode = "k"})
+Library.BrandIcon = ICONS.Palette
+Library.BrandIconTint = "Accent"
+Library.BrandMarks = setmetatable({}, {__mode = "k"})
 
 -- Theme (can be changed at runtime)
 Library.Theme = {
-    Main = Color3.fromRGB(15, 16, 22),
-    Secondary = Color3.fromRGB(20, 21, 29),
-    Surface = Color3.fromRGB(25, 26, 35),
-    SurfaceAlt = Color3.fromRGB(31, 32, 43),
-    Stroke = Color3.fromRGB(62, 64, 82),
-    Divider = Color3.fromRGB(43, 45, 59),
+    Main = Color3.fromRGB(24, 26, 37),
+    Secondary = Color3.fromRGB(29, 32, 44),
+    Surface = Color3.fromRGB(36, 39, 53),
+    SurfaceAlt = Color3.fromRGB(44, 47, 63),
+    Stroke = Color3.fromRGB(82, 86, 111),
+    Divider = Color3.fromRGB(57, 60, 79),
     Text = Color3.fromRGB(245, 245, 249),
     SubText = Color3.fromRGB(158, 160, 178),
-    Hover = Color3.fromRGB(32, 33, 44),
-    Click = Color3.fromRGB(38, 39, 51),
+    Hover = Color3.fromRGB(48, 51, 68),
+    Click = Color3.fromRGB(55, 59, 77),
     Accent = Color3.fromRGB(157, 112, 255),
     Accent2 = Color3.fromRGB(91, 190, 255),
     Accent3 = Color3.fromRGB(255, 142, 216),
@@ -145,63 +154,63 @@ Library.Theme = {
 
 Library.ThemePresets = {
     Midnight = {
-        Main = Color3.fromRGB(15, 16, 21), Secondary = Color3.fromRGB(20, 21, 28),
-        Surface = Color3.fromRGB(25, 26, 34), SurfaceAlt = Color3.fromRGB(31, 32, 41),
-        Stroke = Color3.fromRGB(59, 61, 76), Divider = Color3.fromRGB(42, 44, 56),
+        Main = Color3.fromRGB(23, 26, 36), Secondary = Color3.fromRGB(29, 32, 44),
+        Surface = Color3.fromRGB(36, 40, 53), SurfaceAlt = Color3.fromRGB(44, 48, 63),
+        Stroke = Color3.fromRGB(82, 87, 108), Divider = Color3.fromRGB(58, 62, 79),
         Text = Color3.fromRGB(244, 245, 248), SubText = Color3.fromRGB(158, 160, 176),
-        Hover = Color3.fromRGB(31, 32, 42), Click = Color3.fromRGB(37, 38, 49),
+        Hover = Color3.fromRGB(49, 53, 68), Click = Color3.fromRGB(57, 61, 78),
         Accent = Color3.fromRGB(96, 164, 255), Accent2 = Color3.fromRGB(120, 220, 226), Success = Color3.fromRGB(60, 220, 120),
         Warn = Color3.fromRGB(240, 200, 60), Error = Color3.fromRGB(240, 60, 60)
     },
     Nebula = {
-        Main = Color3.fromRGB(17, 14, 27), Secondary = Color3.fromRGB(23, 19, 35),
-        Surface = Color3.fromRGB(29, 24, 44), SurfaceAlt = Color3.fromRGB(36, 29, 54),
-        Stroke = Color3.fromRGB(67, 57, 92), Divider = Color3.fromRGB(55, 47, 78),
+        Main = Color3.fromRGB(29, 23, 43), Secondary = Color3.fromRGB(36, 29, 52),
+        Surface = Color3.fromRGB(44, 35, 63), SurfaceAlt = Color3.fromRGB(53, 42, 75),
+        Stroke = Color3.fromRGB(91, 75, 122), Divider = Color3.fromRGB(70, 59, 95),
         Text = Color3.fromRGB(246, 243, 255), SubText = Color3.fromRGB(174, 164, 199),
-        Hover = Color3.fromRGB(39, 33, 58), Click = Color3.fromRGB(31, 27, 48),
+        Hover = Color3.fromRGB(58, 47, 80), Click = Color3.fromRGB(66, 53, 90),
         Accent = Color3.fromRGB(170, 106, 255), Accent2 = Color3.fromRGB(89, 189, 255), Success = Color3.fromRGB(76, 218, 157),
         Warn = Color3.fromRGB(255, 198, 88), Error = Color3.fromRGB(255, 94, 117)
     },
     Celestial = {
-        Main = Color3.fromRGB(15, 16, 22), Secondary = Color3.fromRGB(20, 21, 29),
-        Surface = Color3.fromRGB(25, 26, 35), SurfaceAlt = Color3.fromRGB(31, 32, 43),
-        Stroke = Color3.fromRGB(62, 64, 82), Divider = Color3.fromRGB(43, 45, 59),
+        Main = Color3.fromRGB(24, 26, 37), Secondary = Color3.fromRGB(29, 32, 44),
+        Surface = Color3.fromRGB(36, 39, 53), SurfaceAlt = Color3.fromRGB(44, 47, 63),
+        Stroke = Color3.fromRGB(82, 86, 111), Divider = Color3.fromRGB(57, 60, 79),
         Text = Color3.fromRGB(245, 245, 249), SubText = Color3.fromRGB(158, 160, 178),
-        Hover = Color3.fromRGB(32, 33, 44), Click = Color3.fromRGB(38, 39, 51),
+        Hover = Color3.fromRGB(48, 51, 68), Click = Color3.fromRGB(55, 59, 77),
         Accent = Color3.fromRGB(157, 112, 255), Accent2 = Color3.fromRGB(91, 190, 255), Success = Color3.fromRGB(66, 224, 171),
         Warn = Color3.fromRGB(255, 205, 92), Error = Color3.fromRGB(255, 92, 120)
     },
     Rose = {
-        Main = Color3.fromRGB(27, 17, 23), Secondary = Color3.fromRGB(34, 21, 29),
-        Surface = Color3.fromRGB(43, 27, 37), SurfaceAlt = Color3.fromRGB(52, 32, 44),
-        Stroke = Color3.fromRGB(78, 51, 66), Divider = Color3.fromRGB(65, 43, 56),
+        Main = Color3.fromRGB(42, 27, 36), Secondary = Color3.fromRGB(50, 32, 43),
+        Surface = Color3.fromRGB(61, 38, 52), SurfaceAlt = Color3.fromRGB(72, 44, 61),
+        Stroke = Color3.fromRGB(111, 70, 91), Divider = Color3.fromRGB(86, 55, 73),
         Text = Color3.fromRGB(255, 241, 247), SubText = Color3.fromRGB(201, 157, 178),
-        Hover = Color3.fromRGB(53, 34, 45), Click = Color3.fromRGB(45, 29, 39),
+        Hover = Color3.fromRGB(77, 48, 65), Click = Color3.fromRGB(86, 53, 73),
         Accent = Color3.fromRGB(255, 105, 180), Accent2 = Color3.fromRGB(177, 117, 255), Success = Color3.fromRGB(73, 219, 157),
         Warn = Color3.fromRGB(255, 198, 91), Error = Color3.fromRGB(255, 86, 107)
     },
     Aurora = {
-        Main = Color3.fromRGB(9, 18, 23), Secondary = Color3.fromRGB(13, 25, 31),
-        Surface = Color3.fromRGB(18, 34, 41), SurfaceAlt = Color3.fromRGB(24, 43, 51),
-        Stroke = Color3.fromRGB(53, 84, 91), Divider = Color3.fromRGB(37, 63, 70),
+        Main = Color3.fromRGB(18, 32, 38), Secondary = Color3.fromRGB(23, 40, 47),
+        Surface = Color3.fromRGB(29, 49, 57), SurfaceAlt = Color3.fromRGB(36, 59, 67),
+        Stroke = Color3.fromRGB(71, 110, 118), Divider = Color3.fromRGB(50, 81, 88),
         Text = Color3.fromRGB(238, 253, 252), SubText = Color3.fromRGB(147, 185, 185),
-        Hover = Color3.fromRGB(24, 45, 52), Click = Color3.fromRGB(29, 53, 61),
+        Hover = Color3.fromRGB(41, 65, 73), Click = Color3.fromRGB(47, 74, 82),
         Accent = Color3.fromRGB(48, 226, 183), Accent2 = Color3.fromRGB(102, 149, 255), Success = Color3.fromRGB(64, 226, 158),
         Warn = Color3.fromRGB(255, 205, 94), Error = Color3.fromRGB(255, 92, 117)
     },
     Ember = {
-        Main = Color3.fromRGB(23, 15, 13), Secondary = Color3.fromRGB(31, 20, 17),
-        Surface = Color3.fromRGB(41, 27, 22), SurfaceAlt = Color3.fromRGB(51, 34, 27),
-        Stroke = Color3.fromRGB(84, 58, 46), Divider = Color3.fromRGB(64, 43, 35),
+        Main = Color3.fromRGB(42, 28, 23), Secondary = Color3.fromRGB(51, 34, 28),
+        Surface = Color3.fromRGB(62, 41, 33), SurfaceAlt = Color3.fromRGB(74, 48, 38),
+        Stroke = Color3.fromRGB(118, 79, 62), Divider = Color3.fromRGB(90, 59, 48),
         Text = Color3.fromRGB(255, 247, 239), SubText = Color3.fromRGB(201, 169, 146),
-        Hover = Color3.fromRGB(53, 36, 29), Click = Color3.fromRGB(62, 42, 33),
+        Hover = Color3.fromRGB(80, 52, 41), Click = Color3.fromRGB(91, 59, 46),
         Accent = Color3.fromRGB(255, 132, 72), Accent2 = Color3.fromRGB(255, 83, 129), Accent3 = Color3.fromRGB(255, 202, 102), Success = Color3.fromRGB(87, 220, 153),
         Warn = Color3.fromRGB(255, 201, 87), Error = Color3.fromRGB(255, 83, 99)
     },
     ["Prism Frost"] = {
         Main = Color3.fromRGB(218, 228, 232), Secondary = Color3.fromRGB(230, 238, 241),
         Surface = Color3.fromRGB(242, 246, 248), SurfaceAlt = Color3.fromRGB(250, 252, 253),
-        Stroke = Color3.fromRGB(160, 177, 184), Divider = Color3.fromRGB(188, 201, 207),
+        Stroke = Color3.fromRGB(123, 145, 155), Divider = Color3.fromRGB(168, 184, 191),
         Text = Color3.fromRGB(31, 39, 43), SubText = Color3.fromRGB(100, 111, 117),
         Hover = Color3.fromRGB(224, 234, 239), Click = Color3.fromRGB(211, 224, 230),
         Accent = Color3.fromRGB(168, 208, 255), Accent2 = Color3.fromRGB(255, 222, 166), Accent3 = Color3.fromRGB(186, 222, 255),
@@ -281,20 +290,77 @@ function Utility:NormalizeAssetId(asset, fallback)
     return fallback
 end
 
+local THEME_PROPERTY_KEYS = {
+    BackgroundColor3 = {"Main", "Secondary", "Surface", "SurfaceAlt", "Hover", "Click", "Accent", "Accent2", "Accent3", "Success", "Warn", "Error", "Divider"},
+    TextColor3 = {"Text", "SubText", "Accent", "Accent2", "Accent3", "Success", "Warn", "Error"},
+    PlaceholderColor3 = {"SubText", "Text"},
+    ImageColor3 = {"Text", "SubText", "Accent", "Accent2", "Accent3", "Success", "Warn", "Error"},
+    ScrollBarImageColor3 = {"Accent", "Accent2", "SubText", "Text"},
+    Color = {"Stroke", "Divider", "Accent", "Accent2", "Accent3", "Text", "SubText"}
+}
+
+local function resolveThemeKey(property, value)
+    if typeof(value) ~= "Color3" then return nil end
+    for _, key in ipairs(THEME_PROPERTY_KEYS[property] or {}) do
+        if Library.Theme[key] == value then return key end
+    end
+    return nil
+end
+
 function Utility:Create(class, properties)
     local instance = Instance.new(class)
     if class == "UIStroke" and properties.Transparency == nil then
-        instance.Transparency = 0.42
+        instance.Transparency = 0.24
     end
     for k, v in pairs(properties) do
         if k ~= "Parent" then
             instance[k] = v
         end
     end
+    -- Theme registration is automatic for semantic theme colors. Explicit
+    -- RegisterProperty calls still override this, but missed labels can no
+    -- longer keep a stale color after a preset change.
+    for property, value in pairs(properties) do
+        local colorKey = resolveThemeKey(property, value)
+        if colorKey then
+            Library.Registry[instance] = Library.Registry[instance] or {}
+            Library.Registry[instance][property] = colorKey
+        end
+    end
     if properties.Parent then
         instance.Parent = properties.Parent
     end
     return instance
+end
+
+function Utility:LoadBrandIcon(callback)
+    task.spawn(function()
+        local resolved = Library.BrandIcon
+        local tintKey = Library.BrandIconTint
+        local ok, manifest = pcall(function()
+            return game:HttpGet(BRAND_ICON_MANIFEST_URL)
+        end)
+        if ok and type(manifest) == "string" then
+            local assetLine = manifest:match("^%s*([^\r\n]+)")
+            local requestedTint = manifest:match("[\r\n]+%s*[Tt][Ii][Nn][Tt]%s*=%s*([%w_]+)")
+            resolved = Utility:NormalizeAssetId(assetLine, resolved)
+            tintKey = requestedTint and Library.Theme[requestedTint] and requestedTint or nil
+        end
+        Library.BrandIcon = resolved
+        Library.BrandIconTint = tintKey
+        for mark in pairs(Library.BrandMarks) do
+            if mark and mark.Parent then
+                mark.Image = resolved
+                if tintKey then
+                    Utility:RegisterProperty(mark, "ImageColor3", tintKey)
+                else
+                    if Library.Registry[mark] then Library.Registry[mark].ImageColor3 = nil end
+                    mark.ImageColor3 = Color3.new(1, 1, 1)
+                end
+            end
+        end
+        if callback then Utility:SafeCall(callback, resolved) end
+    end)
 end
 
 function Utility:Tween(instance, info, properties, callback)
@@ -443,7 +509,7 @@ function Utility:RegisterMaterial(instance, frostedTransparency, solidTransparen
         Solid = math.clamp(tonumber(solidTransparency) or instance.BackgroundTransparency or 0, 0, 1)
     }
     local state = Library.MaterialRegistry[instance]
-    instance.BackgroundTransparency = Library.MaterialMode == "Frosted" and state.Frosted or state.Solid
+    instance.BackgroundTransparency = Library:ResolveMaterialTransparency(state)
 end
 
 --// DYNAMIC THEME UPDATE
@@ -470,6 +536,8 @@ function Library:SetTheme(newTheme)
         self.Theme[k] = v
     end
     self:UpdateColors()
+    self:SetMaterialIntensity(self.MaterialIntensity)
+    if self.Window and self.Window.RefreshThemeState then self.Window:RefreshThemeState() end
 end
 
 function Library:ApplyThemePreset(name)
@@ -491,20 +559,35 @@ function Library:SetMotionScale(scale)
     self.MotionScale = math.clamp(tonumber(scale) or 1, 0, 2)
 end
 
+function Library:GetThemeLuminance()
+    local color = self.Theme.Main
+    return color.R * 0.2126 + color.G * 0.7152 + color.B * 0.0722
+end
+
+function Library:ResolveMaterialTransparency(state)
+    if not state then return 0 end
+    if self.MaterialMode ~= "Frosted" then return state.Solid end
+    local transparencyBoost = (self.MaterialIntensity / 32) * 0.24
+    if self:GetThemeLuminance() < 0.35 then transparencyBoost = transparencyBoost + 0.08 end
+    return math.clamp(state.Frosted + transparencyBoost, 0, 0.84)
+end
+
 function Library:SetMaterialIntensity(value)
     self.MaterialIntensity = math.clamp(tonumber(value) or 18, 0, 32)
-    if self.BlurEffect then
-        self.BlurEffect.Size = self.IsMobile and math.min(self.MaterialIntensity, 12) or self.MaterialIntensity
+    if self.MaterialMode == "Frosted" then
+        for instance, state in pairs(self.MaterialRegistry) do
+            pcall(function()
+                instance.BackgroundTransparency = self:ResolveMaterialTransparency(state)
+            end)
+        end
     end
     return self.MaterialIntensity
 end
 
 function Library:RefreshMaterialVisibility()
-    if self.BlurEffect then
-        self.BlurEffect.Enabled = self.MaterialMode == "Frosted"
-            and not self.Unloaded
-            and not self.IsMinimized
-            and self.ScreenGui ~= nil
+    local visible = self.MaterialMode == "Frosted" and not self.Unloaded and not self.IsMinimized
+    for decoration in pairs(self.MaterialDecorations) do
+        pcall(function() decoration.Visible = visible end)
     end
 end
 
@@ -514,35 +597,12 @@ function Library:SetMaterialMode(mode)
         return false, "Unknown material mode: " .. mode
     end
     self.MaterialMode = mode
-    if mode == "Frosted" and not self.BlurEffect then
-        local ok, blur = pcall(function()
-            local effect = Instance.new("BlurEffect")
-            effect.Name = "RenLibFrost_" .. Utility:RandomString(8)
-            effect.Size = 0
-            effect.Enabled = true
-            effect.Parent = Lighting
-            return effect
-        end)
-        if not ok or not blur then
-            self.MaterialMode = "Solid"
-            self.Flags.__RenLibMaterial = "Solid"
-            if self.Notify then
-                self:Notify({Title = "Frost unavailable", Content = "This runtime blocked the blur effect, so RenLib stayed in solid mode.", Duration = 4})
-            end
-            return false, "BlurEffect unavailable"
-        end
-        self.BlurEffect = blur
-    end
     for instance, state in pairs(self.MaterialRegistry) do
         pcall(function()
             Utility:Tween(instance, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                BackgroundTransparency = mode == "Frosted" and state.Frosted or state.Solid
+                BackgroundTransparency = self:ResolveMaterialTransparency(state)
             })
         end)
-    end
-    if self.BlurEffect then
-        local target = mode == "Frosted" and (self.IsMobile and math.min(self.MaterialIntensity, 12) or self.MaterialIntensity) or 0
-        Utility:Tween(self.BlurEffect, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = target})
     end
     self:RefreshMaterialVisibility()
     return true
@@ -550,7 +610,7 @@ end
 
 --// DPI SCALING
 function Library:SetDPIScale(percent)
-    percent = math.clamp(tonumber(percent) or 100, 60, 150)
+    percent = math.clamp(tonumber(percent) or 100, 75, 150)
     local scale = percent / 100
     for _, uiScale in ipairs(self.Scales) do
         uiScale.Scale = scale
@@ -558,7 +618,13 @@ function Library:SetDPIScale(percent)
     self.DPIScale = scale
     if self.Window and self.Window.ApplyResponsiveLayout then
         task.defer(function()
-            if self.Window and not self.Unloaded then self.Window:ApplyResponsiveLayout(true) end
+            RunService.RenderStepped:Wait()
+            if self.Window and not self.Unloaded then
+                self.Window:ApplyResponsiveLayout(true)
+                task.defer(function()
+                    if self.Window and not self.Unloaded then self.Window:ApplyResponsiveLayout(false) end
+                end)
+            end
         end)
     end
     return percent
@@ -748,39 +814,33 @@ function Library:CreateWindow(options)
     local EnableSidebarResize = options.EnableSidebarResize == nil and true or options.EnableSidebarResize
     local EnableGlobalSearch = options.EnableGlobalSearch == nil and true or options.EnableGlobalSearch
     local SidebarCompactMode = options.SidebarCompactMode or false
+    local SidebarMode = tostring(options.SidebarMode or (SidebarCompactMode and "Compact" or "Dynamic"))
+    if SidebarMode ~= "Dynamic" and SidebarMode ~= "Expanded" and SidebarMode ~= "Compact" then SidebarMode = "Dynamic" end
     local WindowIcon = Utility:NormalizeAssetId(options.Icon or options.Logo)
     local SettingsIcon = Utility:NormalizeAssetId(options.SettingsIcon, ICONS.Settings)
     local ShowUserProfile = options.ShowUserProfile == nil and true or options.ShowUserProfile
     local RequestedMaterialMode = options.MaterialMode or self.MaterialMode or "Solid"
 
+    local brandLoadStarted = false
     local function createWindowMark(parent, textSize, zIndex)
-        if WindowIcon then
-            local mark = Utility:Create("ImageLabel", {
-                Parent = parent,
-                BackgroundTransparency = 1,
-                Position = UDim2.fromScale(0.18, 0.18),
-                Size = UDim2.fromScale(0.64, 0.64),
-                Image = WindowIcon,
-                ImageColor3 = Library.Theme.Text,
-                ScaleType = Enum.ScaleType.Fit,
-                ZIndex = zIndex
-            })
-            Utility:RegisterProperty(mark, "ImageColor3", "Text")
-            return mark
-        end
-        local mark = Utility:Create("TextLabel", {
+        local mark = Utility:Create("ImageLabel", {
             Parent = parent,
             BackgroundTransparency = 1,
-            Size = UDim2.fromScale(1, 1),
-            Font = Enum.Font.GothamBold,
-            Text = EMOJIS.Code,
-            TextColor3 = Library.Theme.Accent,
-            TextSize = textSize,
-            TextXAlignment = Enum.TextXAlignment.Center,
-            TextYAlignment = Enum.TextYAlignment.Center,
+            Position = UDim2.fromScale(0.16, 0.16),
+            Size = UDim2.fromScale(0.68, 0.68),
+            Image = WindowIcon or Library.BrandIcon,
+            ImageColor3 = WindowIcon and Color3.new(1, 1, 1) or Library.Theme[Library.BrandIconTint or "Accent"],
+            ScaleType = Enum.ScaleType.Fit,
             ZIndex = zIndex
         })
-        Utility:RegisterProperty(mark, "TextColor3", "Accent")
+        if not WindowIcon then
+            Library.BrandMarks[mark] = true
+            if Library.BrandIconTint then Utility:RegisterProperty(mark, "ImageColor3", Library.BrandIconTint) end
+            if not brandLoadStarted then
+                brandLoadStarted = true
+                Utility:LoadBrandIcon()
+            end
+        end
         return mark
     end
 
@@ -808,7 +868,7 @@ function Library:CreateWindow(options)
     else
         WinWidth = math.min(options.Width or 880, math.max(1, initialLayoutWidth - 32))
         WinHeight = math.min(options.Height or 580, math.max(1, initialLayoutHeight - 32))
-        SidebarWidth = 190
+        SidebarWidth = SidebarMode == "Expanded" and 190 or 68
         FontScale = 1
     end
 
@@ -850,6 +910,37 @@ function Library:CreateWindow(options)
     Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = MainFrame})
     local mainGradient = Utility:Create("UIGradient", {Parent = MainFrame, Rotation = 115})
     Utility:RegisterGradient(mainGradient, "Main", "Secondary")
+    local glassTint = Utility:Create("ImageLabel", {
+        Name = "GlassTint",
+        Parent = MainFrame,
+        BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 1),
+        Image = "rbxassetid://9968344105",
+        ImageColor3 = Library.Theme.Accent2,
+        ImageTransparency = 0.95,
+        ScaleType = Enum.ScaleType.Tile,
+        TileSize = UDim2.fromOffset(128, 128),
+        Visible = false,
+        ZIndex = 1
+    })
+    Utility:RegisterProperty(glassTint, "ImageColor3", "Accent2")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = glassTint})
+    Library.MaterialDecorations[glassTint] = true
+    local glassNoise = Utility:Create("ImageLabel", {
+        Name = "GlassNoise",
+        Parent = MainFrame,
+        BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 1),
+        Image = "rbxassetid://9968344227",
+        ImageColor3 = Color3.new(1, 1, 1),
+        ImageTransparency = 0.93,
+        ScaleType = Enum.ScaleType.Tile,
+        TileSize = UDim2.fromOffset(128, 128),
+        Visible = false,
+        ZIndex = 1
+    })
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = glassNoise})
+    Library.MaterialDecorations[glassNoise] = true
     local WindowScale = Utility:Create("UIScale", {Parent = MainFrame, Scale = 1})
     local mainStroke = Utility:Create("UIStroke", {Parent = MainFrame, Color = Library.Theme.Stroke, Thickness = 1})
     Utility:RegisterProperty(mainStroke, "Color", "Stroke")
@@ -933,12 +1024,12 @@ function Library:CreateWindow(options)
     end)
 
     -- LOGO
-    local logoSize = IsMobile and 32 or 40
+    local logoSize = IsMobile and 32 or (SidebarWidth < 132 and 32 or 40)
     local LogoContainer = Utility:Create("Frame", {
         Name = "LogoContainer",
         Parent = Sidebar,
         BackgroundColor3 = Library.Theme.Main,
-        Position = IsMobile and UDim2.new(0.5, -logoSize / 2, 0, 14) or UDim2.fromOffset(14, 16),
+        Position = (IsMobile or SidebarWidth < 132) and UDim2.fromOffset(8, 16) or UDim2.fromOffset(14, 16),
         Size = UDim2.new(0, logoSize, 0, logoSize),
         ZIndex = 100,
         BorderSizePixel = 0
@@ -980,13 +1071,40 @@ function Library:CreateWindow(options)
     })
     Utility:RegisterProperty(BrandSubtitle, "TextColor3", "SubText")
 
+    local SidebarModeButton = Utility:Create("TextButton", {
+        Name = "SidebarModeButton",
+        Parent = Sidebar,
+        BackgroundColor3 = Library.Theme.Surface,
+        Position = UDim2.new(1, -28, 0, 22),
+        Size = UDim2.fromOffset(20, 20),
+        Text = "",
+        AutoButtonColor = false,
+        ZIndex = 104,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(SidebarModeButton, "BackgroundColor3", "Surface")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = SidebarModeButton})
+    local sidebarModeStroke = Utility:Create("UIStroke", {Parent = SidebarModeButton, Color = Library.Theme.Stroke, Thickness = 1})
+    Utility:RegisterProperty(sidebarModeStroke, "Color", "Stroke")
+    local SidebarModeIcon = Utility:Create("ImageLabel", {
+        Parent = SidebarModeButton,
+        BackgroundTransparency = 1,
+        Position = UDim2.fromScale(0.2, 0.2),
+        Size = UDim2.fromScale(0.6, 0.6),
+        Image = ICONS.ChevronRight,
+        ImageColor3 = Library.Theme.SubText,
+        ScaleType = Enum.ScaleType.Fit,
+        ZIndex = 105
+    })
+    Utility:RegisterProperty(SidebarModeIcon, "ImageColor3", "SubText")
+
     -- SETTINGS BUTTON
     local settingsBtnSize = IsMobile and 36 or 44
     local SettingsBtn = Utility:Create("TextButton", {
         Name = "SettingsBtn",
         Parent = Sidebar,
         BackgroundColor3 = Library.Theme.Accent,
-        BackgroundTransparency = 1,
+        BackgroundTransparency = 0.64,
         Position = IsMobile and UDim2.new(0.5, -settingsBtnSize / 2, 1, -(settingsBtnSize + 12)) or UDim2.new(0, 10, 1, -54),
         Size = IsMobile and UDim2.fromOffset(settingsBtnSize, settingsBtnSize) or UDim2.new(1, -20, 0, 42),
         AutoButtonColor = false,
@@ -996,6 +1114,8 @@ function Library:CreateWindow(options)
     })
     Utility:RegisterProperty(SettingsBtn, "BackgroundColor3", "Accent")
     Utility:Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = SettingsBtn})
+    local settingsStroke = Utility:Create("UIStroke", {Parent = SettingsBtn, Color = Library.Theme.Stroke, Thickness = 1})
+    Utility:RegisterProperty(settingsStroke, "Color", "Stroke")
     local settingsGradient = Utility:Create("UIGradient", {Parent = SettingsBtn, Rotation = 18})
     Utility:RegisterGradient(settingsGradient, "Accent", "Accent2", "Accent3")
 
@@ -1146,7 +1266,7 @@ function Library:CreateWindow(options)
         ProfileCompact = compact
         if not ProfileCard then return end
         ProfileCard.Visible = not hidden
-        ProfileCard.BackgroundTransparency = compact and 1 or (Library.MaterialMode == "Frosted" and 0.28 or 0)
+        ProfileCard.BackgroundTransparency = compact and 1 or Library:ResolveMaterialTransparency(Library.MaterialRegistry[ProfileCard])
         ProfileCard.Position = compact and UDim2.new(0.5, -19, 1, -(settingsBtnSize + 62)) or UDim2.new(0, 10, 1, -110)
         ProfileCard.Size = compact and UDim2.fromOffset(38, 38) or UDim2.new(1, -20, 0, 48)
         ProfileAvatar.Position = compact and UDim2.fromScale(0, 0) or UDim2.fromOffset(6, 6)
@@ -1224,6 +1344,8 @@ function Library:CreateWindow(options)
     })
     Utility:RegisterProperty(MinimizeBtn, "BackgroundColor3", "Surface")
     Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = MinimizeBtn})
+    local minimizeStroke = Utility:Create("UIStroke", {Parent = MinimizeBtn, Color = Library.Theme.Stroke, Thickness = 1})
+    Utility:RegisterProperty(minimizeStroke, "Color", "Stroke")
 
     local MinimizeIcon = Utility:Create("ImageLabel", {
         Parent = MinimizeBtn,
@@ -1251,6 +1373,8 @@ function Library:CreateWindow(options)
     })
     Utility:RegisterProperty(CloseBtn, "BackgroundColor3", "Surface")
     Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = CloseBtn})
+    local closeStroke = Utility:Create("UIStroke", {Parent = CloseBtn, Color = Library.Theme.Stroke, Thickness = 1})
+    Utility:RegisterProperty(closeStroke, "Color", "Stroke")
 
     local CloseIcon = Utility:Create("ImageLabel", {
         Parent = CloseBtn,
@@ -1397,18 +1521,40 @@ function Library:CreateWindow(options)
         Gui = ScreenGui,
         Main = MainFrame,
         SettingsTab = nil,
-        SearchBox = SearchBox
+        SearchBox = SearchBox,
+        Sidebar = Sidebar,
+        SidebarMode = SidebarMode
     }
 
     function Window:SetProfile(data)
         SetProfileData(data)
     end
 
+    function Window:RefreshThemeState()
+        for _, tab in ipairs(self.Tabs) do
+            local textKey = tab.Active and "Text" or "SubText"
+            if tab.TabLabel then tab.TabLabel.TextColor3 = Library.Theme[textKey] end
+            if tab.TabEmoji then
+                if tab.TabEmoji:IsA("TextLabel") then
+                    tab.TabEmoji.TextColor3 = Library.Theme[textKey]
+                elseif tab.TabEmoji:IsA("ImageLabel") then
+                    tab.TabEmoji.ImageColor3 = Library.Theme[textKey]
+                end
+            end
+            if tab.TabBtn then tab.TabBtn.BackgroundTransparency = tab.Active and 0.08 or 0.64 end
+            if tab.TabStroke then
+                tab.TabStroke.Color = tab.Active and Library.Theme.Accent or Library.Theme.Stroke
+                tab.TabStroke.Transparency = tab.Active and 0.08 or 0.24
+            end
+        end
+    end
+
     -- RESIZABLE SIDEBAR (PC only)
     local sidebarResizer = nil
     local dividerLine = nil
-    local currentSidebarWidth = SidebarWidth
-    local isCompact = SidebarCompactMode
+    local currentSidebarWidth = math.clamp(tonumber(options.SidebarWidth) or 190, 132, 240)
+    local sidebarHoverExpanded = false
+    local isCompact = IsMobile or SidebarMode ~= "Expanded"
     if EnableSidebarResize and not IsMobile then
         dividerLine = Utility:Create("Frame", {
             Parent = MainFrame,
@@ -1431,7 +1577,7 @@ function Library:CreateWindow(options)
         local dragging = false
         local startX, startWidth
         Library:Connect(sidebarResizer.InputBegan, function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if input.UserInputType == Enum.UserInputType.MouseButton1 and not isCompact then
                 dragging = true
                 startX = input.Position.X
                 startWidth = currentSidebarWidth
@@ -1447,26 +1593,9 @@ function Library:CreateWindow(options)
                 local delta = input.Position.X - startX
                 local newWidth = math.clamp(startWidth + delta, 62, 240)
                 currentSidebarWidth = newWidth
-                Sidebar.Size = UDim2.new(0, newWidth, 1, 0)
-                dividerLine.Position = UDim2.new(0, newWidth, 0, 0)
-                Pages.Position = UDim2.new(0, newWidth, 0, 0)
-                Pages.Size = UDim2.new(1, -newWidth, 1, 0)
-                TitleLabel.Position = UDim2.new(0, newWidth + 16, 0, IsMobile and 14 or 20)
-                isCompact = newWidth < 132
-                LogoContainer.Position = isCompact and UDim2.new(0.5, -logoSize / 2, 0, 16) or UDim2.fromOffset(14, 16)
-                BrandLabel.Visible = not isCompact
-                BrandSubtitle.Visible = not isCompact
-                TabContainer.Position = UDim2.new(0, isCompact and 0 or 8, 0, 78)
-                TabContainer.Size = UDim2.new(1, isCompact and 0 or -16, 1, -getNavigationBottomInset(isCompact, false))
-                SettingsBtn.Position = isCompact and UDim2.new(0.5, -settingsBtnSize / 2, 1, -(settingsBtnSize + 12)) or UDim2.new(0, 10, 1, -54)
-                SettingsBtn.Size = isCompact and UDim2.fromOffset(settingsBtnSize, settingsBtnSize) or UDim2.new(1, -20, 0, 42)
-                SettingsEmoji.Position = isCompact and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(8, 5)
-                SettingsEmoji.Size = isCompact and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32)
-                SettingsLabel.Visible = not isCompact
-                applyProfileLayout(isCompact)
-                for _, tab in ipairs(Window.Tabs) do
-                    if tab.ApplyNavigationLayout then tab:ApplyNavigationLayout(false, isCompact) end
-                end
+                SidebarMode = "Expanded"
+                Window.SidebarMode = SidebarMode
+                Window:ApplyResponsiveLayout(false)
             end
         end)
     end
@@ -1488,7 +1617,9 @@ function Library:CreateWindow(options)
             width = maximumWidth
             height = maximumHeight
         end
-        local sidebarWidth = mobile and (width < 340 and 54 or 60) or math.clamp(currentSidebarWidth, 62, math.min(240, width * 0.32))
+        local navigationExpanded = SidebarMode == "Expanded" or (SidebarMode == "Dynamic" and sidebarHoverExpanded)
+        local sidebarWidth = mobile and (width < 340 and 54 or 60)
+            or (navigationExpanded and math.clamp(currentSidebarWidth, 132, math.min(240, width * 0.32)) or 68)
         local shortViewport = mobile and height < 420
         local hideSearch = mobile and height < 300
         local hideProfile = height < 380
@@ -1513,6 +1644,8 @@ function Library:CreateWindow(options)
         Pages.Position = UDim2.new(0, sidebarWidth, 0, 0)
         Pages.Size = UDim2.new(1, -sidebarWidth, 1, 0)
         isCompact = mobile or sidebarWidth < 132
+        local visibleContentWidth = math.max(1, (width - sidebarWidth) * scale)
+        local singleColumn = mobile or visibleContentWidth < 640
         TitleLabel.Position = UDim2.new(0, sidebarWidth + 16, 0, mobile and (hideSearch and 9 or 11) or 16)
         TitleLabel.Size = UDim2.new(1, -(sidebarWidth + (mobile and 108 or 430)), 0, 30)
         TitleLabel.TextSize = mobile and 17 or 19
@@ -1521,9 +1654,15 @@ function Library:CreateWindow(options)
         TopDivider.Size = UDim2.new(1, -sidebarWidth, 0, 1)
         MinimizeBtn.Position = UDim2.new(1, -76, 0, mobile and 8 or 15)
         CloseBtn.Position = UDim2.new(1, -40, 0, mobile and 8 or 15)
-        LogoContainer.Position = isCompact and UDim2.new(0.5, -logoSize / 2, 0, mobile and 14 or 16) or UDim2.fromOffset(14, 16)
+        local activeLogoSize = isCompact and 32 or 40
+        LogoContainer.Size = UDim2.fromOffset(activeLogoSize, activeLogoSize)
+        LogoContainer.Position = mobile and UDim2.new(0.5, -activeLogoSize / 2, 0, 14)
+            or (isCompact and UDim2.fromOffset(8, 16) or UDim2.fromOffset(14, 16))
         BrandLabel.Visible = not isCompact
         BrandSubtitle.Visible = not isCompact
+        SidebarModeButton.Visible = not mobile
+        SidebarModeButton.Position = UDim2.new(1, -28, 0, isCompact and 22 or 26)
+        SidebarModeIcon.Rotation = isCompact and 0 or 180
         TabContainer.Position = UDim2.new(0, isCompact and 0 or 8, 0, mobile and 70 or 78)
         TabContainer.Size = UDim2.new(1, isCompact and 0 or -16, 1, -getNavigationBottomInset(isCompact, mobile, hideProfile))
         SettingsBtn.Position = isCompact and UDim2.new(0.5, -settingsBtnSize / 2, 1, -(settingsBtnSize + 12)) or UDim2.new(0, 10, 1, -54)
@@ -1539,11 +1678,14 @@ function Library:CreateWindow(options)
             SearchBox.Position = mobile and UDim2.new(0, sidebarWidth + 8, 0, shortViewport and 41 or 50) or UDim2.new(1, -390, 0, 15)
             SearchBox.Size = mobile and UDim2.new(1, -(sidebarWidth + 16), 0, shortViewport and 26 or 30) or UDim2.new(0, 270, 0, 30)
         end
-        if dividerLine then dividerLine.Visible = not mobile end
+        if dividerLine then
+            dividerLine.Visible = not mobile and not isCompact
+            dividerLine.Position = UDim2.new(0, sidebarWidth, 0, 0)
+        end
         for _, tab in ipairs(Window.Tabs) do
             if tab.ApplyNavigationLayout then tab:ApplyNavigationLayout(mobile, isCompact) end
             if tab.ApplyResponsiveLayout then
-                tab:ApplyResponsiveLayout(mobile, topBarHeight)
+                tab:ApplyResponsiveLayout(singleColumn, topBarHeight)
             end
         end
         for _, category in ipairs(Window.TabCategories) do
@@ -1559,6 +1701,44 @@ function Library:CreateWindow(options)
         end
         return mode
     end
+
+    function Window:SetSidebarMode(mode)
+        mode = tostring(mode or "Dynamic")
+        if mode ~= "Dynamic" and mode ~= "Expanded" and mode ~= "Compact" then return false end
+        SidebarMode = mode
+        self.SidebarMode = mode
+        sidebarHoverExpanded = false
+        self:ApplyResponsiveLayout(false)
+        return true
+    end
+
+    local sidebarHoverToken = 0
+    local function setSidebarHover(expanded)
+        if SidebarMode ~= "Dynamic" or IsMobile then return end
+        sidebarHoverToken = sidebarHoverToken + 1
+        local token = sidebarHoverToken
+        if expanded then
+            if not sidebarHoverExpanded then
+                sidebarHoverExpanded = true
+                Window:ApplyResponsiveLayout(false)
+            end
+        else
+            task.delay(0.18, function()
+                if token == sidebarHoverToken and SidebarMode == "Dynamic" then
+                    sidebarHoverExpanded = false
+                    Window:ApplyResponsiveLayout(false)
+                end
+            end)
+        end
+    end
+
+    Library:Connect(TabContainer.MouseEnter, function() setSidebarHover(true) end)
+    Library:Connect(TabContainer.MouseLeave, function() setSidebarHover(false) end)
+    Library:Connect(SettingsBtn.MouseEnter, function() setSidebarHover(true) end)
+    Library:Connect(SettingsBtn.MouseLeave, function() setSidebarHover(false) end)
+    Library:Connect(SidebarModeButton.MouseButton1Click, function()
+        Window:SetSidebarMode(SidebarMode == "Expanded" and "Dynamic" or "Expanded")
+    end)
 
     function Window:SetTitle(title)
         WindowTitle = tostring(title)
@@ -2010,7 +2190,7 @@ function Library:CreateWindow(options)
                 Name = Name,
                 Parent = TabContainer,
                 BackgroundColor3 = Library.Theme.Accent,
-                BackgroundTransparency = 1,
+                BackgroundTransparency = 0.64,
                 Size = (IsMobile or isCompact) and UDim2.fromOffset(tabBtnSize, tabBtnSize) or UDim2.new(1, 0, 0, tabBtnSize),
                 AutoButtonColor = false,
                 Text = "",
@@ -2020,6 +2200,8 @@ function Library:CreateWindow(options)
             })
             Utility:RegisterProperty(TabBtn, "BackgroundColor3", "Accent")
             Utility:Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = TabBtn})
+            local tabStroke = Utility:Create("UIStroke", {Parent = TabBtn, Color = Library.Theme.Stroke, Thickness = 1})
+            Utility:RegisterProperty(tabStroke, "Color", "Stroke")
             TabGradient = Utility:Create("UIGradient", {Parent = TabBtn, Rotation = 18})
             Utility:RegisterGradient(TabGradient, "Accent", "Accent2", "Accent3")
 
@@ -2084,6 +2266,7 @@ function Library:CreateWindow(options)
             Tab.Indicator = Indicator
             Tab.TabLabel = TabLabel
             Tab.TabGradient = TabGradient
+            Tab.TabStroke = tabStroke
         else
             TabEmoji = SettingsEmoji
             Indicator = SettingsIndicator
@@ -2091,6 +2274,7 @@ function Library:CreateWindow(options)
             Tab.TabLabel = SettingsLabel
             Tab.TabEmoji = TabEmoji
             Tab.Indicator = Indicator
+            Tab.TabStroke = settingsStroke
         end
 
         function Tab:ApplyNavigationLayout(mobile, compact)
@@ -2216,7 +2400,10 @@ function Library:CreateWindow(options)
             Tab.Active = true
             Window.ActiveTab = Tab
             if Tab.TabBtn then
-                Utility:Tween(Tab.TabBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = 0.12})
+                Utility:Tween(Tab.TabBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = 0.08})
+            end
+            if Tab.TabStroke then
+                Utility:Tween(Tab.TabStroke, TweenInfo.new(0.2), {Color = Library.Theme.Accent, Transparency = 0.08})
             end
             if Tab.TabLabel then
                 Utility:Tween(Tab.TabLabel, TweenInfo.new(0.2), {TextColor3 = Library.Theme.Text})
@@ -2239,7 +2426,10 @@ function Library:CreateWindow(options)
         function Tab:Deactivate()
             Tab.Active = false
             if Tab.TabBtn then
-                Utility:Tween(Tab.TabBtn, TweenInfo.new(0.2), {BackgroundTransparency = 1})
+                Utility:Tween(Tab.TabBtn, TweenInfo.new(0.2), {BackgroundTransparency = 0.64})
+            end
+            if Tab.TabStroke then
+                Utility:Tween(Tab.TabStroke, TweenInfo.new(0.2), {Color = Library.Theme.Stroke, Transparency = 0.24})
             end
             if Tab.TabLabel then
                 Utility:Tween(Tab.TabLabel, TweenInfo.new(0.2), {TextColor3 = Library.Theme.SubText})
@@ -2260,10 +2450,10 @@ function Library:CreateWindow(options)
         if TabBtn then
             Library:Connect(TabBtn.MouseButton1Click, function() Tab:Activate() end)
             Library:Connect(TabBtn.MouseEnter, function()
-                if not Tab.Active then Utility:Tween(TabBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0.78}) end
+                if not Tab.Active then Utility:Tween(TabBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0.4}) end
             end)
             Library:Connect(TabBtn.MouseLeave, function()
-                if not Tab.Active then Utility:Tween(TabBtn, TweenInfo.new(0.15), {BackgroundTransparency = 1}) end
+                if not Tab.Active then Utility:Tween(TabBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0.64}) end
             end)
         end
 
@@ -2307,13 +2497,6 @@ function Library:CreateWindow(options)
             Utility:RegisterProperty(SectionFrame, "BackgroundColor3", "Surface")
             Utility:RegisterMaterial(SectionFrame, 0.24, 0)
             Utility:Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = SectionFrame})
-            Utility:Create("ImageLabel", {
-                Name = "DepthShadow", Parent = SectionFrame, BackgroundTransparency = 1,
-                Position = UDim2.fromOffset(-12, -10), Size = UDim2.new(1, 24, 1, 24),
-                Image = "rbxassetid://6014261993", ImageColor3 = Color3.new(0, 0, 0),
-                ImageTransparency = 0.58, ScaleType = Enum.ScaleType.Slice,
-                SliceCenter = Rect.new(49, 49, 450, 450), ZIndex = 2
-            })
             local sectionStroke = Utility:Create("UIStroke", {
                 Parent = SectionFrame,
                 Color = Library.Theme.Stroke,
@@ -4060,7 +4243,7 @@ function Library:CreateWindow(options)
 
         local greeting = Utility:Create("TextLabel", {
             Parent = hero, BackgroundTransparency = 1, Position = UDim2.fromOffset(128, 31),
-            Size = UDim2.new(1, -330, 0, 30), Font = Enum.Font.GothamBold,
+            Size = UDim2.new(1, -156, 0, 30), Font = Enum.Font.GothamBold,
             Text = tostring(options.Greeting or ("Welcome, " .. (Plr.DisplayName or Plr.Name))),
             TextColor3 = Library.Theme.Text, TextSize = 22, TextXAlignment = Enum.TextXAlignment.Left,
             TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 5
@@ -4068,38 +4251,12 @@ function Library:CreateWindow(options)
         Utility:RegisterProperty(greeting, "TextColor3", "Text")
         local subtitle = Utility:Create("TextLabel", {
             Parent = hero, BackgroundTransparency = 1, Position = UDim2.fromOffset(128, 63),
-            Size = UDim2.new(1, -330, 0, 22), Font = Enum.Font.Gotham,
+            Size = UDim2.new(1, -156, 0, 22), Font = Enum.Font.Gotham,
             Text = tostring(options.Subtitle or ("Your control center · @" .. Plr.Name)),
             TextColor3 = Library.Theme.SubText, TextSize = 13,
             TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 5
         })
         Utility:RegisterProperty(subtitle, "TextColor3", "SubText")
-        local clock = Utility:Create("TextLabel", {
-            Parent = hero, BackgroundTransparency = 1, Position = UDim2.new(1, -176, 0, 31),
-            Size = UDim2.fromOffset(150, 28), Font = Enum.Font.GothamBold,
-            Text = "", TextColor3 = Library.Theme.Text, TextSize = 18,
-            TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 5
-        })
-        Utility:RegisterProperty(clock, "TextColor3", "Text")
-        local dateLabel = Utility:Create("TextLabel", {
-            Parent = hero, BackgroundTransparency = 1, Position = UDim2.new(1, -176, 0, 61),
-            Size = UDim2.fromOffset(150, 20), Font = Enum.Font.Gotham,
-            Text = "", TextColor3 = Library.Theme.SubText, TextSize = 12,
-            TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 5
-        })
-        Utility:RegisterProperty(dateLabel, "TextColor3", "SubText")
-
-        local clockAccumulator = 1
-        local function updateClock()
-            clock.Text = os.date("%H:%M:%S")
-            dateLabel.Text = os.date("%d %b %Y")
-        end
-        updateClock()
-        Library:Connect(RunService.Heartbeat, function(delta)
-            clockAccumulator = clockAccumulator + delta
-            if clockAccumulator >= 1 then clockAccumulator = 0; updateClock() end
-        end)
-
         if not Utility:NormalizeAssetId(options.Avatar) then
             task.spawn(function()
                 local ok, image = pcall(function()
@@ -4116,13 +4273,11 @@ function Library:CreateWindow(options)
             avatar.Position = mobile and UDim2.fromOffset(14, 20) or UDim2.fromOffset(20, 20)
             avatar.Size = mobile and UDim2.fromOffset(58, 58) or UDim2.fromOffset(88, 88)
             greeting.Position = mobile and UDim2.fromOffset(84, 24) or UDim2.fromOffset(128, 31)
-            greeting.Size = mobile and UDim2.new(1, -98, 0, 26) or UDim2.new(1, -330, 0, 30)
+            greeting.Size = mobile and UDim2.new(1, -98, 0, 26) or UDim2.new(1, -156, 0, 30)
             greeting.TextSize = mobile and 17 or 22
             subtitle.Position = mobile and UDim2.fromOffset(84, 51) or UDim2.fromOffset(128, 63)
-            subtitle.Size = mobile and UDim2.new(1, -98, 0, 34) or UDim2.new(1, -330, 0, 22)
+            subtitle.Size = mobile and UDim2.new(1, -98, 0, 34) or UDim2.new(1, -156, 0, 22)
             subtitle.TextWrapped = mobile
-            clock.Visible = not mobile
-            dateLabel.Visible = not mobile
             dashboardTab:SetHeader(hero, heroHeight + 12)
         end)
 
@@ -4184,7 +4339,7 @@ function Library:CreateWindow(options)
             end
         })
     else
-        UISection:CreateLabel("Tap the floating </> button to toggle UI")
+        UISection:CreateLabel("Tap the floating RenHub button to toggle UI")
     end
     UISection:CreateButton({ Name = "Minimize UI", Icon = ICONS.Minimize, Callback = function() Window:Minimize() end })
     UISection:CreateButton({ Name = "Close UI", Icon = ICONS.Close, Callback = function() Window:Close() end })
@@ -4209,7 +4364,7 @@ function Library:CreateWindow(options)
         end
     })
     AppearanceSection:CreateSlider({
-        Name = "Frost intensity",
+        Name = "Glass transparency",
         Min = 0,
         Max = 32,
         Step = 2,
@@ -4220,7 +4375,7 @@ function Library:CreateWindow(options)
     })
     local ScaleSlider = AppearanceSection:CreateSlider({
         Name = "UI scale",
-        Min = 60,
+        Min = 75,
         Max = 150,
         Step = 5,
         Default = math.floor(Library.DPIScale * 100),
@@ -4247,7 +4402,7 @@ function Library:CreateWindow(options)
     })
     AppearanceSection:CreateParagraph({
         Title = "Responsive by default",
-        Content = "RenLib reflows for phones, tablets, rotation, narrow windows, and the selected UI scale. Frosted material uses a lighter blur on mobile, cleans itself up, and scale changes still revert safely."
+        Content = "RenLib reflows from the UI's real visible width, so small scales and phones use one safe column. Frosted material is local to the RenLib window and never changes the game screen."
     })
 
     if options.ShowInfiniteYield == nil or options.ShowInfiniteYield then
@@ -4306,10 +4461,6 @@ function Library:Unload(reason)
     if self.Unloaded then return end
     self.Unloaded = true
     self.ScalePreview = nil
-    if self.BlurEffect then
-        pcall(function() self.BlurEffect:Destroy() end)
-        self.BlurEffect = nil
-    end
     for _, tween in pairs(self.ActiveTweens) do
         pcall(function() tween:Cancel() end)
     end
@@ -4323,6 +4474,8 @@ function Library:Unload(reason)
     table.clear(self.Registry)
     table.clear(self.GradientRegistry)
     table.clear(self.MaterialRegistry)
+    table.clear(self.MaterialDecorations)
+    table.clear(self.BrandMarks)
     table.clear(self.Scales)
     table.clear(self.Options)
     self.Window = nil

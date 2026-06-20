@@ -5,13 +5,13 @@ local RenLib = loadstring(game:HttpGet(
 RenLib:ApplyThemePreset("Prism Frost")
 
 local Window = RenLib:CreateWindow({
-    Name = "RenLib V6.3 Harmony Showcase",
-    Icon = "6034316009",
+    Name = "RenLib V6.4 Clarity Showcase",
     SettingsIcon = "6031280882",
     ShowUserProfile = true,
     ProfileSubtitle = "Harmony session",
     EnableGlobalSearch = true,
     EnableSidebarResize = true,
+    SidebarMode = "Dynamic",
     MaterialMode = "Frosted",
     MaterialIntensity = 18,
 })
@@ -29,7 +29,7 @@ local Dashboard = Window:CreateDashboard({
             Description = "Live information about this responsive UI session.",
             Metrics = {
                 {Name = "Device mode", Value = RenLib.DeviceMode, Detail = "Reflows automatically as the viewport changes"},
-                {Name = "Material", Value = RenLib.MaterialMode, Detail = "Frost is performance-capped on mobile"},
+                {Name = "Material", Value = RenLib.MaterialMode, Detail = "Glass stays local to the RenLib window"},
                 {Name = "UI scale", Value = math.floor(RenLib.DPIScale * 100) .. "%", Detail = "Protected by the ten-second recovery flow"},
             },
         },
@@ -110,7 +110,7 @@ local Themes = ActionsTab:CreateSection({Name = "Original palettes", Side = "Rig
 
 Actions:CreateButton({Name = "Show notification", Description = "Exercise actions and timed progress.", Icon = "6034304908", Callback = function()
     RenLib:Notify({
-        Title = "RenLib V6.3",
+        Title = "RenLib V6.4",
         Content = "Layered surfaces, responsive composition, and frosted material are active.",
         Duration = 6,
         Actions = {{Name = "Lovely"}},
@@ -126,6 +126,9 @@ end})
 Actions:CreateButton({Name = "Preview 125% scale", Description = "Auto-reverts after 10 seconds unless kept.", Icon = "6031260800", Callback = function()
     RenLib:PreviewDPIScale(125, 10)
 end})
+Actions:CreateButton({Name = "Toggle sidebar mode", Description = "Pin the full navigation or return to hover expansion.", Icon = "6031091002", Callback = function()
+    Window:SetSidebarMode(Window.SidebarMode == "Expanded" and "Dynamic" or "Expanded")
+end})
 
 Themes:CreateButton({Name = "Prism Frost", Description = "Airy ice, warm light, and clear dark text.", Icon = "6034316009", Callback = function()
     RenLib:ApplyThemePreset("Prism Frost")
@@ -137,8 +140,8 @@ end})
 Themes:CreateButton({Name = "Velvet Latte", Description = "Deep indigo with rose, lilac, and blue light.", Icon = "6034316009", Callback = function()
     RenLib:ApplyThemePreset("Velvet Latte")
 end})
-Themes:CreateButton({Name = "Toggle frosted material", Description = "Switches material safely and cleans up its blur.", Icon = "6034925618", Callback = function()
+Themes:CreateButton({Name = "Toggle frosted material", Description = "Switches local glass without blurring the game screen.", Icon = "6034925618", Callback = function()
     RenLib:SetMaterialMode(RenLib.MaterialMode == "Frosted" and "Solid" or "Frosted")
 end})
 
-RenLib:Notify({Title = "Harmony loaded", Content = "RenLib V6.3 showcase is ready.", Duration = 4})
+RenLib:Notify({Title = "Clarity loaded", Content = "RenLib V6.4 showcase is ready.", Duration = 4})
