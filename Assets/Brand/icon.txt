@@ -1,2 +1,2 @@
 6034316009
-tint=Accent
+tint=Text

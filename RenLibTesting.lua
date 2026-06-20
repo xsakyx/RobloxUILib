@@ -1,4 +1,4 @@
--- RenLib V6.4
+-- RenLib V6.5
 -- Responsive Roblox UI library with mobile-first input, live theming,
 -- accessible motion, searchable controls, and deterministic cleanup.
 
@@ -26,9 +26,8 @@ end
 local function getDeviceMode(scale)
     local viewport = getViewport()
     local normalizedScale = math.max(tonumber(scale) or 1, 0.01)
-    -- Both very large and very small UI scales reduce the amount of usable
-    -- physical space. Measuring only the logical canvas made a 60% window
-    -- incorrectly choose a two-column desktop layout.
+    -- Larger UI scales reduce usable physical space, so responsive mode is
+    -- chosen from the canvas people can actually see rather than raw pixels.
     local scalePressure = normalizedScale < 1 and normalizedScale or (1 / normalizedScale)
     local effectiveWidth = viewport.X * scalePressure
     if effectiveWidth <= 620 then
@@ -105,7 +104,7 @@ local ICONS = {
 
 --// ROOT LIBRARY
 local Library = {}
-Library.Version = "6.4.0"
+Library.Version = "6.5.0"
 Library.Title = "RenLib"
 Library.Connections = {}
 Library.Tasks = {}
@@ -129,7 +128,10 @@ Library.MaterialIntensity = 18
 Library.MaterialRegistry = setmetatable({}, {__mode = "k"})
 Library.MaterialDecorations = setmetatable({}, {__mode = "k"})
 Library.BrandIcon = ICONS.Palette
-Library.BrandIconTint = "Accent"
+-- Brand marks use semantic text contrast. A dark theme therefore receives a
+-- bright mark while a light theme receives a dark mark, without hard-coded
+-- per-theme exceptions.
+Library.BrandIconTint = "Text"
 Library.BrandMarks = setmetatable({}, {__mode = "k"})
 
 -- Theme (can be changed at runtime)
@@ -383,12 +385,21 @@ function Utility:Tween(instance, info, properties, callback)
     local tween = TweenService:Create(instance, tweenInfo, properties)
     Library.ActiveTweens[instance] = tween
     tween:Play()
-    if callback then
-        Library:Connect(tween.Completed, function(playbackState)
-            if playbackState == Enum.PlaybackState.Completed then callback() end
-        end)
-    end
+    Library:Connect(tween.Completed, function(playbackState)
+        if Library.ActiveTweens[instance] == tween then
+            Library.ActiveTweens[instance] = nil
+        end
+        if callback and playbackState == Enum.PlaybackState.Completed then callback() end
+    end)
     return tween
+end
+
+function Utility:StopTween(instance)
+    local tween = instance and Library.ActiveTweens[instance]
+    if not tween then return false end
+    Library.ActiveTweens[instance] = nil
+    pcall(function() tween:Cancel() end)
+    return true
 end
 
 function Utility:MakeDraggable(topbar, object)
@@ -610,7 +621,7 @@ end
 
 --// DPI SCALING
 function Library:SetDPIScale(percent)
-    percent = math.clamp(tonumber(percent) or 100, 75, 150)
+    percent = math.clamp(tonumber(percent) or 100, 100, 150)
     local scale = percent / 100
     for _, uiScale in ipairs(self.Scales) do
         uiScale.Scale = scale
@@ -829,7 +840,7 @@ function Library:CreateWindow(options)
             Position = UDim2.fromScale(0.16, 0.16),
             Size = UDim2.fromScale(0.68, 0.68),
             Image = WindowIcon or Library.BrandIcon,
-            ImageColor3 = WindowIcon and Color3.new(1, 1, 1) or Library.Theme[Library.BrandIconTint or "Accent"],
+            ImageColor3 = WindowIcon and Color3.new(1, 1, 1) or Library.Theme[Library.BrandIconTint or "Text"],
             ScaleType = Enum.ScaleType.Fit,
             ZIndex = zIndex
         })
@@ -868,7 +879,7 @@ function Library:CreateWindow(options)
     else
         WinWidth = math.min(options.Width or 880, math.max(1, initialLayoutWidth - 32))
         WinHeight = math.min(options.Height or 580, math.max(1, initialLayoutHeight - 32))
-        SidebarWidth = SidebarMode == "Expanded" and 190 or 68
+        SidebarWidth = SidebarMode == "Expanded" and 190 or 80
         FontScale = 1
     end
 
@@ -901,7 +912,7 @@ function Library:CreateWindow(options)
         BackgroundColor3 = Library.Theme.Main,
         Position = UDim2.new(0.5, -WinWidth / 2, 0.5, -WinHeight / 2),
         Size = UDim2.new(0, WinWidth, 0, WinHeight),
-        ClipsDescendants = false,
+        ClipsDescendants = true,
         ZIndex = 1,
         BorderSizePixel = 0
     })
@@ -924,7 +935,6 @@ function Library:CreateWindow(options)
         ZIndex = 1
     })
     Utility:RegisterProperty(glassTint, "ImageColor3", "Accent2")
-    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = glassTint})
     Library.MaterialDecorations[glassTint] = true
     local glassNoise = Utility:Create("ImageLabel", {
         Name = "GlassNoise",
@@ -939,40 +949,10 @@ function Library:CreateWindow(options)
         Visible = false,
         ZIndex = 1
     })
-    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = glassNoise})
     Library.MaterialDecorations[glassNoise] = true
     local WindowScale = Utility:Create("UIScale", {Parent = MainFrame, Scale = 1})
     local mainStroke = Utility:Create("UIStroke", {Parent = MainFrame, Color = Library.Theme.Stroke, Thickness = 1})
     Utility:RegisterProperty(mainStroke, "Color", "Stroke")
-    local ambientRail = Utility:Create("Frame", {
-        Parent = MainFrame,
-        BackgroundColor3 = Library.Theme.Accent,
-        BackgroundTransparency = 0.18,
-        Position = UDim2.fromOffset(14, 0),
-        Size = UDim2.new(1, -28, 0, 2),
-        BorderSizePixel = 0,
-        ZIndex = 92
-    })
-    Utility:RegisterProperty(ambientRail, "BackgroundColor3", "Accent")
-    Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = ambientRail})
-    local ambientGradient = Utility:Create("UIGradient", {Parent = ambientRail})
-    Utility:RegisterGradient(ambientGradient, "Accent", "Accent2", "Accent3")
-
-    -- Shadow
-    local Shadow = Utility:Create("ImageLabel", {
-        Name = "Shadow",
-        Parent = MainFrame,
-        BackgroundTransparency = 1,
-        Position = UDim2.new(0, -25, 0, -25),
-        Size = UDim2.new(1, 50, 1, 50),
-        Image = "rbxassetid://6014261993",
-        ImageColor3 = Color3.new(0, 0, 0),
-        ImageTransparency = 0.22,
-        ScaleType = Enum.ScaleType.Slice,
-        SliceCenter = Rect.new(49, 49, 450, 450),
-        ZIndex = 0
-    })
-
     -- Sidebar
     local Sidebar = Utility:Create("Frame", {
         Name = "Sidebar",
@@ -984,7 +964,6 @@ function Library:CreateWindow(options)
     })
     Utility:RegisterProperty(Sidebar, "BackgroundColor3", "Secondary")
     Utility:RegisterMaterial(Sidebar, 0.32, 0)
-    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = Sidebar})
     local sidebarGradient = Utility:Create("UIGradient", {Parent = Sidebar, Rotation = 90})
     Utility:RegisterGradient(sidebarGradient, "Secondary", "Main")
     local sidebarDivider = Utility:Create("Frame", {
@@ -1023,30 +1002,52 @@ function Library:CreateWindow(options)
         TabContainer.CanvasSize = UDim2.new(0, 0, 0, TabLayout.AbsoluteContentSize.Y + 20)
     end)
 
+    -- NAVIGATION HEADER
+    -- One container owns the logo, wordmark, and sidebar toggle. This avoids
+    -- stacked corner treatments and guarantees that compact controls never
+    -- occupy the same pixels.
+    local NavHeader = Utility:Create("Frame", {
+        Name = "NavigationHeader",
+        Parent = Sidebar,
+        BackgroundColor3 = Library.Theme.Surface,
+        BackgroundTransparency = 0.56,
+        Position = UDim2.fromOffset(8, 10),
+        Size = UDim2.new(1, -16, 0, 46),
+        ClipsDescendants = true,
+        ZIndex = 100,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(NavHeader, "BackgroundColor3", "Surface")
+    Utility:RegisterMaterial(NavHeader, 0.18, 0.56)
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = NavHeader})
+    local navHeaderStroke = Utility:Create("UIStroke", {
+        Parent = NavHeader,
+        Color = Library.Theme.Stroke,
+        Transparency = 0.28,
+        Thickness = 1
+    })
+    Utility:RegisterProperty(navHeaderStroke, "Color", "Stroke")
+
     -- LOGO
-    local logoSize = IsMobile and 32 or (SidebarWidth < 132 and 32 or 40)
+    local logoSize = IsMobile and 28 or (SidebarWidth < 132 and 26 or 36)
     local LogoContainer = Utility:Create("Frame", {
         Name = "LogoContainer",
-        Parent = Sidebar,
-        BackgroundColor3 = Library.Theme.Main,
-        Position = (IsMobile or SidebarWidth < 132) and UDim2.fromOffset(8, 16) or UDim2.fromOffset(14, 16),
+        Parent = NavHeader,
+        BackgroundTransparency = 1,
+        Position = IsMobile and UDim2.fromOffset(5, 9)
+            or (SidebarWidth < 132 and UDim2.fromOffset(4, 10) or UDim2.fromOffset(7, 5)),
         Size = UDim2.new(0, logoSize, 0, logoSize),
         ZIndex = 100,
         BorderSizePixel = 0
     })
-    Utility:RegisterProperty(LogoContainer, "BackgroundColor3", "Main")
-    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = LogoContainer})
-    local logoStroke = Utility:Create("UIStroke", {Parent = LogoContainer, Color = Library.Theme.Accent, Thickness = 2})
-    Utility:RegisterProperty(logoStroke, "Color", "Accent")
-
     local Logo = createWindowMark(LogoContainer, IsMobile and 14 or 18, 101)
     Logo.Name = "Logo"
 
     local BrandLabel = Utility:Create("TextLabel", {
-        Parent = Sidebar,
+        Parent = NavHeader,
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(64, 15),
-        Size = UDim2.new(1, -76, 0, 24),
+        Position = UDim2.fromOffset(52, 4),
+        Size = UDim2.new(1, -88, 0, 22),
         Font = Enum.Font.GothamBold,
         Text = Library.Title,
         TextColor3 = Library.Theme.Text,
@@ -1057,10 +1058,10 @@ function Library:CreateWindow(options)
     })
     Utility:RegisterProperty(BrandLabel, "TextColor3", "Text")
     local BrandSubtitle = Utility:Create("TextLabel", {
-        Parent = Sidebar,
+        Parent = NavHeader,
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(64, 36),
-        Size = UDim2.new(1, -76, 0, 18),
+        Position = UDim2.fromOffset(52, 24),
+        Size = UDim2.new(1, -88, 0, 16),
         Font = Enum.Font.Gotham,
         Text = "Interface Suite",
         TextColor3 = Library.Theme.SubText,
@@ -1073,30 +1074,26 @@ function Library:CreateWindow(options)
 
     local SidebarModeButton = Utility:Create("TextButton", {
         Name = "SidebarModeButton",
-        Parent = Sidebar,
-        BackgroundColor3 = Library.Theme.Surface,
-        Position = UDim2.new(1, -28, 0, 22),
-        Size = UDim2.fromOffset(20, 20),
+        Parent = NavHeader,
+        BackgroundTransparency = 1,
+        Position = UDim2.new(1, -30, 0, 9),
+        Size = UDim2.fromOffset(26, 28),
         Text = "",
         AutoButtonColor = false,
         ZIndex = 104,
         BorderSizePixel = 0
     })
-    Utility:RegisterProperty(SidebarModeButton, "BackgroundColor3", "Surface")
-    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = SidebarModeButton})
-    local sidebarModeStroke = Utility:Create("UIStroke", {Parent = SidebarModeButton, Color = Library.Theme.Stroke, Thickness = 1})
-    Utility:RegisterProperty(sidebarModeStroke, "Color", "Stroke")
     local SidebarModeIcon = Utility:Create("ImageLabel", {
         Parent = SidebarModeButton,
         BackgroundTransparency = 1,
-        Position = UDim2.fromScale(0.2, 0.2),
-        Size = UDim2.fromScale(0.6, 0.6),
+        Position = UDim2.fromScale(0.23, 0.23),
+        Size = UDim2.fromScale(0.54, 0.54),
         Image = ICONS.ChevronRight,
-        ImageColor3 = Library.Theme.SubText,
+        ImageColor3 = Library.Theme.Text,
         ScaleType = Enum.ScaleType.Fit,
         ZIndex = 105
     })
-    Utility:RegisterProperty(SidebarModeIcon, "ImageColor3", "SubText")
+    Utility:RegisterProperty(SidebarModeIcon, "ImageColor3", "Text")
 
     -- SETTINGS BUTTON
     local settingsBtnSize = IsMobile and 36 or 44
@@ -1151,6 +1148,46 @@ function Library:CreateWindow(options)
     })
     Utility:RegisterProperty(SettingsIndicator, "BackgroundColor3", "Accent")
     Utility:Create("UICorner", {CornerRadius = UDim.new(0, 2), Parent = SettingsIndicator})
+
+    -- A single selection surface moves between every navigation destination.
+    -- Keeping it outside the UIListLayout lets it travel cleanly across
+    -- category gaps and down to the pinned Settings destination.
+    local NavigationSelection = Utility:Create("Frame", {
+        Name = "NavigationSelection",
+        Parent = Sidebar,
+        BackgroundColor3 = Library.Theme.Accent,
+        BackgroundTransparency = 0.1,
+        Position = UDim2.fromOffset(8, 78),
+        Size = UDim2.fromOffset(42, 42),
+        Visible = false,
+        ZIndex = 4,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(NavigationSelection, "BackgroundColor3", "Accent")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = NavigationSelection})
+    local navigationSelectionStroke = Utility:Create("UIStroke", {
+        Parent = NavigationSelection,
+        Color = Library.Theme.Accent2,
+        Transparency = 0.2,
+        Thickness = 1
+    })
+    Utility:RegisterProperty(navigationSelectionStroke, "Color", "Accent2")
+    local navigationSelectionGradient = Utility:Create("UIGradient", {
+        Parent = NavigationSelection,
+        Rotation = 18
+    })
+    Utility:RegisterGradient(navigationSelectionGradient, "Accent", "Accent2", "Accent3")
+    local NavigationSelectionRail = Utility:Create("Frame", {
+        Parent = NavigationSelection,
+        BackgroundColor3 = Library.Theme.Text,
+        BackgroundTransparency = 0.08,
+        Position = UDim2.new(0, 3, 0.5, -9),
+        Size = UDim2.fromOffset(3, 18),
+        ZIndex = 5,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(NavigationSelectionRail, "BackgroundColor3", "Text")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = NavigationSelectionRail})
 
     -- USER PROFILE
     local ProfileCard, ProfileAvatar, ProfileNameLabel, ProfileSubtitleLabel, ProfileStroke
@@ -1257,22 +1294,56 @@ function Library:CreateWindow(options)
         end
     end
 
+    local navigationLabelTokens = setmetatable({}, {__mode = "k"})
+    local function applyLayout(instance, properties, animated)
+        if animated then
+            Utility:Tween(instance, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), properties)
+        else
+            Utility:StopTween(instance)
+            for property, value in pairs(properties) do instance[property] = value end
+        end
+    end
+
+    local function setNavigationLabel(label, visible, animated)
+        if not label then return end
+        local token = (navigationLabelTokens[label] or 0) + 1
+        navigationLabelTokens[label] = token
+        if not animated then
+            label.Visible = visible
+            label.TextTransparency = visible and 0 or 1
+            return
+        end
+        if visible then
+            label.Visible = true
+            label.TextTransparency = 1
+            Utility:Tween(label, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 0})
+        else
+            Utility:Tween(label, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 1}, function()
+                if navigationLabelTokens[label] == token then label.Visible = false end
+            end)
+        end
+    end
+
     local function getNavigationBottomInset(compact, mobile, hideProfile)
         if ShowUserProfile and not hideProfile then return compact and 170 or 202 end
         return mobile and 122 or 142
     end
 
-    local function applyProfileLayout(compact, hidden)
+    local function applyProfileLayout(compact, hidden, animated)
         ProfileCompact = compact
         if not ProfileCard then return end
         ProfileCard.Visible = not hidden
-        ProfileCard.BackgroundTransparency = compact and 1 or Library:ResolveMaterialTransparency(Library.MaterialRegistry[ProfileCard])
-        ProfileCard.Position = compact and UDim2.new(0.5, -19, 1, -(settingsBtnSize + 62)) or UDim2.new(0, 10, 1, -110)
-        ProfileCard.Size = compact and UDim2.fromOffset(38, 38) or UDim2.new(1, -20, 0, 48)
-        ProfileAvatar.Position = compact and UDim2.fromScale(0, 0) or UDim2.fromOffset(6, 6)
-        ProfileAvatar.Size = compact and UDim2.fromScale(1, 1) or UDim2.fromOffset(36, 36)
-        ProfileNameLabel.Visible = not compact
-        ProfileSubtitleLabel.Visible = not compact
+        applyLayout(ProfileCard, {
+            BackgroundTransparency = compact and 1 or Library:ResolveMaterialTransparency(Library.MaterialRegistry[ProfileCard]),
+            Position = compact and UDim2.new(0.5, -19, 1, -(settingsBtnSize + 62)) or UDim2.new(0, 10, 1, -110),
+            Size = compact and UDim2.fromOffset(38, 38) or UDim2.new(1, -20, 0, 48)
+        }, animated)
+        applyLayout(ProfileAvatar, {
+            Position = compact and UDim2.fromScale(0, 0) or UDim2.fromOffset(6, 6),
+            Size = compact and UDim2.fromScale(1, 1) or UDim2.fromOffset(36, 36)
+        }, animated)
+        setNavigationLabel(ProfileNameLabel, not compact, animated)
+        setNavigationLabel(ProfileSubtitleLabel, not compact, animated)
         ProfileStroke.Enabled = not compact
     end
 
@@ -1297,7 +1368,8 @@ function Library:CreateWindow(options)
         Parent = MainFrame,
         BackgroundColor3 = Library.Theme.Secondary,
         BackgroundTransparency = 0.08,
-        Size = UDim2.new(1, 0, 0, IsMobile and 88 or 60),
+        Position = UDim2.new(0, SidebarWidth, 0, 0),
+        Size = UDim2.new(1, -SidebarWidth, 0, IsMobile and 88 or 60),
         ZIndex = 100,
         BorderSizePixel = 0
     })
@@ -1309,7 +1381,7 @@ function Library:CreateWindow(options)
     local TitleLabel = Utility:Create("TextLabel", {
         Parent = TopBar,
         BackgroundTransparency = 1,
-        Position = UDim2.new(0, SidebarWidth + 20, 0, IsMobile and 13 or 16),
+        Position = UDim2.new(0, 20, 0, IsMobile and 13 or 16),
         Size = UDim2.new(0, 200, 0, 30),
         Font = Enum.Font.GothamBold,
         Text = WindowTitle,
@@ -1394,8 +1466,8 @@ function Library:CreateWindow(options)
         SearchBox = Utility:Create("TextBox", {
             Parent = TopBar,
             BackgroundColor3 = Library.Theme.Surface,
-            Position = IsMobile and UDim2.new(0, SidebarWidth + 12, 0, 50) or UDim2.new(1, -360, 0, 15),
-            Size = IsMobile and UDim2.new(1, -(SidebarWidth + 24), 0, 30) or UDim2.new(0, 250, 0, 30),
+            Position = IsMobile and UDim2.new(0, 8, 0, 50) or UDim2.new(1, -360, 0, 15),
+            Size = IsMobile and UDim2.new(1, -16, 0, 30) or UDim2.new(0, 250, 0, 30),
             PlaceholderText = "Search controls...",
             Text = "",
             TextColor3 = Library.Theme.Text,
@@ -1526,6 +1598,80 @@ function Library:CreateWindow(options)
         SidebarMode = SidebarMode
     }
 
+    local navigationSelectionToken = 0
+    function Window:MoveNavigationSelection(animate)
+        local active = self.ActiveTab
+        local button = active and active.TabBtn
+        if not button or not button.Parent or not Sidebar.Parent then
+            NavigationSelection.Visible = false
+            return
+        end
+        local effectiveScale = math.max(Library.DPIScale * WindowScale.Scale, 0.01)
+        local offset = button.AbsolutePosition - Sidebar.AbsolutePosition
+        local absoluteSize = button.AbsoluteSize
+        if absoluteSize.X < 1 or absoluteSize.Y < 1 then return end
+        local target = {
+            Position = UDim2.fromOffset(offset.X / effectiveScale, offset.Y / effectiveScale),
+            Size = UDim2.fromOffset(absoluteSize.X / effectiveScale, absoluteSize.Y / effectiveScale)
+        }
+        NavigationSelection.Visible = true
+        if animate then
+            Utility:Tween(NavigationSelection, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), target)
+        else
+            Utility:StopTween(NavigationSelection)
+            NavigationSelection.Position = target.Position
+            NavigationSelection.Size = target.Size
+        end
+    end
+
+    function Window:TrackNavigationSelection(duration)
+        navigationSelectionToken = navigationSelectionToken + 1
+        local token = navigationSelectionToken
+        task.spawn(function()
+            local started = os.clock()
+            repeat
+                RunService.RenderStepped:Wait()
+                if token ~= navigationSelectionToken or Library.Unloaded then return end
+                Window:MoveNavigationSelection(false)
+            until os.clock() - started >= (duration or 0.32)
+            Window:MoveNavigationSelection(false)
+        end)
+    end
+
+    Library:Connect(TabContainer:GetPropertyChangedSignal("CanvasPosition"), function()
+        Window:MoveNavigationSelection(false)
+    end)
+
+    function Window:GetLayoutDiagnostics()
+        local issues = {}
+        local function add(code, message)
+            table.insert(issues, {Code = code, Message = message})
+        end
+        local function overlaps(a, b, padding)
+            padding = padding or 0
+            local ap, as = a.AbsolutePosition, a.AbsoluteSize
+            local bp, bs = b.AbsolutePosition, b.AbsoluteSize
+            return ap.X + as.X + padding > bp.X
+                and bp.X + bs.X + padding > ap.X
+                and ap.Y + as.Y + padding > bp.Y
+                and bp.Y + bs.Y + padding > ap.Y
+        end
+        if Library.DPIScale < 1 then
+            add("scale-floor", "UI scale is below the supported 100% minimum")
+        end
+        if MainFrame.ClipsDescendants ~= true then
+            add("shell-clip", "The root shell is not clipping internal chrome to its corner")
+        end
+        if SidebarModeButton.Visible and overlaps(LogoContainer, SidebarModeButton, 2) then
+            add("nav-header-overlap", "The brand mark and sidebar-mode control overlap")
+        end
+        local seamDistance = math.abs((Sidebar.AbsolutePosition.X + Sidebar.AbsoluteSize.X) - TopBar.AbsolutePosition.X)
+        if seamDistance > 2 then
+            add("chrome-seam", "The sidebar and top bar no longer share one seam")
+        end
+        return #issues == 0, issues
+    end
+
     function Window:SetProfile(data)
         SetProfileData(data)
     end
@@ -1541,12 +1687,13 @@ function Library:CreateWindow(options)
                     tab.TabEmoji.ImageColor3 = Library.Theme[textKey]
                 end
             end
-            if tab.TabBtn then tab.TabBtn.BackgroundTransparency = tab.Active and 0.08 or 0.64 end
+            if tab.TabBtn then tab.TabBtn.BackgroundTransparency = tab.Active and 0.88 or 0.64 end
             if tab.TabStroke then
                 tab.TabStroke.Color = tab.Active and Library.Theme.Accent or Library.Theme.Stroke
                 tab.TabStroke.Transparency = tab.Active and 0.08 or 0.24
             end
         end
+        self:MoveNavigationSelection(false)
     end
 
     -- RESIZABLE SIDEBAR (PC only)
@@ -1559,12 +1706,12 @@ function Library:CreateWindow(options)
         dividerLine = Utility:Create("Frame", {
             Parent = MainFrame,
             BackgroundColor3 = Library.Theme.Stroke,
+            BackgroundTransparency = 1,
             Position = UDim2.new(0, SidebarWidth, 0, 0),
             Size = UDim2.new(0, 1, 1, 0),
             ZIndex = 5,
             BorderSizePixel = 0
         })
-        Utility:RegisterProperty(dividerLine, "BackgroundColor3", "Stroke")
         sidebarResizer = Utility:Create("TextButton", {
             Parent = dividerLine,
             BackgroundTransparency = 1,
@@ -1601,7 +1748,8 @@ function Library:CreateWindow(options)
     end
 
     local lastDeviceMode = DeviceMode
-    function Window:ApplyResponsiveLayout(recenter)
+
+    function Window:ApplyResponsiveLayout(recenter, animateNavigation)
         local viewport = getViewport()
         local scale = math.max(Library.DPIScale, 0.01)
         local layoutViewport = Vector2.new(viewport.X / scale, viewport.Y / scale)
@@ -1619,7 +1767,7 @@ function Library:CreateWindow(options)
         end
         local navigationExpanded = SidebarMode == "Expanded" or (SidebarMode == "Dynamic" and sidebarHoverExpanded)
         local sidebarWidth = mobile and (width < 340 and 54 or 60)
-            or (navigationExpanded and math.clamp(currentSidebarWidth, 132, math.min(240, width * 0.32)) or 68)
+            or (navigationExpanded and math.clamp(currentSidebarWidth, 132, math.min(240, width * 0.32)) or 80)
         local shortViewport = mobile and height < 420
         local hideSearch = mobile and height < 300
         local hideProfile = height < 380
@@ -1640,56 +1788,81 @@ function Library:CreateWindow(options)
         if recenter or unreachable then
             MainFrame.Position = UDim2.new(0.5, -width / 2, 0.5, -height / 2)
         end
-        Sidebar.Size = UDim2.new(0, sidebarWidth, 1, 0)
-        Pages.Position = UDim2.new(0, sidebarWidth, 0, 0)
-        Pages.Size = UDim2.new(1, -sidebarWidth, 1, 0)
+        applyLayout(Sidebar, {Size = UDim2.new(0, sidebarWidth, 1, 0)}, animateNavigation)
+        applyLayout(Pages, {
+            Position = UDim2.new(0, sidebarWidth, 0, 0),
+            Size = UDim2.new(1, -sidebarWidth, 1, 0)
+        }, animateNavigation)
         isCompact = mobile or sidebarWidth < 132
         local visibleContentWidth = math.max(1, (width - sidebarWidth) * scale)
         local singleColumn = mobile or visibleContentWidth < 640
-        TitleLabel.Position = UDim2.new(0, sidebarWidth + 16, 0, mobile and (hideSearch and 9 or 11) or 16)
-        TitleLabel.Size = UDim2.new(1, -(sidebarWidth + (mobile and 108 or 430)), 0, 30)
+        applyLayout(TopBar, {
+            Position = UDim2.new(0, sidebarWidth, 0, 0),
+            Size = UDim2.new(1, -sidebarWidth, 0, topBarHeight)
+        }, animateNavigation)
+        applyLayout(TitleLabel, {
+            Position = UDim2.new(0, 16, 0, mobile and (hideSearch and 9 or 11) or 16),
+            Size = UDim2.new(1, -(mobile and 108 or 430), 0, 30)
+        }, animateNavigation)
         TitleLabel.TextSize = mobile and 17 or 19
-        TopBar.Size = UDim2.new(1, 0, 0, topBarHeight)
-        TopDivider.Position = UDim2.new(0, sidebarWidth, 0, topBarHeight - 1)
-        TopDivider.Size = UDim2.new(1, -sidebarWidth, 0, 1)
+        applyLayout(TopDivider, {
+            Position = UDim2.new(0, sidebarWidth, 0, topBarHeight - 1),
+            Size = UDim2.new(1, -sidebarWidth, 0, 1)
+        }, animateNavigation)
         MinimizeBtn.Position = UDim2.new(1, -76, 0, mobile and 8 or 15)
         CloseBtn.Position = UDim2.new(1, -40, 0, mobile and 8 or 15)
-        local activeLogoSize = isCompact and 32 or 40
-        LogoContainer.Size = UDim2.fromOffset(activeLogoSize, activeLogoSize)
-        LogoContainer.Position = mobile and UDim2.new(0.5, -activeLogoSize / 2, 0, 14)
-            or (isCompact and UDim2.fromOffset(8, 16) or UDim2.fromOffset(14, 16))
-        BrandLabel.Visible = not isCompact
-        BrandSubtitle.Visible = not isCompact
+        local activeLogoSize = mobile and 28 or (isCompact and 26 or 36)
+        applyLayout(LogoContainer, {
+            Size = UDim2.fromOffset(activeLogoSize, activeLogoSize),
+            Position = mobile and UDim2.new(0.5, -activeLogoSize / 2, 0, 9)
+                or (isCompact and UDim2.fromOffset(4, 10) or UDim2.fromOffset(7, 5))
+        }, animateNavigation)
+        setNavigationLabel(BrandLabel, not isCompact, animateNavigation)
+        setNavigationLabel(BrandSubtitle, not isCompact, animateNavigation)
         SidebarModeButton.Visible = not mobile
-        SidebarModeButton.Position = UDim2.new(1, -28, 0, isCompact and 22 or 26)
-        SidebarModeIcon.Rotation = isCompact and 0 or 180
-        TabContainer.Position = UDim2.new(0, isCompact and 0 or 8, 0, mobile and 70 or 78)
-        TabContainer.Size = UDim2.new(1, isCompact and 0 or -16, 1, -getNavigationBottomInset(isCompact, mobile, hideProfile))
-        SettingsBtn.Position = isCompact and UDim2.new(0.5, -settingsBtnSize / 2, 1, -(settingsBtnSize + 12)) or UDim2.new(0, 10, 1, -54)
-        SettingsBtn.Size = isCompact and UDim2.fromOffset(settingsBtnSize, settingsBtnSize) or UDim2.new(1, -20, 0, 42)
-        SettingsEmoji.Position = isCompact and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(8, 5)
-        SettingsEmoji.Size = isCompact and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32)
-        SettingsLabel.Visible = not isCompact
-        applyProfileLayout(isCompact, hideProfile)
+        applyLayout(SidebarModeIcon, {Rotation = isCompact and 0 or 180}, animateNavigation)
+        applyLayout(TabContainer, {
+            Position = UDim2.new(0, isCompact and 0 or 8, 0, mobile and 70 or 68),
+            Size = UDim2.new(1, isCompact and 0 or -16, 1, -getNavigationBottomInset(isCompact, mobile, hideProfile))
+        }, animateNavigation)
+        applyLayout(SettingsBtn, {
+            Position = isCompact and UDim2.new(0.5, -settingsBtnSize / 2, 1, -(settingsBtnSize + 12)) or UDim2.new(0, 10, 1, -54),
+            Size = isCompact and UDim2.fromOffset(settingsBtnSize, settingsBtnSize) or UDim2.new(1, -20, 0, 42)
+        }, animateNavigation)
+        applyLayout(SettingsEmoji, {
+            Position = isCompact and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(8, 5),
+            Size = isCompact and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32)
+        }, animateNavigation)
+        setNavigationLabel(SettingsLabel, not isCompact, animateNavigation)
+        applyProfileLayout(isCompact, hideProfile, animateNavigation)
         NotifyArea.Position = UDim2.new(1, mobile and -12 or -20, 1, -20)
         NotifyArea.Size = UDim2.new(0, mobile and math.max(180, math.min(300, layoutViewport.X - 24)) or 300, 1, 0)
         if SearchBox then
             SearchBox.Visible = not hideSearch
-            SearchBox.Position = mobile and UDim2.new(0, sidebarWidth + 8, 0, shortViewport and 41 or 50) or UDim2.new(1, -390, 0, 15)
-            SearchBox.Size = mobile and UDim2.new(1, -(sidebarWidth + 16), 0, shortViewport and 26 or 30) or UDim2.new(0, 270, 0, 30)
+            SearchBox.Position = mobile and UDim2.new(0, 8, 0, shortViewport and 41 or 50) or UDim2.new(1, -390, 0, 15)
+            SearchBox.Size = mobile and UDim2.new(1, -16, 0, shortViewport and 26 or 30) or UDim2.new(0, 270, 0, 30)
         end
         if dividerLine then
             dividerLine.Visible = not mobile and not isCompact
             dividerLine.Position = UDim2.new(0, sidebarWidth, 0, 0)
         end
         for _, tab in ipairs(Window.Tabs) do
-            if tab.ApplyNavigationLayout then tab:ApplyNavigationLayout(mobile, isCompact) end
+            if tab.ApplyNavigationLayout then tab:ApplyNavigationLayout(mobile, isCompact, animateNavigation) end
             if tab.ApplyResponsiveLayout then
                 tab:ApplyResponsiveLayout(singleColumn, topBarHeight)
             end
         end
         for _, category in ipairs(Window.TabCategories) do
-            category.Label.Visible = not isCompact
+            category.Label.Visible = true
+            applyLayout(category.Label, {
+                Size = UDim2.new(1, -8, 0, isCompact and 0 or 20),
+                TextTransparency = isCompact and 1 or 0
+            }, animateNavigation)
+        end
+        if animateNavigation then
+            self:TrackNavigationSelection(0.34)
+        else
+            task.defer(function() if not Library.Unloaded then self:MoveNavigationSelection(false) end end)
         end
         if Library.IsMinimized then
             MobileToggleBtn.Visible = mobile
@@ -1699,6 +1872,12 @@ function Library:CreateWindow(options)
             lastDeviceMode = mode
             Utility:SafeCall(options.OnDeviceChanged, mode)
         end
+        task.delay(animateNavigation and 0.34 or 0, function()
+            if not Library.Unloaded then
+                local passed, issues = self:GetLayoutDiagnostics()
+                self.LastLayoutAudit = {Passed = passed, Issues = issues, CheckedAt = os.clock()}
+            end
+        end)
         return mode
     end
 
@@ -1708,7 +1887,7 @@ function Library:CreateWindow(options)
         SidebarMode = mode
         self.SidebarMode = mode
         sidebarHoverExpanded = false
-        self:ApplyResponsiveLayout(false)
+        self:ApplyResponsiveLayout(false, true)
         return true
     end
 
@@ -1720,22 +1899,20 @@ function Library:CreateWindow(options)
         if expanded then
             if not sidebarHoverExpanded then
                 sidebarHoverExpanded = true
-                Window:ApplyResponsiveLayout(false)
+                Window:ApplyResponsiveLayout(false, true)
             end
         else
             task.delay(0.18, function()
                 if token == sidebarHoverToken and SidebarMode == "Dynamic" then
                     sidebarHoverExpanded = false
-                    Window:ApplyResponsiveLayout(false)
+                    Window:ApplyResponsiveLayout(false, true)
                 end
             end)
         end
     end
 
-    Library:Connect(TabContainer.MouseEnter, function() setSidebarHover(true) end)
-    Library:Connect(TabContainer.MouseLeave, function() setSidebarHover(false) end)
-    Library:Connect(SettingsBtn.MouseEnter, function() setSidebarHover(true) end)
-    Library:Connect(SettingsBtn.MouseLeave, function() setSidebarHover(false) end)
+    Library:Connect(Sidebar.MouseEnter, function() setSidebarHover(true) end)
+    Library:Connect(Sidebar.MouseLeave, function() setSidebarHover(false) end)
     Library:Connect(SidebarModeButton.MouseButton1Click, function()
         Window:SetSidebarMode(SidebarMode == "Expanded" and "Dynamic" or "Expanded")
     end)
@@ -2146,10 +2323,11 @@ function Library:CreateWindow(options)
         self.NextNavOrder = self.NextNavOrder + 1
         local category = Utility:Create("TextLabel", {
             Name = "Category_" .. tostring(name), Parent = TabContainer,
-            BackgroundTransparency = 1, Size = UDim2.new(1, -8, 0, 20),
+            BackgroundTransparency = 1, Size = UDim2.new(1, -8, 0, isCompact and 0 or 20),
             Text = string.upper(tostring(name or "")), TextColor3 = Library.Theme.SubText,
             Font = Enum.Font.GothamBold, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 5, Visible = not isCompact, LayoutOrder = self.NextNavOrder
+            TextTransparency = isCompact and 1 or 0,
+            ZIndex = 5, Visible = true, LayoutOrder = self.NextNavOrder
         })
         Utility:RegisterProperty(category, "TextColor3", "SubText")
         local categoryEntry = {Label = category, Tabs = {}}
@@ -2277,15 +2455,19 @@ function Library:CreateWindow(options)
             Tab.TabStroke = settingsStroke
         end
 
-        function Tab:ApplyNavigationLayout(mobile, compact)
+        function Tab:ApplyNavigationLayout(mobile, compact, animated)
             if self.IsSettings or not self.TabBtn then return end
             local iconOnly = mobile or compact
-            self.TabBtn.Size = iconOnly and UDim2.fromOffset(tabBtnSize, tabBtnSize) or UDim2.new(1, 0, 0, tabBtnSize)
+            applyLayout(self.TabBtn, {
+                Size = iconOnly and UDim2.fromOffset(tabBtnSize, tabBtnSize) or UDim2.new(1, 0, 0, tabBtnSize)
+            }, animated)
             if self.TabEmoji then
-                self.TabEmoji.Position = iconOnly and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(6, 5)
-                self.TabEmoji.Size = iconOnly and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32)
+                applyLayout(self.TabEmoji, {
+                    Position = iconOnly and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(6, 5),
+                    Size = iconOnly and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32)
+                }, animated)
             end
-            if self.TabLabel then self.TabLabel.Visible = not iconOnly end
+            setNavigationLabel(self.TabLabel, not iconOnly, animated)
         end
 
         local useSingleColumn = IsMobile
@@ -2400,7 +2582,7 @@ function Library:CreateWindow(options)
             Tab.Active = true
             Window.ActiveTab = Tab
             if Tab.TabBtn then
-                Utility:Tween(Tab.TabBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = 0.08})
+                Utility:Tween(Tab.TabBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = 0.88})
             end
             if Tab.TabStroke then
                 Utility:Tween(Tab.TabStroke, TweenInfo.new(0.2), {Color = Library.Theme.Accent, Transparency = 0.08})
@@ -2415,12 +2597,13 @@ function Library:CreateWindow(options)
                     Utility:Tween(TabEmoji, TweenInfo.new(0.2), {ImageColor3 = Library.Theme.Text})
                 end
             end
-            if Indicator then
-                Utility:Tween(Indicator, TweenInfo.new(0.2), {BackgroundTransparency = 0, Position = UDim2.new(0, 3, 0.5, -9)})
-            end
+            if Indicator then Indicator.BackgroundTransparency = 1 end
             TitleLabel.Text = Name
             Page.Visible = true
             Page.CanvasPosition = Vector2.new(0, 0)
+            task.defer(function()
+                if Tab.Active and not Library.Unloaded then Window:MoveNavigationSelection(true) end
+            end)
         end
 
         function Tab:Deactivate()
@@ -2441,9 +2624,7 @@ function Library:CreateWindow(options)
                     Utility:Tween(TabEmoji, TweenInfo.new(0.3), {ImageColor3 = Library.Theme.SubText})
                 end
             end
-            if Indicator then
-                Utility:Tween(Indicator, TweenInfo.new(0.2), {BackgroundTransparency = 1, Position = UDim2.new(0, 3, 0.5, -9)})
-            end
+            if Indicator then Indicator.BackgroundTransparency = 1 end
             Page.Visible = false
         end
 
@@ -4375,7 +4556,7 @@ function Library:CreateWindow(options)
     })
     local ScaleSlider = AppearanceSection:CreateSlider({
         Name = "UI scale",
-        Min = 75,
+        Min = 100,
         Max = 150,
         Step = 5,
         Default = math.floor(Library.DPIScale * 100),

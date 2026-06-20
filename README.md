@@ -1,6 +1,6 @@
-# RenLib V6.4 — Clarity
+# RenLib V6.5 — Motion & Coherence
 
-RenLib is a responsive Roblox/Luau interface library for desktop, tablet, and phone. V6.4 repairs live theme contrast, makes Frosted material local to the window, keeps controls readable at every supported scale, and introduces a compact navigation rail that expands on hover.
+RenLib is a responsive Roblox/Luau interface library for desktop, tablet, and phone. V6.5 unifies the window shell, adds a smoothly animated dynamic navigation rail, and makes every brand/navigation icon respond correctly to light and dark themes.
 
 ```lua
 local RenLib = loadstring(game:HttpGet(
@@ -26,12 +26,21 @@ General:CreateToggle({
 })
 ```
 
-## What changed in V6.4
+## What changed in V6.5
+
+- The brand mark and sidebar-mode icon use semantic text contrast: bright on dark themes and dark on light themes.
+- The logo, wordmark, and mode toggle now share one collision-safe header instead of overlapping independent cards.
+- Dynamic navigation eases between its 80 px compact rail and expanded state; labels fade with the geometry instead of snapping.
+- One shared selection surface slides between tabs and Settings, including across category gaps and pinned navigation items.
+- The root window owns the only outer corner treatment. Duplicate sidebar corners, the mismatched top accent rail, and nested glass corners were removed.
+- UI scale is safely capped to 100–150%; old or invalid saved values are clamped to the new minimum.
+
+## V6.4 clarity foundations retained
 
 - Every semantic color is registered automatically, so theme changes cannot leave dark labels on dark surfaces or light icons on light surfaces.
 - Frosted mode now uses window-local transparency, tint, grain, and edge treatment. It never creates a global Lighting blur or changes the game screen.
-- The supported scale range is 75–150%; visible-width breakpoints force a safe one-column layout before controls can overlap.
-- Navigation defaults to `Dynamic`: a 68 px icon rail expands while hovered, and the header button pins or releases the full sidebar.
+- Visible-width breakpoints force a safe one-column layout before controls can overlap.
+- Navigation defaults to `Dynamic`; the header button pins or releases the full sidebar.
 - Inactive tabs and chrome controls keep visible boundaries in both light and dark themes.
 - Section depth no longer uses oversized shadow sprites, eliminating the gray title plates visible in Prism Frost.
 - The dashboard hero keeps identity and context without copying a live time/date display.
@@ -96,6 +105,7 @@ Window:Restore()
 Window:Toggle()
 Window:SetProfile({Title = "New name", Subtitle = "Online", Avatar = "1234567890"})
 Window:SetSidebarMode("Expanded")
+local layoutPassed, layoutIssues = Window:GetLayoutDiagnostics()
 Window:Close()
 ```
 
@@ -272,13 +282,13 @@ All RenLib-managed connections, active tweens, registered theme/material objects
 
 ## Compatibility
 
-- `RenLib.lua` is the canonical V6.4 file.
-- `RenLibBêta.lua` and `RenLibTesting.lua` remain available for older loadstrings and mirror V6.4.
+- `RenLib.lua` is the canonical V6.5 file.
+- `RenLibBêta.lua` and `RenLibTesting.lua` remain available for older loadstrings and mirror V6.5.
 - Existing V4/V5 calls for windows, tabs, sections, buttons, toggles, sliders, dropdowns, labels, key pickers, warning boxes, images, and notifications remain supported.
 
 ## Design references
 
-V6.4 studies hierarchy and interaction principles from [Luna Interface Suite](https://github.com/Nebula-Softworks/Luna-Interface-Suite) and [Starlight Interface Suite](https://github.com/Nebula-Softworks/Starlight-Interface-Suite). RenLib's names, palette values, APIs, architecture, and implementation are original; no Starlight source code is copied.
+V6.5 studies hierarchy and interaction principles from [Luna Interface Suite](https://github.com/Nebula-Softworks/Luna-Interface-Suite) and [Starlight Interface Suite](https://github.com/Nebula-Softworks/Starlight-Interface-Suite). RenLib's names, palette values, APIs, architecture, and implementation are original; no Starlight source code is copied.
 
 The project Obsidian vault is intentionally local-only and excluded from this repository.
 
