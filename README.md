@@ -1,6 +1,6 @@
-# RenLib V6.5.2 — Motion & Coherence
+# RenLib V6.6 — Reliable Motion & Configs
 
-RenLib is a responsive Roblox/Luau interface library for desktop, tablet, and phone. V6.5.2 keeps the V6.5 shell and motion system while correcting active-tab compositing so labels and icons remain crisp above the sliding selection surface.
+RenLib is a responsive Roblox/Luau interface library for desktop, tablet, and phone. V6.6 makes dynamic navigation deterministic, gives the sidebar-mode control a stable click target, repairs outer-corner clipping, and turns configs into a complete selectable workflow with working startup autoload.
 
 ```lua
 local RenLib = loadstring(game:HttpGet(
@@ -26,7 +26,16 @@ General:CreateToggle({
 })
 ```
 
-## What changed in V6.5
+## What changed in V6.6
+
+- Layout, visibility, and hover/selection animations use independent channels, so one interaction cannot strand a tab, label, or profile card in the wrong sidebar state.
+- The compact sidebar toggle stays under the pointer, while its expanded state becomes a labelled `Pin` / `Auto` button with clear hover feedback.
+- Compact avatars are inset safely so their circular accent stroke is not clipped into flat lines.
+- The shell and sidebar share a deliberate one-sided corner treatment: rounded outside, clean square seam inside.
+- Saved configs are discoverable from a dropdown and can be loaded, renamed, deleted, or selected for autoload.
+- Autoload values are prepared before controls are created, then applied as each flagged control registers.
+
+## V6.5 motion foundations retained
 
 ### V6.5.2 patch
 
@@ -70,7 +79,7 @@ General:CreateToggle({
 - Cancellable animation system with reduced-motion and motion-speed controls.
 - Nine live presets: `Midnight`, `Nebula`, `Celestial`, `Rose`, `Aurora`, `Ember`, `Prism Frost`, `Moss Archive`, and `Velvet Latte`.
 - Search on desktop and mobile.
-- Real JSON config save/load/autoload when filesystem APIs are available.
+- Real JSON config save/load/rename/delete/autoload when filesystem APIs are available.
 - Safe callbacks: an error in user code is reported without breaking the entire UI.
 - Notifications with actions, progress, live updates, manual close, and timed close.
 - Modal dialogs, maximize support, DPI scaling, and richer window controls.
@@ -287,8 +296,8 @@ All RenLib-managed connections, active tweens, registered theme/material objects
 
 ## Compatibility
 
-- `RenLib.lua` is the canonical V6.5.2 file.
-- `RenLibBêta.lua` and `RenLibTesting.lua` remain available for older loadstrings and mirror V6.5.2.
+- `RenLib.lua` is the canonical V6.6 file.
+- `RenLibBêta.lua` and `RenLibTesting.lua` remain available for older loadstrings and mirror V6.6.
 - Existing V4/V5 calls for windows, tabs, sections, buttons, toggles, sliders, dropdowns, labels, key pickers, warning boxes, images, and notifications remain supported.
 
 ## Design references

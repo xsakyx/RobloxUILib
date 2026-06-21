@@ -5,7 +5,7 @@ local RenLib = loadstring(game:HttpGet(
 RenLib:ApplyThemePreset("Prism Frost")
 
 local Window = RenLib:CreateWindow({
-    Name = "RenLib V6.5.2 Motion & Coherence Showcase",
+    Name = "RenLib V6.6 Reliable Motion Showcase",
     SettingsIcon = "6031280882",
     ShowUserProfile = true,
     ProfileSubtitle = "Harmony session",
@@ -40,7 +40,7 @@ local Dashboard = Window:CreateDashboard({
             Metrics = {
                 {Name = "Players", Value = tostring(#game:GetService("Players"):GetPlayers()), Detail = "Currently connected"},
                 {Name = "Capacity", Value = tostring(game:GetService("Players").MaxPlayers), Detail = "Maximum server size"},
-                {Name = "Library", Value = "V" .. RenLib.Version, Detail = "Harmony release"},
+                {Name = "Library", Value = "V" .. RenLib.Version, Detail = "Reliable motion release"},
             },
         },
         {
@@ -110,7 +110,7 @@ local Themes = ActionsTab:CreateSection({Name = "Original palettes", Side = "Rig
 
 Actions:CreateButton({Name = "Show notification", Description = "Exercise actions and timed progress.", Icon = "6034304908", Callback = function()
     RenLib:Notify({
-        Title = "RenLib V6.5.2",
+        Title = "RenLib V6.6",
         Content = "Layered surfaces, responsive composition, and frosted material are active.",
         Duration = 6,
         Actions = {{Name = "Lovely"}},
@@ -144,4 +144,4 @@ Themes:CreateButton({Name = "Toggle frosted material", Description = "Switches l
     RenLib:SetMaterialMode(RenLib.MaterialMode == "Frosted" and "Solid" or "Frosted")
 end})
 
-RenLib:Notify({Title = "Coherence loaded", Content = "RenLib V6.5.2 showcase is ready.", Duration = 4})
+RenLib:Notify({Title = "Reliable motion loaded", Content = "RenLib V6.6 showcase is ready.", Duration = 4})

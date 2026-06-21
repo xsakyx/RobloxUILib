@@ -1,4 +1,4 @@
--- RenLib V6.5.2
+-- RenLib V6.6
 -- Responsive Roblox UI library with mobile-first input, live theming,
 -- accessible motion, searchable controls, and deterministic cleanup.
 
@@ -104,12 +104,15 @@ local ICONS = {
 
 --// ROOT LIBRARY
 local Library = {}
-Library.Version = "6.5.2"
+Library.Version = "6.6.0"
 Library.Title = "RenLib"
 Library.Connections = {}
 Library.Tasks = {}
 Library.Flags = {}
 Library.Options = {}
+Library.PendingAutoloadFlags = {}
+Library.AutoloadConfigName = nil
+Library.KnownConfigs = {}
 Library.Unloaded = false
 Library.Keybinds = {}
 Library.ToggleKey = Enum.KeyCode.K
@@ -120,6 +123,8 @@ Library.DPIScale = 1
 Library.ReducedMotion = false
 Library.MotionScale = 1
 Library.ActiveTweens = setmetatable({}, {__mode = "k"})
+Library.LayoutTweens = setmetatable({}, {__mode = "k"})
+Library.VisibilityTweens = setmetatable({}, {__mode = "k"})
 Library.GradientRegistry = setmetatable({}, {__mode = "k"})
 Library.ActiveTheme = "Celestial"
 Library.ScalePreview = nil
@@ -370,6 +375,7 @@ function Utility:Tween(instance, info, properties, callback)
     local previous = Library.ActiveTweens[instance]
     if previous then
         pcall(function() previous:Cancel() end)
+        Library.ActiveTweens[instance] = nil
     end
 
     local duration = Library.ReducedMotion and 0 or math.max(0, info.Time * Library.MotionScale)
@@ -398,6 +404,75 @@ function Utility:StopTween(instance)
     local tween = instance and Library.ActiveTweens[instance]
     if not tween then return false end
     Library.ActiveTweens[instance] = nil
+    pcall(function() tween:Cancel() end)
+    return true
+end
+
+-- Geometry and visual-state animations must not cancel one another. A hover
+-- color tween used to stop an in-flight sidebar resize tween, leaving active
+-- tabs and profile cards permanently stuck in their compact geometry.
+function Utility:TweenLayout(instance, info, properties, callback)
+    if not instance or not instance.Parent then return nil end
+    local previous = Library.LayoutTweens[instance]
+    if previous then
+        pcall(function() previous:Cancel() end)
+        Library.LayoutTweens[instance] = nil
+    end
+
+    local duration = Library.ReducedMotion and 0 or math.max(0, info.Time * Library.MotionScale)
+    if duration == 0 then
+        for property, value in pairs(properties) do instance[property] = value end
+        if callback then task.defer(callback) end
+        return nil
+    end
+
+    local tweenInfo = TweenInfo.new(duration, info.EasingStyle, info.EasingDirection, info.RepeatCount, info.Reverses, info.DelayTime)
+    local tween = TweenService:Create(instance, tweenInfo, properties)
+    Library.LayoutTweens[instance] = tween
+    tween:Play()
+    Library:Connect(tween.Completed, function(playbackState)
+        if Library.LayoutTweens[instance] == tween then Library.LayoutTweens[instance] = nil end
+        if callback and playbackState == Enum.PlaybackState.Completed then callback() end
+    end)
+    return tween
+end
+
+function Utility:StopLayoutTween(instance)
+    local tween = instance and Library.LayoutTweens[instance]
+    if not tween then return false end
+    Library.LayoutTweens[instance] = nil
+    pcall(function() tween:Cancel() end)
+    return true
+end
+
+function Utility:TweenVisibility(instance, info, properties, callback)
+    if not instance or not instance.Parent then return nil end
+    local previous = Library.VisibilityTweens[instance]
+    if previous then
+        pcall(function() previous:Cancel() end)
+        Library.VisibilityTweens[instance] = nil
+    end
+    local duration = Library.ReducedMotion and 0 or math.max(0, info.Time * Library.MotionScale)
+    if duration == 0 then
+        for property, value in pairs(properties) do instance[property] = value end
+        if callback then task.defer(callback) end
+        return nil
+    end
+    local tweenInfo = TweenInfo.new(duration, info.EasingStyle, info.EasingDirection, info.RepeatCount, info.Reverses, info.DelayTime)
+    local tween = TweenService:Create(instance, tweenInfo, properties)
+    Library.VisibilityTweens[instance] = tween
+    tween:Play()
+    Library:Connect(tween.Completed, function(playbackState)
+        if Library.VisibilityTweens[instance] == tween then Library.VisibilityTweens[instance] = nil end
+        if callback and playbackState == Enum.PlaybackState.Completed then callback() end
+    end)
+    return tween
+end
+
+function Utility:StopVisibilityTween(instance)
+    local tween = instance and Library.VisibilityTweens[instance]
+    if not tween then return false end
+    Library.VisibilityTweens[instance] = nil
     pcall(function() tween:Cancel() end)
     return true
 end
@@ -720,8 +795,16 @@ local function ensureConfigFolders()
 end
 
 local function cleanConfigName(name)
-    return tostring(name or "default"):gsub("[^%w_%-%s]", ""):sub(1, 64)
+    local cleaned = tostring(name or "default"):gsub("[^%w_%-%s]", ""):sub(1, 64)
+    cleaned = cleaned:match("^%s*(.-)%s*$") or ""
+    return cleaned ~= "" and cleaned or "default"
 end
+
+local CONFIG_MANAGER_FLAGS = {
+    __RenLibConfigSelection = true,
+    __RenLibConfigName = true,
+    __RenLibConfigRename = true
+}
 
 local function encodeValue(value)
     if typeof(value) == "Color3" then
@@ -748,11 +831,39 @@ end
 function Library:SaveConfig(name)
     if not ensureConfigFolders() then return false, "Filesystem APIs are unavailable" end
     local payload = {version = self.Version, flags = {}}
-    for flag, value in pairs(self.Flags) do payload.flags[flag] = encodeValue(value) end
+    for flag, value in pairs(self.Flags) do
+        if not CONFIG_MANAGER_FLAGS[flag] then payload.flags[flag] = encodeValue(value) end
+    end
+    local cleaned = cleanConfigName(name)
     local ok, result = pcall(function()
-        writefile(CONFIG_FOLDER .. "/" .. cleanConfigName(name) .. ".json", HttpService:JSONEncode(payload))
+        writefile(CONFIG_FOLDER .. "/" .. cleaned .. ".json", HttpService:JSONEncode(payload))
     end)
+    if ok then self.KnownConfigs[cleaned] = true end
     return ok, ok and nil or result
+end
+
+function Library:GetConfigList()
+    if not ensureConfigFolders() then return {} end
+    local names, seen = {}, {}
+    for name in pairs(self.KnownConfigs) do
+        seen[name:lower()] = true
+        table.insert(names, name)
+    end
+    if type(listfiles) == "function" then
+        local ok, files = pcall(listfiles, CONFIG_FOLDER)
+        if ok and type(files) == "table" then
+            for _, path in ipairs(files) do
+                local normalized = tostring(path):gsub("\\", "/")
+                local name = normalized:match("/([^/]+)%.json$") or normalized:match("^([^/]+)%.json$")
+                if name and not seen[name:lower()] then
+                    seen[name:lower()] = true
+                    table.insert(names, name)
+                end
+            end
+        end
+    end
+    table.sort(names, function(a, b) return a:lower() < b:lower() end)
+    return names
 end
 
 function Library:LoadConfig(name)
@@ -761,6 +872,7 @@ function Library:LoadConfig(name)
     if not isfile(path) then return false, "Config does not exist" end
     local ok, payload = pcall(function() return HttpService:JSONDecode(readfile(path)) end)
     if not ok or type(payload) ~= "table" then return false, payload end
+    self.KnownConfigs[cleanConfigName(name)] = true
     for flag, rawValue in pairs(payload.flags or {}) do
         local value = decodeValue(rawValue)
         self.Flags[flag] = value
@@ -772,20 +884,128 @@ end
 
 function Library:DeleteConfig(name)
     if not ensureConfigFolders() or type(delfile) ~= "function" then return false, "Delete API is unavailable" end
-    local path = CONFIG_FOLDER .. "/" .. cleanConfigName(name) .. ".json"
-    if isfile(path) then delfile(path) end
+    local cleaned = cleanConfigName(name)
+    local path = CONFIG_FOLDER .. "/" .. cleaned .. ".json"
+    local ok, err = pcall(function() if isfile(path) then delfile(path) end end)
+    if not ok then return false, err end
+    self.KnownConfigs[cleaned] = nil
+    if self:GetAutoloadConfigName() == cleaned then
+        local cleared, clearError = self:ClearAutoloadConfig()
+        if not cleared then return false, "Config deleted, but autoload cleanup failed: " .. tostring(clearError) end
+    end
     return true
+end
+
+function Library:RenameConfig(oldName, newName)
+    if not ensureConfigFolders() or type(delfile) ~= "function" then return false, "Rename APIs are unavailable" end
+    local oldClean, newClean = cleanConfigName(oldName), cleanConfigName(newName)
+    local oldPath = CONFIG_FOLDER .. "/" .. oldClean .. ".json"
+    local newPath = CONFIG_FOLDER .. "/" .. newClean .. ".json"
+    if not isfile(oldPath) then return false, "Config does not exist" end
+    if oldClean ~= newClean and isfile(newPath) then return false, "A config already uses that name" end
+    if oldClean == newClean then return true end
+    local ok, err = pcall(function()
+        writefile(newPath, readfile(oldPath))
+        delfile(oldPath)
+    end)
+    if not ok then return false, err end
+    self.KnownConfigs[oldClean] = nil
+    self.KnownConfigs[newClean] = true
+    if self:GetAutoloadConfigName() == oldClean then
+        local updated, updateError = self:SetAutoloadConfig(newClean)
+        if not updated then return false, "Config renamed, but autoload update failed: " .. tostring(updateError) end
+    end
+    return true
+end
+
+function Library:GetAutoloadConfigName()
+    if not ensureConfigFolders() or not isfile("RenLib/autoload.txt") then return nil end
+    local ok, name = pcall(readfile, "RenLib/autoload.txt")
+    if not ok then return nil end
+    name = tostring(name or ""):match("^%s*(.-)%s*$")
+    if not name or name == "" then return nil end
+    return cleanConfigName(name)
 end
 
 function Library:SetAutoloadConfig(name)
     if not ensureConfigFolders() then return false, "Filesystem APIs are unavailable" end
-    writefile("RenLib/autoload.txt", cleanConfigName(name))
+    local cleaned = cleanConfigName(name)
+    if not isfile(CONFIG_FOLDER .. "/" .. cleaned .. ".json") then return false, "Config does not exist" end
+    local ok, err = pcall(writefile, "RenLib/autoload.txt", cleaned)
+    if ok then self.AutoloadConfigName = cleaned end
+    return ok, ok and nil or err
+end
+
+function Library:ClearAutoloadConfig()
+    if not ensureConfigFolders() then return false, "Filesystem APIs are unavailable" end
+    local ok, err = pcall(function()
+        if isfile("RenLib/autoload.txt") then
+            if type(delfile) == "function" then delfile("RenLib/autoload.txt") else writefile("RenLib/autoload.txt", "") end
+        end
+    end)
+    if ok then self.AutoloadConfigName = nil end
+    return ok, ok and nil or err
+end
+
+function Library:PrepareAutoloadConfig()
+    local name = self:GetAutoloadConfigName()
+    if not name then return false, "No autoload config" end
+    local path = CONFIG_FOLDER .. "/" .. name .. ".json"
+    if not isfile(path) then
+        self:ClearAutoloadConfig()
+        return false, "Autoload config no longer exists"
+    end
+    local ok, payload = pcall(function() return HttpService:JSONDecode(readfile(path)) end)
+    if not ok or type(payload) ~= "table" then return false, payload end
+    self.AutoloadConfigName = name
+    self.KnownConfigs[name] = true
+    self.PendingAutoloadFlags = {}
+    for flag, rawValue in pairs(payload.flags or {}) do
+        local value = decodeValue(rawValue)
+        self.PendingAutoloadFlags[flag] = value
+        self.Flags[flag] = value
+    end
+    local preset = self.PendingAutoloadFlags.__RenLibTheme
+    if type(preset) == "string" and self.ThemePresets[preset] then self:ApplyThemePreset(preset) end
+    local material = self.PendingAutoloadFlags.__RenLibMaterial
+    if material == "Solid" or material == "Frosted" then self:SetMaterialMode(material) end
+    if self.PendingAutoloadFlags.__RenLibFrostIntensity ~= nil then
+        self:SetMaterialIntensity(self.PendingAutoloadFlags.__RenLibFrostIntensity)
+    end
+    if self.PendingAutoloadFlags.__RenLibReducedMotion ~= nil then
+        self:SetReducedMotion(self.PendingAutoloadFlags.__RenLibReducedMotion)
+    end
+    if self.PendingAutoloadFlags.__RenLibScale ~= nil then
+        self:SetDPIScale(self.PendingAutoloadFlags.__RenLibScale)
+    end
+    -- Core appearance values are already applied before the window exists;
+    -- their controls will read Library.Flags without replaying preview dialogs.
+    self.PendingAutoloadFlags.__RenLibTheme = nil
+    self.PendingAutoloadFlags.__RenLibMaterial = nil
+    self.PendingAutoloadFlags.__RenLibFrostIntensity = nil
+    self.PendingAutoloadFlags.__RenLibReducedMotion = nil
+    self.PendingAutoloadFlags.__RenLibScale = nil
     return true
 end
 
+function Library:RegisterOption(flag, controller)
+    self.Options[flag] = controller
+    if self.PendingAutoloadFlags[flag] ~= nil and controller and controller.Set then
+        local value = self.PendingAutoloadFlags[flag]
+        self.PendingAutoloadFlags[flag] = nil
+        task.defer(function()
+            if not self.Unloaded and self.Options[flag] == controller then
+                Utility:SafeCall(function() controller:Set(value) end)
+            end
+        end)
+    end
+    return controller
+end
+
 function Library:LoadAutoloadConfig()
-    if not ensureConfigFolders() or not isfile("RenLib/autoload.txt") then return false, "No autoload config" end
-    return self:LoadConfig(readfile("RenLib/autoload.txt"))
+    local name = self:GetAutoloadConfigName()
+    if not name then return false, "No autoload config" end
+    return self:LoadConfig(name)
 end
 
 function Library:LaunchInfiniteYield()
@@ -935,6 +1155,7 @@ function Library:CreateWindow(options)
         ZIndex = 1
     })
     Utility:RegisterProperty(glassTint, "ImageColor3", "Accent2")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = glassTint})
     Library.MaterialDecorations[glassTint] = true
     local glassNoise = Utility:Create("ImageLabel", {
         Name = "GlassNoise",
@@ -949,6 +1170,7 @@ function Library:CreateWindow(options)
         Visible = false,
         ZIndex = 1
     })
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = glassNoise})
     Library.MaterialDecorations[glassNoise] = true
     local WindowScale = Utility:Create("UIScale", {Parent = MainFrame, Scale = 1})
     local mainStroke = Utility:Create("UIStroke", {Parent = MainFrame, Color = Library.Theme.Stroke, Thickness = 1})
@@ -964,8 +1186,22 @@ function Library:CreateWindow(options)
     })
     Utility:RegisterProperty(Sidebar, "BackgroundColor3", "Secondary")
     Utility:RegisterMaterial(Sidebar, 0.32, 0)
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = Sidebar})
     local sidebarGradient = Utility:Create("UIGradient", {Parent = Sidebar, Rotation = 90})
     Utility:RegisterGradient(sidebarGradient, "Secondary", "Main")
+    local sidebarSquareEdge = Utility:Create("Frame", {
+        Name = "SidebarSquareInnerEdge",
+        Parent = Sidebar,
+        BackgroundColor3 = Library.Theme.Secondary,
+        Position = UDim2.fromOffset(14, 0),
+        Size = UDim2.new(1, -14, 1, 0),
+        BorderSizePixel = 0,
+        ZIndex = 2
+    })
+    Utility:RegisterProperty(sidebarSquareEdge, "BackgroundColor3", "Secondary")
+    Utility:RegisterMaterial(sidebarSquareEdge, 0.32, 0)
+    local sidebarSquareGradient = Utility:Create("UIGradient", {Parent = sidebarSquareEdge, Rotation = 90})
+    Utility:RegisterGradient(sidebarSquareGradient, "Secondary", "Main")
     local sidebarDivider = Utility:Create("Frame", {
         Parent = Sidebar,
         BackgroundColor3 = Library.Theme.Divider,
@@ -1075,25 +1311,49 @@ function Library:CreateWindow(options)
     local SidebarModeButton = Utility:Create("TextButton", {
         Name = "SidebarModeButton",
         Parent = NavHeader,
-        BackgroundTransparency = 1,
-        Position = UDim2.new(1, -30, 0, 9),
-        Size = UDim2.fromOffset(26, 28),
+        BackgroundColor3 = Library.Theme.SurfaceAlt,
+        BackgroundTransparency = 0.34,
+        Position = UDim2.new(1, -32, 0, 9),
+        Size = UDim2.fromOffset(28, 28),
         Text = "",
         AutoButtonColor = false,
         ZIndex = 104,
         BorderSizePixel = 0
     })
+    Utility:RegisterProperty(SidebarModeButton, "BackgroundColor3", "SurfaceAlt")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = SidebarModeButton})
+    local sidebarModeStroke = Utility:Create("UIStroke", {
+        Parent = SidebarModeButton,
+        Color = Library.Theme.Stroke,
+        Transparency = 0.28,
+        Thickness = 1
+    })
+    Utility:RegisterProperty(sidebarModeStroke, "Color", "Stroke")
     local SidebarModeIcon = Utility:Create("ImageLabel", {
         Parent = SidebarModeButton,
         BackgroundTransparency = 1,
-        Position = UDim2.fromScale(0.23, 0.23),
-        Size = UDim2.fromScale(0.54, 0.54),
+        Position = UDim2.fromOffset(6, 6),
+        Size = UDim2.fromOffset(16, 16),
         Image = ICONS.ChevronRight,
         ImageColor3 = Library.Theme.Text,
         ScaleType = Enum.ScaleType.Fit,
         ZIndex = 105
     })
     Utility:RegisterProperty(SidebarModeIcon, "ImageColor3", "Text")
+    local SidebarModeLabel = Utility:Create("TextLabel", {
+        Parent = SidebarModeButton,
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(27, 0),
+        Size = UDim2.new(1, -32, 1, 0),
+        Font = Enum.Font.GothamBold,
+        Text = SidebarMode == "Expanded" and "Auto" or "Pin",
+        TextColor3 = Library.Theme.Text,
+        TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Visible = SidebarMode == "Expanded",
+        ZIndex = 105
+    })
+    Utility:RegisterProperty(SidebarModeLabel, "TextColor3", "Text")
 
     -- SETTINGS BUTTON
     local settingsBtnSize = IsMobile and 36 or 44
@@ -1217,8 +1477,8 @@ function Library:CreateWindow(options)
         ProfileAvatar = Utility:Create("ImageLabel", {
             Parent = ProfileCard,
             BackgroundColor3 = Library.Theme.SurfaceAlt,
-            Position = ProfileCompact and UDim2.fromScale(0, 0) or UDim2.fromOffset(6, 6),
-            Size = ProfileCompact and UDim2.fromScale(1, 1) or UDim2.fromOffset(36, 36),
+            Position = ProfileCompact and UDim2.fromOffset(2, 2) or UDim2.fromOffset(6, 6),
+            Size = ProfileCompact and UDim2.new(1, -4, 1, -4) or UDim2.fromOffset(36, 36),
             Image = Utility:NormalizeAssetId(options.ProfileAvatar, ICONS.Profile),
             ImageColor3 = Color3.new(1, 1, 1),
             ScaleType = Enum.ScaleType.Crop,
@@ -1300,9 +1560,9 @@ function Library:CreateWindow(options)
     local navigationLabelTokens = setmetatable({}, {__mode = "k"})
     local function applyLayout(instance, properties, animated)
         if animated then
-            Utility:Tween(instance, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), properties)
+            Utility:TweenLayout(instance, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), properties)
         else
-            Utility:StopTween(instance)
+            Utility:StopLayoutTween(instance)
             for property, value in pairs(properties) do instance[property] = value end
         end
     end
@@ -1312,6 +1572,7 @@ function Library:CreateWindow(options)
         local token = (navigationLabelTokens[label] or 0) + 1
         navigationLabelTokens[label] = token
         if not animated then
+            Utility:StopVisibilityTween(label)
             label.Visible = visible
             label.TextTransparency = visible and 0 or 1
             return
@@ -1319,9 +1580,9 @@ function Library:CreateWindow(options)
         if visible then
             label.Visible = true
             label.TextTransparency = 1
-            Utility:Tween(label, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 0})
+            Utility:TweenVisibility(label, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 0})
         else
-            Utility:Tween(label, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 1}, function()
+            Utility:TweenVisibility(label, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 1}, function()
                 if navigationLabelTokens[label] == token then label.Visible = false end
             end)
         end
@@ -1342,8 +1603,8 @@ function Library:CreateWindow(options)
             Size = compact and UDim2.fromOffset(38, 38) or UDim2.new(1, -20, 0, 48)
         }, animated)
         applyLayout(ProfileAvatar, {
-            Position = compact and UDim2.fromScale(0, 0) or UDim2.fromOffset(6, 6),
-            Size = compact and UDim2.fromScale(1, 1) or UDim2.fromOffset(36, 36)
+            Position = compact and UDim2.fromOffset(2, 2) or UDim2.fromOffset(6, 6),
+            Size = compact and UDim2.new(1, -4, 1, -4) or UDim2.fromOffset(36, 36)
         }, animated)
         setNavigationLabel(ProfileNameLabel, not compact, animated)
         setNavigationLabel(ProfileSubtitleLabel, not compact, animated)
@@ -1668,6 +1929,17 @@ function Library:CreateWindow(options)
         if SidebarModeButton.Visible and overlaps(LogoContainer, SidebarModeButton, 2) then
             add("nav-header-overlap", "The brand mark and sidebar-mode control overlap")
         end
+        if SidebarModeButton.Visible and (SidebarModeButton.AbsoluteSize.X < 28 or SidebarModeButton.AbsoluteSize.Y < 28) then
+            add("nav-toggle-hit-area", "The sidebar-mode control is smaller than its safe pointer target")
+        end
+        if self.SidebarVisualExpanded and self.ActiveTab and self.ActiveTab.TabBtn
+            and self.ActiveTab.TabBtn.AbsoluteSize.X < Sidebar.AbsoluteSize.X * 0.6 then
+            add("active-tab-state", "The selected tab is still using compact geometry inside an expanded sidebar")
+        end
+        if self.SidebarVisualExpanded and ProfileCard and ProfileCard.Visible
+            and ProfileCard.AbsoluteSize.X < Sidebar.AbsoluteSize.X * 0.6 then
+            add("profile-state", "The profile card is still using compact geometry inside an expanded sidebar")
+        end
         local seamDistance = math.abs((Sidebar.AbsolutePosition.X + Sidebar.AbsoluteSize.X) - TopBar.AbsolutePosition.X)
         if seamDistance > 2 then
             add("chrome-seam", "The sidebar and top bar no longer share one seam")
@@ -1823,7 +2095,17 @@ function Library:CreateWindow(options)
         setNavigationLabel(BrandLabel, not isCompact, animateNavigation)
         setNavigationLabel(BrandSubtitle, not isCompact, animateNavigation)
         SidebarModeButton.Visible = not mobile
-        applyLayout(SidebarModeIcon, {Rotation = isCompact and 0 or 180}, animateNavigation)
+        SidebarModeLabel.Text = SidebarMode == "Expanded" and "Auto" or "Pin"
+        applyLayout(SidebarModeButton, {
+            Position = isCompact and UDim2.new(1, -32, 0, 9) or UDim2.new(1, -78, 0, 9),
+            Size = isCompact and UDim2.fromOffset(28, 28) or UDim2.fromOffset(74, 28)
+        }, animateNavigation)
+        applyLayout(SidebarModeIcon, {
+            Position = isCompact and UDim2.fromOffset(6, 6) or UDim2.fromOffset(7, 6),
+            Size = UDim2.fromOffset(16, 16),
+            Rotation = isCompact and 0 or 180
+        }, animateNavigation)
+        setNavigationLabel(SidebarModeLabel, not isCompact, animateNavigation)
         applyLayout(TabContainer, {
             Position = UDim2.new(0, isCompact and 0 or 8, 0, mobile and 70 or 68),
             Size = UDim2.new(1, isCompact and 0 or -16, 1, -getNavigationBottomInset(isCompact, mobile, hideProfile))
@@ -1867,6 +2149,7 @@ function Library:CreateWindow(options)
         else
             task.defer(function() if not Library.Unloaded then self:MoveNavigationSelection(false) end end)
         end
+        self.SidebarVisualExpanded = not isCompact
         if Library.IsMinimized then
             MobileToggleBtn.Visible = mobile
             MinimizedIcon.Visible = not mobile
@@ -1890,6 +2173,7 @@ function Library:CreateWindow(options)
         SidebarMode = mode
         self.SidebarMode = mode
         sidebarHoverExpanded = false
+        SidebarModeLabel.Text = mode == "Expanded" and "Auto" or "Pin"
         self:ApplyResponsiveLayout(false, true)
         return true
     end
@@ -1905,7 +2189,7 @@ function Library:CreateWindow(options)
                 Window:ApplyResponsiveLayout(false, true)
             end
         else
-            task.delay(0.18, function()
+            task.delay(0.35, function()
                 if token == sidebarHoverToken and SidebarMode == "Dynamic" then
                     sidebarHoverExpanded = false
                     Window:ApplyResponsiveLayout(false, true)
@@ -1914,8 +2198,31 @@ function Library:CreateWindow(options)
         end
     end
 
-    Library:Connect(Sidebar.MouseEnter, function() setSidebarHover(true) end)
-    Library:Connect(Sidebar.MouseLeave, function() setSidebarHover(false) end)
+    -- Hover expansion belongs to navigation content, not the mode button.
+    -- The compact button therefore stays under the pointer and can be clicked
+    -- immediately instead of moving away on the first hover.
+    Library:Connect(TabContainer.MouseEnter, function() setSidebarHover(true) end)
+    Library:Connect(TabContainer.MouseLeave, function() setSidebarHover(false) end)
+    Library:Connect(SettingsBtn.MouseEnter, function() setSidebarHover(true) end)
+    Library:Connect(SettingsBtn.MouseLeave, function() setSidebarHover(false) end)
+    if ProfileCard then
+        Library:Connect(ProfileCard.MouseEnter, function() setSidebarHover(true) end)
+        Library:Connect(ProfileCard.MouseLeave, function() setSidebarHover(false) end)
+    end
+    Library:Connect(NavHeader.MouseEnter, function()
+        if sidebarHoverExpanded then sidebarHoverToken = sidebarHoverToken + 1 end
+    end)
+    Library:Connect(NavHeader.MouseLeave, function()
+        if sidebarHoverExpanded then setSidebarHover(false) end
+    end)
+    Library:Connect(SidebarModeButton.MouseEnter, function()
+        Utility:Tween(SidebarModeButton, TweenInfo.new(0.14), {BackgroundTransparency = 0.12})
+        Utility:Tween(sidebarModeStroke, TweenInfo.new(0.14), {Transparency = 0.05})
+    end)
+    Library:Connect(SidebarModeButton.MouseLeave, function()
+        Utility:Tween(SidebarModeButton, TweenInfo.new(0.14), {BackgroundTransparency = 0.34})
+        Utility:Tween(sidebarModeStroke, TweenInfo.new(0.14), {Transparency = 0.28})
+    end)
     Library:Connect(SidebarModeButton.MouseButton1Click, function()
         Window:SetSidebarMode(SidebarMode == "Expanded" and "Dynamic" or "Expanded")
     end)
@@ -2941,7 +3248,7 @@ function Library:CreateWindow(options)
                     Get = function() return Library.Flags[flag] end,
                     OnChanged = function(self, fn) table.insert(listeners, fn) end
                 }, container, name)
-                Library.Options[flag] = controller
+                Library:RegisterOption(flag, controller)
                 addElement({Holder = container, Text = name})
                 return controller
             end
@@ -3301,7 +3608,7 @@ function Library:CreateWindow(options)
                     end
                 }
                 finishController(toggleObj, ToggleContainer, Name)
-                Library.Options[Flag] = toggleObj
+                Library:RegisterOption(Flag, toggleObj)
                 return toggleObj
             end
 
@@ -3446,7 +3753,7 @@ function Library:CreateWindow(options)
                     Get = function() return Value end
                 }
                 finishController(sliderObj, SliderContainer, Name)
-                Library.Options[Flag] = sliderObj
+                Library:RegisterOption(Flag, sliderObj)
                 return sliderObj
             end
 
@@ -3601,7 +3908,7 @@ function Library:CreateWindow(options)
                             Status.Text = selected[1] .. ", " .. selected[2] .. " +" .. tostring(#selected - 2)
                         end
                     else
-                        Status.Text = tostring(CurrentValue)
+                        Status.Text = CurrentValue ~= nil and tostring(CurrentValue) or "No options"
                     end
                 end
 
@@ -3685,8 +3992,16 @@ function Library:CreateWindow(options)
                         Refresh()
                         BuildList()
                     end,
-                    Refresh = function(self, newVals)
-                        Values = newVals
+                    Refresh = function(self, newVals, preserveSelection)
+                        Values = type(newVals) == "table" and newVals or {}
+                        if not Multi then
+                            local stillExists = false
+                            for _, optionValue in ipairs(Values) do
+                                if optionValue == CurrentValue then stillExists = true break end
+                            end
+                            if not stillExists and preserveSelection ~= true then CurrentValue = Values[1] end
+                        end
+                        Refresh()
                         BuildList()
                     end,
                     Get = function() return CurrentValue end,
@@ -3716,7 +4031,7 @@ function Library:CreateWindow(options)
                     SetExpanded = function(self, open) SetExpanded(open) end
                 }
                 finishController(dropObj, DropdownContainer, Name)
-                Library.Options[Flag] = dropObj
+                Library:RegisterOption(Flag, dropObj)
                 return dropObj
             end
 
@@ -4074,7 +4389,7 @@ function Library:CreateWindow(options)
                     GetState = function() return toggled end
                 }, container, name)
                 Library.Flags[flag] = currentKey
-                Library.Options[flag] = controller
+                Library:RegisterOption(flag, controller)
                 return controller
             end
 
@@ -4284,7 +4599,7 @@ function Library:CreateWindow(options)
                     OnChanged = function(self, fn) table.insert(listeners, fn) end,
                     SetExpanded = function(self, open) if expanded ~= (open == true) then setExpanded(open) end end
                 }, container, name)
-                Library.Options[flag] = controller
+                Library:RegisterOption(flag, controller)
                 return controller
             end
 
@@ -4611,25 +4926,114 @@ function Library:CreateWindow(options)
     end
 
     local ConfigSection = SettingsTab:CreateSection({ Name = "Configuration", Side = "Left" })
-    local configName = "default"
+    local configNames = Library:GetConfigList()
+    local selectedConfig = configNames[1]
+    local desiredConfigName = selectedConfig or "default"
+    local ConfigDropdown, AutoloadStatus
+
+    local function hasConfig(name, values)
+        for _, item in ipairs(values or {}) do if item == name then return true end end
+        return false
+    end
+
+    local function refreshConfigManager(preferred)
+        configNames = Library:GetConfigList()
+        local target
+        if preferred and hasConfig(preferred, configNames) then
+            target = preferred
+        elseif hasConfig(selectedConfig, configNames) then
+            target = selectedConfig
+        else
+            target = configNames[1]
+        end
+        if ConfigDropdown then
+            ConfigDropdown:Refresh(configNames)
+            selectedConfig = target
+            if target then ConfigDropdown:Set(target) end
+        else
+            selectedConfig = target
+        end
+        if AutoloadStatus then
+            AutoloadStatus:SetContent(Library:GetAutoloadConfigName() or "None")
+        end
+    end
+
+    ConfigDropdown = ConfigSection:CreateDropdown({
+        Name = "Saved configs",
+        Values = configNames,
+        Default = selectedConfig,
+        Flag = "__RenLibConfigSelection",
+        Callback = function(value) selectedConfig = value end
+    })
     ConfigSection:CreateInput({
-        Name = "Config name",
-        Default = configName,
+        Name = "Config name / rename target",
+        Default = desiredConfigName,
         Placeholder = "default",
         Flag = "__RenLibConfigName",
-        Callback = function(value) configName = value ~= "" and value or "default" end
+        Callback = function(value) desiredConfigName = cleanConfigName(value) end
     })
-    ConfigSection:CreateButton({Name = "Save config", Callback = function()
-        local ok, err = Library:SaveConfig(configName)
-        Library:Notify({Title = ok and "Config saved" or "Save unavailable", Content = ok and configName or tostring(err), Duration = 3})
+    AutoloadStatus = ConfigSection:CreateParagraph({
+        Title = "Current autoload",
+        Content = Library:GetAutoloadConfigName() or "None"
+    })
+    ConfigSection:CreateButton({Name = "Save or overwrite", Callback = function()
+        local ok, err = Library:SaveConfig(desiredConfigName)
+        if ok then selectedConfig = desiredConfigName; refreshConfigManager(desiredConfigName) end
+        Library:Notify({Title = ok and "Config saved" or "Save unavailable", Content = ok and desiredConfigName or tostring(err), Duration = 3})
     end})
-    ConfigSection:CreateButton({Name = "Load config", Callback = function()
-        local ok, err = Library:LoadConfig(configName)
-        Library:Notify({Title = ok and "Config loaded" or "Load failed", Content = ok and configName or tostring(err), Duration = 3})
+    ConfigSection:CreateButton({Name = "Load selected", Callback = function()
+        if not selectedConfig then
+            Library:Notify({Title = "No config selected", Content = "Save or select a config first.", Duration = 3})
+            return
+        end
+        local ok, err = Library:LoadConfig(selectedConfig)
+        Library:Notify({Title = ok and "Config loaded" or "Load failed", Content = ok and selectedConfig or tostring(err), Duration = 3})
     end})
-    ConfigSection:CreateButton({Name = "Set as autoload", Callback = function()
-        local ok, err = Library:SetAutoloadConfig(configName)
-        Library:Notify({Title = ok and "Autoload set" or "Autoload unavailable", Content = ok and configName or tostring(err), Duration = 3})
+    ConfigSection:CreateButton({Name = "Rename selected", Callback = function()
+        if not selectedConfig then
+            Library:Notify({Title = "No config selected", Content = "Choose a saved config first.", Duration = 3})
+            return
+        end
+        local oldName = selectedConfig
+        local ok, err = Library:RenameConfig(oldName, desiredConfigName)
+        if ok then selectedConfig = desiredConfigName; refreshConfigManager(desiredConfigName) end
+        Library:Notify({Title = ok and "Config renamed" or "Rename failed", Content = ok and (oldName .. " → " .. desiredConfigName) or tostring(err), Duration = 3})
+    end})
+    ConfigSection:CreateButton({Name = "Set selected as autoload", Callback = function()
+        if not selectedConfig then
+            Library:Notify({Title = "No config selected", Content = "Choose a saved config first.", Duration = 3})
+            return
+        end
+        local ok, err = Library:SetAutoloadConfig(selectedConfig)
+        refreshConfigManager(selectedConfig)
+        Library:Notify({Title = ok and "Autoload set" or "Autoload unavailable", Content = ok and selectedConfig or tostring(err), Duration = 3})
+    end})
+    ConfigSection:CreateButton({Name = "Delete selected", Icon = EMOJIS.Trash, Callback = function()
+        if not selectedConfig then
+            Library:Notify({Title = "No config selected", Content = "Choose a saved config first.", Duration = 3})
+            return
+        end
+        local deleting = selectedConfig
+        Window:Dialog({
+            Title = "Delete " .. deleting .. "?",
+            Content = "This permanently removes the saved config. Its autoload link will also be cleared.",
+            Actions = {
+                {Name = "Cancel"},
+                {Name = "Delete", Primary = true, Callback = function()
+                    local ok, err = Library:DeleteConfig(deleting)
+                    if ok then selectedConfig = nil; refreshConfigManager() end
+                    Library:Notify({Title = ok and "Config deleted" or "Delete failed", Content = ok and deleting or tostring(err), Duration = 3})
+                end}
+            }
+        })
+    end})
+    ConfigSection:CreateButton({Name = "Clear autoload", Callback = function()
+        local ok, err = Library:ClearAutoloadConfig()
+        refreshConfigManager(selectedConfig)
+        Library:Notify({Title = ok and "Autoload cleared" or "Clear failed", Content = ok and "No config will load automatically." or tostring(err), Duration = 3})
+    end})
+    ConfigSection:CreateButton({Name = "Refresh config list", Icon = EMOJIS.Refresh, Callback = function()
+        refreshConfigManager(selectedConfig)
     end})
 
     Library:Connect(SettingsBtn.MouseButton1Click, function()
@@ -4650,6 +5054,12 @@ function Library:Unload(reason)
     for _, tween in pairs(self.ActiveTweens) do
         pcall(function() tween:Cancel() end)
     end
+    for _, tween in pairs(self.LayoutTweens) do
+        pcall(function() tween:Cancel() end)
+    end
+    for _, tween in pairs(self.VisibilityTweens) do
+        pcall(function() tween:Cancel() end)
+    end
     for _, conn in pairs(Library.Connections) do
         pcall(function() conn:Disconnect() end)
     end
@@ -4664,6 +5074,9 @@ function Library:Unload(reason)
     table.clear(self.BrandMarks)
     table.clear(self.Scales)
     table.clear(self.Options)
+    table.clear(self.PendingAutoloadFlags)
+    table.clear(self.LayoutTweens)
+    table.clear(self.VisibilityTweens)
     self.Window = nil
     self.ScreenGui = nil
     if RuntimeEnvironment[RUNTIME_KEY] == self then RuntimeEnvironment[RUNTIME_KEY] = nil end
@@ -4680,6 +5093,7 @@ end)
 
 RuntimeEnvironment[RUNTIME_KEY] = Library
 ensureConfigFolders()
+Library:PrepareAutoloadConfig()
 
 print("[RenLib] Loaded - Version " .. Library.Version .. " (" .. Library.DeviceMode .. ")")
 
