@@ -1103,6 +1103,36 @@ function Library:CreateRayfieldAdapter()
         options = options or {}
         local saving = options.ConfigurationSaving or {}
         if saving.Enabled then self.ConfigName = cleanConfigName(saving.FileName or options.Name or "default") end
+        local themeAliases = {
+            Default = "Celestial", AmberGlow = "Ember", Amethyst = "Nebula",
+            Bloom = "Rose", DarkBlue = "Midnight", Green = "Moss Archive",
+            Light = "Prism Frost", Ocean = "Aurora", Serenity = "Celestial"
+        }
+        if type(options.Theme) == "string" then
+            source:ApplyThemePreset(themeAliases[options.Theme] or options.Theme)
+        elseif type(options.Theme) == "table" then
+            source:SetTheme({
+                Main = options.Theme.Background,
+                Secondary = options.Theme.Topbar or options.Theme.Background,
+                Surface = options.Theme.ElementBackground,
+                SurfaceAlt = options.Theme.SecondaryElementBackground or options.Theme.ElementBackground,
+                Stroke = options.Theme.ElementStroke,
+                Divider = options.Theme.SecondaryElementStroke or options.Theme.ElementStroke,
+                Text = options.Theme.TextColor,
+                SubText = options.Theme.PlaceholderColor,
+                Hover = options.Theme.ElementBackgroundHover,
+                Click = options.Theme.DropdownSelected,
+                Accent = options.Theme.ToggleEnabled or options.Theme.SliderProgress,
+                Accent2 = options.Theme.ToggleEnabledStroke or options.Theme.SliderProgress,
+                Accent3 = options.Theme.TabBackgroundSelected or options.Theme.ToggleEnabled
+            })
+        end
+        local toggleKey = options.ToggleUIKeybind
+        if typeof(toggleKey) == "EnumItem" then
+            source.ToggleKey = toggleKey
+        elseif type(toggleKey) == "string" and Enum.KeyCode[toggleKey] then
+            source.ToggleKey = Enum.KeyCode[toggleKey]
+        end
         local rawWindow = source:CreateWindow({
             Name = options.Name or options.LoadingTitle or "RenLib Script",
             Icon = options.Icon,
