@@ -5,7 +5,7 @@ local RenLib = loadstring(game:HttpGet(
 RenLib:ApplyThemePreset("Prism Frost")
 
 local Window = RenLib:CreateWindow({
-    Name = "RenLib V6.6 Reliable Motion Showcase",
+    Name = "RenLib V6.6.1 Reliable Motion Showcase",
     SettingsIcon = "6031280882",
     ShowUserProfile = true,
     ProfileSubtitle = "Harmony session",
@@ -110,7 +110,7 @@ local Themes = ActionsTab:CreateSection({Name = "Original palettes", Side = "Rig
 
 Actions:CreateButton({Name = "Show notification", Description = "Exercise actions and timed progress.", Icon = "6034304908", Callback = function()
     RenLib:Notify({
-        Title = "RenLib V6.6",
+        Title = "RenLib V6.6.1",
         Content = "Layered surfaces, responsive composition, and frosted material are active.",
         Duration = 6,
         Actions = {{Name = "Lovely"}},
@@ -144,4 +144,4 @@ Themes:CreateButton({Name = "Toggle frosted material", Description = "Switches l
     RenLib:SetMaterialMode(RenLib.MaterialMode == "Frosted" and "Solid" or "Frosted")
 end})
 
-RenLib:Notify({Title = "Reliable motion loaded", Content = "RenLib V6.6 showcase is ready.", Duration = 4})
+RenLib:Notify({Title = "Reliable motion loaded", Content = "RenLib V6.6.1 showcase is ready.", Duration = 4})

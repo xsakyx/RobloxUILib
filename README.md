@@ -1,4 +1,4 @@
-# RenLib V6.6 — Reliable Motion & Configs
+# RenLib V6.6.1 — Reliable Motion & Configs
 
 RenLib is a responsive Roblox/Luau interface library for desktop, tablet, and phone. V6.6 makes dynamic navigation deterministic, gives the sidebar-mode control a stable click target, repairs outer-corner clipping, and turns configs into a complete selectable workflow with working startup autoload.
 
@@ -34,6 +34,7 @@ General:CreateToggle({
 - The shell and sidebar share a deliberate one-sided corner treatment: rounded outside, clean square seam inside.
 - Saved configs are discoverable from a dropdown and can be loaded, renamed, deleted, or selected for autoload.
 - Autoload values are prepared before controls are created, then applied as each flagged control registers.
+- `CreateRayfieldAdapter()` provides a RenLib-owned compatibility bridge for migrating existing scripts without touching their gameplay logic.
 
 ## V6.5 motion foundations retained
 
@@ -219,6 +220,25 @@ RenLib:SetTheme({
 })
 ```
 
+## Existing-script migration
+
+For scripts originally built around Rayfield's tab-level control calls, use the RenLib-owned facade while leaving gameplay logic untouched:
+
+```lua
+local RenLib = loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/RenLib.lua"
+))()
+local RenUI = RenLib:CreateRayfieldAdapter()
+
+local Window = RenUI:CreateWindow({Name = "Migrated Script"})
+local Main = Window:CreateTab("Main", "9080449299")
+Main:CreateToggle({Name = "Enabled", CurrentValue = false, Callback = function(value)
+    print(value)
+end})
+```
+
+The facade maps windows, tabs, sections, buttons, toggles, sliders, dropdowns, inputs, color pickers, labels, paragraphs, keybinds, notifications, configuration loading, and cleanup onto RenLib.
+
 Theme changes are applied live; the interface does not need to restart.
 
 ## Dashboard
@@ -296,8 +316,8 @@ All RenLib-managed connections, active tweens, registered theme/material objects
 
 ## Compatibility
 
-- `RenLib.lua` is the canonical V6.6 file.
-- `RenLibBêta.lua` and `RenLibTesting.lua` remain available for older loadstrings and mirror V6.6.
+- `RenLib.lua` is the canonical V6.6.1 file.
+- `RenLibBêta.lua` and `RenLibTesting.lua` remain available for older loadstrings and mirror V6.6.1.
 - Existing V4/V5 calls for windows, tabs, sections, buttons, toggles, sliders, dropdowns, labels, key pickers, warning boxes, images, and notifications remain supported.
 
 ## Design references
