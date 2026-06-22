@@ -1,6 +1,6 @@
 local scriptChoice = 1
 
-local UpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/FirstStepBeta"
+local UpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/FirstStepBêta"
 local DownString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/DownTimeTaker"
 local TempUpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/TempFirstStep/TempFirstStebBeta"
 
