@@ -1,6 +1,6 @@
--- RenLib V6.6.1
--- Responsive Roblox UI library with mobile-first input, live theming,
--- accessible motion, searchable controls, and deterministic cleanup.
+-- RenLib V7.0.0
+-- Responsive Roblox UI framework with centralized navigation, non-destructive
+-- search, mobile-first input, live theming, addons, and deterministic cleanup.
 
 --// SERVICES
 local UserInputService = game:GetService("UserInputService")
@@ -105,7 +105,7 @@ local ICONS = {
 
 --// ROOT LIBRARY
 local Library = {}
-Library.Version = "6.7.0"
+Library.Version = "7.0.0"
 Library.Title = "RenLib"
 Library.Connections = {}
 Library.Tasks = {}
@@ -117,6 +117,9 @@ Library.AutoloadThemeName = nil
 Library.KnownConfigs = {}
 Library.Unloaded = false
 Library.Keybinds = {}
+Library.KeybindDefaults = {}
+Library.Addons = {}
+Library.AddonOrder = {}
 Library.ToggleKey = Enum.KeyCode.K
 Library.IsMinimized = false
 Library.IsMobile = IsMobile
@@ -140,6 +143,7 @@ Library.BrandIcon = ICONS.Palette
 -- per-theme exceptions.
 Library.BrandIconTint = "Text"
 Library.BrandMarks = setmetatable({}, {__mode = "k"})
+Library.Icons = ICONS
 
 -- Theme (can be changed at runtime)
 Library.Theme = {
@@ -1013,6 +1017,80 @@ function Library:RegisterOption(flag, controller)
         end)
     end
     return controller
+end
+
+function Library:RegisterIcon(name, asset)
+    name = tostring(name or "")
+    assert(name ~= "", "[RenLib] RegisterIcon requires a name")
+    local normalized = Utility:NormalizeAssetId(asset)
+    assert(normalized, "[RenLib] RegisterIcon requires a Roblox image asset")
+    self.Icons[name] = normalized
+    return normalized
+end
+
+function Library:GetIcon(name, fallback)
+    if name == nil then return Utility:NormalizeAssetId(fallback) end
+    return self.Icons[tostring(name)] or Utility:NormalizeAssetId(name, fallback)
+end
+
+function Library:RegisterAddon(name, addon)
+    name = tostring(name or "")
+    assert(name ~= "", "[RenLib] RegisterAddon requires a name")
+    assert(type(addon) == "table", "[RenLib] RegisterAddon requires an addon table")
+    if self.Addons[name] then self:DisableAddon(name) end
+    local record = {Name = name, Module = addon, Enabled = false}
+    self.Addons[name] = record
+    table.insert(self.AddonOrder, name)
+    if type(addon.Init) == "function" then
+        local ok = Utility:SafeCall(addon.Init, addon, self)
+        if not ok then
+            self.Addons[name] = nil
+            return nil
+        end
+    end
+    if addon.AutoStart ~= false then self:EnableAddon(name) end
+    return record
+end
+
+function Library:GetAddon(name)
+    local record = self.Addons[tostring(name or "")]
+    return record and record.Module or nil
+end
+
+function Library:EnableAddon(name)
+    local record = self.Addons[tostring(name or "")]
+    if not record or record.Enabled then return record ~= nil end
+    record.Enabled = true
+    if type(record.Module.Start) == "function" then
+        local ok = Utility:SafeCall(record.Module.Start, record.Module, self)
+        if not ok then record.Enabled = false end
+    end
+    return record.Enabled
+end
+
+function Library:DisableAddon(name)
+    local record = self.Addons[tostring(name or "")]
+    if not record or not record.Enabled then return record ~= nil end
+    record.Enabled = false
+    if type(record.Module.Stop) == "function" then
+        Utility:SafeCall(record.Module.Stop, record.Module, self)
+    end
+    return true
+end
+
+function Library:UnregisterAddon(name)
+    name = tostring(name or "")
+    local record = self.Addons[name]
+    if not record then return false end
+    self:DisableAddon(name)
+    if type(record.Module.Unload) == "function" then
+        Utility:SafeCall(record.Module.Unload, record.Module, self)
+    end
+    self.Addons[name] = nil
+    for index, registeredName in ipairs(self.AddonOrder) do
+        if registeredName == name then table.remove(self.AddonOrder, index) break end
+    end
+    return true
 end
 
 function Library:LoadAutoloadConfig()
@@ -2130,7 +2208,7 @@ function Library:CreateWindow(options)
         Utility:RegisterProperty(SearchBox, "TextColor3", "Text")
         Utility:RegisterProperty(SearchBox, "PlaceholderColor3", "SubText")
         Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = SearchBox})
-        Utility:Create("UIPadding", {Parent = SearchBox, PaddingLeft = UDim.new(0, 34), PaddingRight = UDim.new(0, 10)})
+        Utility:Create("UIPadding", {Parent = SearchBox, PaddingLeft = UDim.new(0, 34), PaddingRight = UDim.new(0, 54)})
         local SearchIcon = Utility:Create("ImageLabel", {
             Parent = SearchBox,
             BackgroundTransparency = 1,
@@ -2244,8 +2322,58 @@ function Library:CreateWindow(options)
         SettingsTab = nil,
         SearchBox = SearchBox,
         Sidebar = Sidebar,
-        SidebarMode = SidebarMode
+        SidebarMode = SidebarMode,
+        NavigationListeners = {},
+        NavigationRevision = 0,
+        SearchResults = {},
+        SearchQuery = ""
     }
+
+    function Window:OnTabChanged(callback)
+        if type(callback) == "function" then table.insert(self.NavigationListeners, callback) end
+        return self
+    end
+
+    function Window:SelectTab(tab, selectOptions)
+        selectOptions = selectOptions or {}
+        if tab ~= nil then
+            local known = false
+            for _, candidate in ipairs(self.Tabs) do
+                if candidate == tab then known = true break end
+            end
+            if not known then return false, "Unknown tab" end
+        end
+
+        local previous = self.ActiveTab
+        self.NavigationRevision = self.NavigationRevision + 1
+        self.ActiveTab = tab
+
+        for _, candidate in ipairs(self.Tabs) do
+            local active = candidate == tab
+            candidate.Active = active
+            if candidate.Page then candidate.Page.Visible = active end
+            if candidate.ApplyActiveVisual then candidate:ApplyActiveVisual(active, selectOptions.Animate ~= false) end
+        end
+
+        if tab then
+            TitleLabel.Text = tab.Name
+            if selectOptions.ResetScroll ~= false and tab.Page then tab.Page.CanvasPosition = Vector2.new(0, 0) end
+            task.defer(function()
+                if Window.ActiveTab == tab and not Library.Unloaded then
+                    Window:MoveNavigationSelection(selectOptions.Animate ~= false)
+                end
+            end)
+        else
+            NavigationSelection.Visible = false
+        end
+
+        if previous ~= tab then
+            for _, callback in ipairs(self.NavigationListeners) do
+                Utility:SafeCall(callback, tab, previous, self.NavigationRevision)
+            end
+        end
+        return true
+    end
 
     local navigationSelectionToken = 0
     function Window:MoveNavigationSelection(animate)
@@ -2665,6 +2793,76 @@ function Library:CreateWindow(options)
         })
     end
 
+    local TooltipFrame = Utility:Create("Frame", {
+        Name = "Tooltip", Parent = ScreenGui, BackgroundColor3 = Library.Theme.Secondary,
+        BackgroundTransparency = 0.04, AutomaticSize = Enum.AutomaticSize.XY,
+        Visible = false, ZIndex = 950, BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(TooltipFrame, "BackgroundColor3", "Secondary")
+    Utility:Create("UICorner", {Parent = TooltipFrame, CornerRadius = UDim.new(0, 6)})
+    local tooltipStroke = Utility:Create("UIStroke", {Parent = TooltipFrame, Color = Library.Theme.Stroke, Thickness = 1})
+    Utility:RegisterProperty(tooltipStroke, "Color", "Stroke")
+    Utility:Create("UIPadding", {
+        Parent = TooltipFrame, PaddingLeft = UDim.new(0, 9), PaddingRight = UDim.new(0, 9),
+        PaddingTop = UDim.new(0, 7), PaddingBottom = UDim.new(0, 7)
+    })
+    local TooltipText = Utility:Create("TextLabel", {
+        Parent = TooltipFrame, BackgroundTransparency = 1, AutomaticSize = Enum.AutomaticSize.Y,
+        Size = UDim2.fromOffset(220, 0), TextWrapped = true, TextColor3 = Library.Theme.Text,
+        Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 951
+    })
+    Utility:RegisterProperty(TooltipText, "TextColor3", "Text")
+    local activeTooltipTarget = nil
+
+    function Window:ShowTooltip(text, position, target)
+        text = tostring(text or "")
+        if text == "" then return end
+        activeTooltipTarget = target
+        TooltipText.Text = text
+        TooltipFrame.Visible = true
+        task.defer(function()
+            if not TooltipFrame.Visible or (target and activeTooltipTarget ~= target) then return end
+            local viewport = getViewport()
+            local size = TooltipFrame.AbsoluteSize
+            local x = math.clamp((position and position.X or 0) + 14, 8, math.max(8, viewport.X - size.X - 8))
+            local y = math.clamp((position and position.Y or 0) + 16, 8, math.max(8, viewport.Y - size.Y - 8))
+            TooltipFrame.Position = UDim2.fromOffset(x, y)
+        end)
+    end
+
+    function Window:HideTooltip(target)
+        if target and activeTooltipTarget ~= target then return end
+        activeTooltipTarget = nil
+        TooltipFrame.Visible = false
+    end
+
+    function Window:AttachTooltip(target, text)
+        if not target or not target:IsA("GuiObject") or text == nil or tostring(text) == "" then return nil end
+        local touching = false
+        Library:Connect(target.MouseEnter, function()
+            local mouse = UserInputService:GetMouseLocation()
+            Window:ShowTooltip(text, mouse, target)
+        end)
+        Library:Connect(target.MouseMoved, function(x, y)
+            if activeTooltipTarget == target then Window:ShowTooltip(text, Vector2.new(x, y), target) end
+        end)
+        Library:Connect(target.MouseLeave, function() Window:HideTooltip(target) end)
+        Library:Connect(target.InputBegan, function(input)
+            if input.UserInputType ~= Enum.UserInputType.Touch then return end
+            touching = true
+            task.delay(0.45, function()
+                if touching and target.Parent and not Library.Unloaded then Window:ShowTooltip(text, input.Position, target) end
+            end)
+        end)
+        Library:Connect(target.InputEnded, function(input)
+            if input.UserInputType == Enum.UserInputType.Touch then touching = false Window:HideTooltip(target) end
+        end)
+        return {Show = function() Window:ShowTooltip(text, target.AbsolutePosition + target.AbsoluteSize, target) end,
+            Hide = function() Window:HideTooltip(target) end,
+            Set = function(_, value) text = tostring(value or "") end}
+    end
+
     function Window:Dialog(dialogOptions)
         dialogOptions = dialogOptions or {}
         local overlay = Utility:Create("TextButton", {
@@ -2727,6 +2925,218 @@ function Library:CreateWindow(options)
         Utility:Tween(overlay, TweenInfo.new(0.18), {BackgroundTransparency = 0.35})
         return {Close = close, Frame = card}
     end
+
+    function Window:Prompt(promptOptions)
+        promptOptions = promptOptions or {}
+        local overlay = Utility:Create("TextButton", {
+            Name = "PromptOverlay", Parent = ScreenGui, BackgroundColor3 = Color3.new(0, 0, 0),
+            BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Text = "",
+            AutoButtonColor = false, ZIndex = 820
+        })
+        local layoutWidth = getViewport().X / math.max(Library.DPIScale, 0.01)
+        local card = Utility:Create("Frame", {
+            Parent = overlay, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+            Size = UDim2.fromOffset(math.max(1, math.min(IsMobile and 320 or 420, layoutWidth - 24)), 0),
+            AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Library.Theme.Main,
+            BorderSizePixel = 0, ZIndex = 821
+        })
+        Utility:RegisterProperty(card, "BackgroundColor3", "Main")
+        Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 10)})
+        local stroke = Utility:Create("UIStroke", {Parent = card, Color = Library.Theme.Stroke, Thickness = 1})
+        Utility:RegisterProperty(stroke, "Color", "Stroke")
+        Utility:Create("UIPadding", {
+            Parent = card, PaddingTop = UDim.new(0, 16), PaddingBottom = UDim.new(0, 16),
+            PaddingLeft = UDim.new(0, 16), PaddingRight = UDim.new(0, 16)
+        })
+        Utility:Create("UIListLayout", {Parent = card, Padding = UDim.new(0, 9), SortOrder = Enum.SortOrder.LayoutOrder})
+        local title = Utility:Create("TextLabel", {
+            Parent = card, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 24),
+            Text = tostring(promptOptions.Title or "Enter a value"), TextColor3 = Library.Theme.Text,
+            Font = Enum.Font.GothamBold, TextSize = 16, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 822
+        })
+        Utility:RegisterProperty(title, "TextColor3", "Text")
+        if promptOptions.Content then
+            local content = Utility:Create("TextLabel", {
+                Parent = card, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 18), AutomaticSize = Enum.AutomaticSize.Y,
+                Text = tostring(promptOptions.Content), TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham,
+                TextSize = 12, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 822
+            })
+            Utility:RegisterProperty(content, "TextColor3", "SubText")
+        end
+        local input = Utility:Create("TextBox", {
+            Parent = card, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, 38),
+            Text = tostring(promptOptions.Default or ""), PlaceholderText = tostring(promptOptions.Placeholder or "Type here..."),
+            ClearTextOnFocus = false, TextColor3 = Library.Theme.Text, PlaceholderColor3 = Library.Theme.SubText,
+            Font = Enum.Font.Gotham, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 822, BorderSizePixel = 0
+        })
+        Utility:RegisterProperty(input, "BackgroundColor3", "Surface")
+        Utility:RegisterProperty(input, "TextColor3", "Text")
+        Utility:RegisterProperty(input, "PlaceholderColor3", "SubText")
+        Utility:Create("UICorner", {Parent = input, CornerRadius = UDim.new(0, 6)})
+        Utility:Create("UIPadding", {Parent = input, PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)})
+        local errorLabel = Utility:Create("TextLabel", {
+            Parent = card, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+            Text = "", TextColor3 = Library.Theme.Error, Font = Enum.Font.Gotham, TextSize = 11,
+            TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, Visible = false, ZIndex = 822
+        })
+        Utility:RegisterProperty(errorLabel, "TextColor3", "Error")
+        local actions = Utility:Create("Frame", {Parent = card, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 34), ZIndex = 822})
+        Utility:Create("UIListLayout", {Parent = actions, FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Right, Padding = UDim.new(0, 8)})
+        local closed = false
+        local function close(cancelled)
+            if closed then return end
+            closed = true
+            if cancelled then Utility:SafeCall(promptOptions.OnCancel) end
+            Utility:Tween(overlay, TweenInfo.new(0.18), {BackgroundTransparency = 1}, function()
+                if overlay.Parent then overlay:Destroy() end
+            end)
+            if Library.ReducedMotion and overlay.Parent then overlay:Destroy() end
+        end
+        local function submit()
+            local value = input.Text
+            if type(promptOptions.Validate) == "function" then
+                local ok, valid, message = pcall(promptOptions.Validate, value)
+                if not ok or valid == false then
+                    errorLabel.Text = tostring(ok and message or valid)
+                    errorLabel.Visible = true
+                    return
+                end
+            end
+            Utility:SafeCall(promptOptions.Callback, value)
+            close(false)
+        end
+        local function makeAction(name, primary, callback)
+            local button = Utility:Create("TextButton", {
+                Parent = actions, BackgroundColor3 = primary and Library.Theme.Accent or Library.Theme.Hover,
+                Size = UDim2.fromOffset(96, 32), Text = name, TextColor3 = Library.Theme.Text,
+                Font = Enum.Font.GothamBold, TextSize = 12, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 823
+            })
+            Utility:Create("UICorner", {Parent = button, CornerRadius = UDim.new(0, 6)})
+            Library:Connect(button.MouseButton1Click, callback)
+        end
+        makeAction(tostring(promptOptions.CancelText or "Cancel"), false, function() close(true) end)
+        makeAction(tostring(promptOptions.SubmitText or "Submit"), true, submit)
+        Library:Connect(input.FocusLost, function(enterPressed) if enterPressed then submit() end end)
+        Library:Connect(overlay.MouseButton1Click, function() if promptOptions.Dismissable ~= false then close(true) end end)
+        Utility:Tween(overlay, TweenInfo.new(0.18), {BackgroundTransparency = 0.35})
+        task.defer(function() if input.Parent then input:CaptureFocus() end end)
+        return {Close = function() close(true) end, Submit = submit, Get = function() return input.Text end,
+            Set = function(_, value) input.Text = tostring(value or "") end, Frame = card, Input = input}
+    end
+
+    function Window:ShowKeybindManager()
+        if self.KeybindManagerOverlay and self.KeybindManagerOverlay.Parent then
+            self.KeybindManagerOverlay.Visible = true
+            return self.KeybindManagerOverlay
+        end
+        local overlay = Utility:Create("TextButton", {
+            Name = "KeybindManagerOverlay", Parent = ScreenGui, BackgroundColor3 = Color3.new(0, 0, 0),
+            BackgroundTransparency = 0.35, Size = UDim2.fromScale(1, 1), Text = "",
+            AutoButtonColor = false, ZIndex = 840
+        })
+        self.KeybindManagerOverlay = overlay
+        local card = Utility:Create("Frame", {
+            Parent = overlay, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+            Size = UDim2.fromOffset(math.min(IsMobile and 330 or 460, getViewport().X - 24), math.min(430, getViewport().Y - 24)),
+            BackgroundColor3 = Library.Theme.Main, BorderSizePixel = 0, ZIndex = 841
+        })
+        Utility:RegisterProperty(card, "BackgroundColor3", "Main")
+        Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 10)})
+        local stroke = Utility:Create("UIStroke", {Parent = card, Color = Library.Theme.Stroke, Thickness = 1})
+        Utility:RegisterProperty(stroke, "Color", "Stroke")
+        local title = Utility:Create("TextLabel", {
+            Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(16, 12),
+            Size = UDim2.new(1, -72, 0, 28), Text = "Keybind manager", TextColor3 = Library.Theme.Text,
+            Font = Enum.Font.GothamBold, TextSize = 16, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 842
+        })
+        Utility:RegisterProperty(title, "TextColor3", "Text")
+        local closeButton = Utility:Create("TextButton", {
+            Parent = card, BackgroundColor3 = Library.Theme.Surface, Position = UDim2.new(1, -46, 0, 10),
+            Size = UDim2.fromOffset(34, 30), Text = "×", TextColor3 = Library.Theme.Text,
+            Font = Enum.Font.GothamBold, TextSize = 18, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 843
+        })
+        Utility:RegisterProperty(closeButton, "BackgroundColor3", "Surface")
+        Utility:RegisterProperty(closeButton, "TextColor3", "Text")
+        Utility:Create("UICorner", {Parent = closeButton, CornerRadius = UDim.new(0, 6)})
+        local list = Utility:Create("ScrollingFrame", {
+            Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 52),
+            Size = UDim2.new(1, -24, 1, -104), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            ScrollBarThickness = 2, ScrollBarImageColor3 = Library.Theme.Accent, BorderSizePixel = 0, ZIndex = 842
+        })
+        Utility:RegisterProperty(list, "ScrollBarImageColor3", "Accent")
+        Utility:Create("UIListLayout", {Parent = list, Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder})
+        local function rebuild()
+            for _, child in ipairs(list:GetChildren()) do if child:IsA("GuiObject") then child:Destroy() end end
+            for _, entry in ipairs(Library.KeybindList) do
+                if entry.controller and entry.controller.Holder and entry.controller.Holder.Parent then
+                    local row = Utility:Create("Frame", {
+                        Parent = list, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, -4, 0, 42),
+                        BorderSizePixel = 0, ZIndex = 843
+                    })
+                    Utility:RegisterProperty(row, "BackgroundColor3", "Surface")
+                    Utility:Create("UICorner", {Parent = row, CornerRadius = UDim.new(0, 6)})
+                    local label = Utility:Create("TextLabel", {
+                        Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 0),
+                        Size = UDim2.new(1, -160, 1, 0), Text = entry.name .. "  ·  " .. entry.mode,
+                        TextColor3 = Library.Theme.Text, Font = Enum.Font.Gotham, TextSize = 12,
+                        TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 844
+                    })
+                    Utility:RegisterProperty(label, "TextColor3", "Text")
+                    local keyButton = Utility:Create("TextButton", {
+                        Parent = row, BackgroundColor3 = Library.Theme.Secondary, Position = UDim2.new(1, -142, 0.5, -14),
+                        Size = UDim2.fromOffset(76, 28), Text = tostring(entry.key), TextColor3 = Library.Theme.Text,
+                        Font = Enum.Font.GothamBold, TextSize = 11, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 844
+                    })
+                    Utility:RegisterProperty(keyButton, "BackgroundColor3", "Secondary")
+                    Utility:RegisterProperty(keyButton, "TextColor3", "Text")
+                    Utility:Create("UICorner", {Parent = keyButton, CornerRadius = UDim.new(0, 5)})
+                    local resetButton = Utility:Create("TextButton", {
+                        Parent = row, BackgroundTransparency = 1, Position = UDim2.new(1, -60, 0.5, -14),
+                        Size = UDim2.fromOffset(52, 28), Text = "Reset", TextColor3 = Library.Theme.SubText,
+                        Font = Enum.Font.GothamBold, TextSize = 10, AutoButtonColor = false, ZIndex = 844
+                    })
+                    Utility:RegisterProperty(resetButton, "TextColor3", "SubText")
+                    Library:Connect(keyButton.MouseButton1Click, function()
+                        keyButton.Text = "Press…"
+                        local connection
+                        connection = UserInputService.InputBegan:Connect(function(input, processed)
+                            if processed or input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+                            connection:Disconnect()
+                            entry.controller:Set(input.KeyCode.Name)
+                            keyButton.Text = input.KeyCode.Name
+                        end)
+                    end)
+                    Library:Connect(resetButton.MouseButton1Click, function()
+                        entry.controller:Set(entry.default)
+                        keyButton.Text = tostring(entry.default)
+                    end)
+                end
+            end
+        end
+        local footer = Utility:Create("TextButton", {
+            Parent = card, BackgroundColor3 = Library.Theme.Surface, Position = UDim2.new(0, 12, 1, -42),
+            Size = UDim2.new(1, -24, 0, 30), Text = "Reset all keybinds", TextColor3 = Library.Theme.Text,
+            Font = Enum.Font.GothamBold, TextSize = 11, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 843
+        })
+        Utility:RegisterProperty(footer, "BackgroundColor3", "Surface")
+        Utility:RegisterProperty(footer, "TextColor3", "Text")
+        Utility:Create("UICorner", {Parent = footer, CornerRadius = UDim.new(0, 6)})
+        Library:Connect(footer.MouseButton1Click, function()
+            for _, entry in ipairs(Library.KeybindList) do
+                if entry.controller then entry.controller:Set(entry.default) end
+            end
+            rebuild()
+        end)
+        local function hide() overlay.Visible = false end
+        Library:Connect(closeButton.MouseButton1Click, hide)
+        Library:Connect(overlay.MouseButton1Click, hide)
+        rebuild()
+        return overlay
+    end
+
+    Library.KeybindManager = {Show = function() return Window:ShowKeybindManager() end,
+        Hide = function() if Window.KeybindManagerOverlay then Window.KeybindManagerOverlay.Visible = false end end}
 
     Window:ApplyResponsiveLayout(true)
     Library:SetMaterialIntensity(options.MaterialIntensity or Library.MaterialIntensity)
@@ -2808,167 +3218,103 @@ function Library:CreateWindow(options)
         Utility:Tween(CloseBtn, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Surface})
     end)
 
--- GLOBAL SEARCH FUNCTIONALITY
+-- GLOBAL SEARCH: indexes controls and highlights matches without changing the
+-- structural visibility of tabs, pages, sections, or controls. Navigation is
+-- still owned exclusively by Window:SelectTab.
 if SearchBox then
-    local searchActive = false
-    local tabBeforeSearch = nil
+    local highlights = setmetatable({}, {__mode = "k"})
+    local SearchStatus = Utility:Create("TextLabel", {
+        Name = "SearchStatus", Parent = SearchBox, AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(42, 18),
+        BackgroundTransparency = 1, Text = "", TextColor3 = Library.Theme.SubText,
+        Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Right,
+        ZIndex = SearchBox.ZIndex + 1
+    })
+    Utility:RegisterProperty(SearchStatus, "TextColor3", "SubText")
 
-    local function restoreTabVisibility()
-        for _, tab in ipairs(Window.Tabs) do
-            if tab.TabBtn then
-                tab.TabBtn.Visible = true
+    local function clearHighlights()
+        for holder, stroke in pairs(highlights) do
+            if stroke and stroke.Parent then stroke:Destroy() end
+            highlights[holder] = nil
+        end
+    end
+
+    local function highlight(holder)
+        if not holder or not holder:IsA("GuiObject") or highlights[holder] then return end
+        local stroke = Utility:Create("UIStroke", {
+            Name = "RenSearchHighlight", Parent = holder, Color = Library.Theme.Accent,
+            Thickness = 2, Transparency = 0.05, ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        })
+        Utility:RegisterProperty(stroke, "Color", "Accent")
+        highlights[holder] = stroke
+    end
+
+    function Window:FocusSearchResult(index)
+        local count = #self.SearchResults
+        if count == 0 then return false end
+        index = ((tonumber(index) or self.SearchIndex or 0) - 1) % count + 1
+        self.SearchIndex = index
+        local result = self.SearchResults[index]
+        self:SelectTab(result.Tab, {ResetScroll = false, Animate = true})
+        SearchStatus.Text = tostring(index) .. "/" .. tostring(count)
+        task.defer(function()
+            local holder, page = result.Holder, result.Tab.Page
+            if not holder or not holder.Parent or not page or not page.Parent then return end
+            local localY = holder.AbsolutePosition.Y - page.AbsolutePosition.Y + page.CanvasPosition.Y
+            page.CanvasPosition = Vector2.new(0, math.max(0, localY - 12))
+            local stroke = highlights[holder]
+            if stroke then
+                stroke.Transparency = 0
+                Utility:Tween(stroke, TweenInfo.new(0.45), {Transparency = 0.18})
             end
+        end)
+        return true
+    end
 
-            for _, section in pairs(tab.Sections or {}) do
-                if section.SectionFrame then
-                    section.SectionFrame.Visible = true
-                end
+    function Window:RefreshSearch(query)
+        query = tostring(query or ""):lower():match("^%s*(.-)%s*$") or ""
+        self.SearchQuery = query
+        self.SearchIndex = 0
+        self.SearchResults = {}
+        clearHighlights()
 
+        if query == "" then
+            SearchStatus.Text = ""
+            return self.SearchResults
+        end
+
+        local seen = {}
+        for _, tab in ipairs(self.Tabs) do
+            for _, section in ipairs(tab.Sections or {}) do
                 for _, element in ipairs(section.Elements or {}) do
-                    if element.Holder then
-                        element.Holder.Visible = true
+                    local holder = element.Holder
+                    local haystack = table.concat({tab.Name or "", section.Name or "", element.Text or element.Name or ""}, " "):lower()
+                    if holder and holder.Parent and haystack:find(query, 1, true) and not seen[holder] then
+                        seen[holder] = true
+                        table.insert(self.SearchResults, {Tab = tab, Section = section, Element = element, Holder = holder})
+                        highlight(holder)
+                        if element.NestedParentHolder then highlight(element.NestedParentHolder) end
                     end
-                    if element.NestedParentHolder then
-                        element.NestedParentHolder.Visible = true
-                    end
-                end
-            end
-
-            if tab.Page then
-                tab.Page.Visible = false
-            end
-        end
-
-        for _, category in ipairs(Window.TabCategories) do
-            category.Label.Visible = not isCompact
-        end
-
-        local target = tabBeforeSearch or Window.ActiveTab or Window.OverviewTab or Window.Tabs[1]
-
-        searchActive = false
-        tabBeforeSearch = nil
-
-        if target then
-            if Window.ActiveTab ~= target then
-                target:Activate()
-            elseif target.Page then
-                target.Page.Visible = true
-                Window:MoveNavigationSelection(false)
-            end
-        end
-    end
-
-    local function searchInSection(section, searchText)
-        local anyVisible = false
-        local visibleHolders = {}
-
-        for _, element in ipairs(section.Elements or {}) do
-            if element.Holder then
-                local text = tostring(element.Text or element.Name or ""):lower()
-                local matches = text:find(searchText, 1, true) ~= nil
-
-                if matches then
-                    visibleHolders[element.Holder] = true
-                    if element.NestedParentHolder then
-                        visibleHolders[element.NestedParentHolder] = true
-                    end
-                    anyVisible = true
                 end
             end
         end
 
-        for _, element in ipairs(section.Elements or {}) do
-            if element.Holder then
-                element.Holder.Visible = visibleHolders[element.Holder] == true
-            end
-            if element.NestedParentHolder then
-                element.NestedParentHolder.Visible = visibleHolders[element.NestedParentHolder] == true
-            end
-        end
-
-        if section.SectionFrame then
-            section.SectionFrame.Visible = anyVisible
-        end
-
-        return anyVisible
+        SearchStatus.Text = #self.SearchResults == 0 and "0" or tostring(#self.SearchResults)
+        return self.SearchResults
     end
 
-    local function searchInTab(tab, searchText)
-        local anyVisible = false
-
-        for _, section in pairs(tab.Sections or {}) do
-            if searchInSection(section, searchText) then
-                anyVisible = true
-            end
-        end
-
-        return anyVisible
+    function Window:ClearSearch()
+        SearchBox.Text = ""
+        self:RefreshSearch("")
+        return self
     end
 
     Library:Connect(SearchBox:GetPropertyChangedSignal("Text"), function()
-        local searchText = SearchBox.Text:lower():match("^%s*(.-)%s*$") or ""
-
-        if searchText == "" then
-            restoreTabVisibility()
-            return
-        end
-
-        if not searchActive then
-            searchActive = true
-            tabBeforeSearch = Window.ActiveTab
-        end
-
-        local firstVisibleTab = nil
-
-        for _, tab in ipairs(Window.Tabs) do
-            local visible = searchInTab(tab, searchText)
-
-            if tab.TabBtn then
-                tab.TabBtn.Visible = visible
-            end
-
-            if visible and not firstVisibleTab then
-                firstVisibleTab = tab
-            end
-
-            if tab.Page then
-                tab.Page.Visible = false
-            end
-        end
-
-        for _, category in ipairs(Window.TabCategories) do
-            local hasVisibleTab = false
-
-            for _, categoryTab in ipairs(category.Tabs) do
-                if categoryTab.TabBtn and categoryTab.TabBtn.Visible then
-                    hasVisibleTab = true
-                    break
-                end
-            end
-
-            category.Label.Visible = not isCompact and hasVisibleTab
-        end
-
-        local activeStillVisible =
-            Window.ActiveTab
-            and Window.ActiveTab.TabBtn
-            and Window.ActiveTab.TabBtn.Visible
-
-        local target = activeStillVisible and Window.ActiveTab or firstVisibleTab
-
-        if target then
-            if Window.ActiveTab ~= target then
-                target:Activate()
-            elseif target.Page then
-                target.Page.Visible = true
-            end
-        end
-
-        -- Final safety: never allow multiple pages visible at once.
-        for _, tab in ipairs(Window.Tabs) do
-            if tab ~= target and tab.Page then
-                tab.Page.Visible = false
-            end
+        Window:RefreshSearch(SearchBox.Text)
+    end)
+    Library:Connect(SearchBox.FocusLost, function(enterPressed)
+        if enterPressed and Window.SearchQuery ~= "" then
+            Window:FocusSearchResult((Window.SearchIndex or 0) + 1)
         end
     end)
 end
@@ -3398,60 +3744,39 @@ end
             return frame
         end
 
-        function Tab:Activate()
-            if Window.ActiveTab == Tab then return end
-            if Window.ActiveTab then
-                Window.ActiveTab:Deactivate()
-            end
-            Tab.Active = true
-            Window.ActiveTab = Tab
+        function Tab:ApplyActiveVisual(active, animated)
+            local tweenInfo = TweenInfo.new(animated == false and 0 or 0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
             if Tab.TabBtn then
-                -- The shared selection surface supplies the active fill. The
-                -- button stays transparent so it cannot wash out its content.
-                Utility:Tween(Tab.TabBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundTransparency = 1})
+                Utility:Tween(Tab.TabBtn, tweenInfo, {BackgroundTransparency = active and 1 or 0.64})
             end
             if Tab.TabStroke then
-                Utility:Tween(Tab.TabStroke, TweenInfo.new(0.2), {Color = Library.Theme.Accent, Transparency = 0.08})
+                Utility:Tween(Tab.TabStroke, tweenInfo, {
+                    Color = active and Library.Theme.Accent or Library.Theme.Stroke,
+                    Transparency = active and 0.08 or 0.24
+                })
             end
             if Tab.TabLabel then
-                Utility:Tween(Tab.TabLabel, TweenInfo.new(0.2), {TextColor3 = Library.Theme.Text})
+                Utility:Tween(Tab.TabLabel, tweenInfo, {TextColor3 = active and Library.Theme.Text or Library.Theme.SubText})
             end
             if TabEmoji then
                 if TabEmoji:IsA("TextLabel") then
-                    Utility:Tween(TabEmoji, TweenInfo.new(0.2), {TextColor3 = Library.Theme.Text})
+                    Utility:Tween(TabEmoji, tweenInfo, {TextColor3 = active and Library.Theme.Text or Library.Theme.SubText})
                 elseif TabEmoji:IsA("ImageLabel") then
-                    Utility:Tween(TabEmoji, TweenInfo.new(0.2), {ImageColor3 = Library.Theme.Text})
+                    Utility:Tween(TabEmoji, tweenInfo, {ImageColor3 = active and Library.Theme.Text or Library.Theme.SubText})
                 end
             end
             if Indicator then Indicator.BackgroundTransparency = 1 end
-            TitleLabel.Text = Name
-            Page.Visible = true
-            Page.CanvasPosition = Vector2.new(0, 0)
-            task.defer(function()
-                if Tab.Active and not Library.Unloaded then Window:MoveNavigationSelection(true) end
-            end)
+        end
+
+        function Tab:Activate(selectOptions)
+            selectOptions = selectOptions or {}
+            if selectOptions.ResetScroll == nil then selectOptions.ResetScroll = true end
+            return Window:SelectTab(Tab, selectOptions)
         end
 
         function Tab:Deactivate()
-            Tab.Active = false
-            if Tab.TabBtn then
-                Utility:Tween(Tab.TabBtn, TweenInfo.new(0.2), {BackgroundTransparency = 0.64})
-            end
-            if Tab.TabStroke then
-                Utility:Tween(Tab.TabStroke, TweenInfo.new(0.2), {Color = Library.Theme.Stroke, Transparency = 0.24})
-            end
-            if Tab.TabLabel then
-                Utility:Tween(Tab.TabLabel, TweenInfo.new(0.2), {TextColor3 = Library.Theme.SubText})
-            end
-            if TabEmoji then
-                if TabEmoji:IsA("TextLabel") then
-                    Utility:Tween(TabEmoji, TweenInfo.new(0.3), {TextColor3 = Library.Theme.SubText})
-                elseif TabEmoji:IsA("ImageLabel") then
-                    Utility:Tween(TabEmoji, TweenInfo.new(0.3), {ImageColor3 = Library.Theme.SubText})
-                end
-            end
-            if Indicator then Indicator.BackgroundTransparency = 1 end
-            Page.Visible = false
+            if Window.ActiveTab == Tab then return Window:SelectTab(nil) end
+            return true
         end
 
         if TabBtn then
@@ -3593,9 +3918,14 @@ end
                 if element.Holder and element.Holder.Parent ~= ContentContainer then
                     element.Holder.Parent = ContentContainer
                 end
+                if Window.SearchQuery ~= "" and Window.RefreshSearch then
+                    task.defer(function()
+                        if not Library.Unloaded then Window:RefreshSearch(Window.SearchQuery) end
+                    end)
+                end
             end
 
-            local function finishController(controller, holder, name)
+            local function finishController(controller, holder, name, tooltip)
                 controller = controller or {}
                 controller.Holder = holder
                 controller.Name = name
@@ -3660,6 +3990,8 @@ end
                     return self
                 end
                 local blocker
+                local loadingOverlay
+                local loadingToken = 0
                 function controller:SetVisible(visible)
                     holder.Visible = visible == true
                     RefreshLayout()
@@ -3689,8 +4021,55 @@ end
                         blocker = nil
                     end
                 end
+                function controller:SetLoading(loading, message)
+                    loadingToken = loadingToken + 1
+                    local token = loadingToken
+                    if loading == true then
+                        if not loadingOverlay then
+                            loadingOverlay = Utility:Create("Frame", {
+                                Name = "RenLibLoading", Parent = holder, BackgroundColor3 = Library.Theme.Main,
+                                BackgroundTransparency = 0.18, Size = UDim2.fromScale(1, 1),
+                                BorderSizePixel = 0, ZIndex = 110
+                            })
+                            Utility:RegisterProperty(loadingOverlay, "BackgroundColor3", "Main")
+                            Utility:Create("UICorner", {Parent = loadingOverlay, CornerRadius = UDim.new(0, 6)})
+                            local loadingText = Utility:Create("TextLabel", {
+                                Name = "Status", Parent = loadingOverlay, BackgroundTransparency = 1,
+                                Size = UDim2.fromScale(1, 1), Text = tostring(message or "Loading…"),
+                                TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold,
+                                TextSize = 12, ZIndex = 111
+                            })
+                            Utility:RegisterProperty(loadingText, "TextColor3", "Text")
+                        else
+                            loadingOverlay.Status.Text = tostring(message or "Loading…")
+                            loadingOverlay.Status.TextTransparency = 0
+                            loadingOverlay.Visible = true
+                        end
+                        task.spawn(function()
+                            local dim = false
+                            while token == loadingToken and loadingOverlay and loadingOverlay.Parent and not Library.Unloaded do
+                                dim = not dim
+                                Utility:Tween(loadingOverlay.Status, TweenInfo.new(0.45), {TextTransparency = dim and 0.45 or 0})
+                                task.wait(0.5)
+                            end
+                        end)
+                    elseif loadingOverlay then
+                        loadingOverlay.Visible = false
+                    end
+                    return self
+                end
+                function controller:SetTooltip(text)
+                    self.Tooltip = tostring(text or "")
+                    if self._TooltipAttached then
+                        self._TooltipAttached:Set(self.Tooltip)
+                    elseif self.Tooltip ~= "" then
+                        self._TooltipAttached = Window:AttachTooltip(holder, self.Tooltip)
+                    end
+                    return self
+                end
                 function controller:Lock() self:SetLocked(true) end
                 function controller:Unlock() self:SetLocked(false) end
+                if tooltip ~= nil then controller:SetTooltip(tooltip) end
                 return controller
             end
 
@@ -3761,7 +4140,7 @@ end
                     Set = function(self, nextValue) setValue(nextValue, true) end,
                     Get = function() return Library.Flags[flag] end,
                     OnChanged = function(self, fn) table.insert(listeners, fn) end
-                }, container, name)
+                }, container, name, options.Tooltip)
                 Library:RegisterOption(flag, controller)
                 addElement({Holder = container, Text = name})
                 return controller
@@ -3804,7 +4183,7 @@ end
                 local controller = finishController({
                     SetTitle = function(self, text) title = tostring(text); titleLabel.Text = title; resize() end,
                     SetContent = function(self, text) contentLabel.Text = tostring(text); resize() end
-                }, container, title)
+                }, container, title, options.Tooltip)
                 addElement({Holder = container, Text = title .. " " .. content})
                 task.defer(resize)
                 return controller
@@ -3859,7 +4238,7 @@ end
                     Type = "Metric",
                     SetValue = function(self, nextValue) valueLabel.Text = tostring(nextValue) end,
                     SetDetail = function(self, nextDetail) if detailLabel then detailLabel.Text = tostring(nextDetail) end end
-                }, container, name)
+                }, container, name, options.Tooltip)
                 addElement({Holder = container, Text = name .. " " .. value .. " " .. detail})
                 return controller
             end
@@ -4006,7 +4385,7 @@ end
                     SetDescription = function(self, text)
                         if ButtonDescription then ButtonDescription.Text = tostring(text) end
                     end
-                }, ButtonContainer, Name)
+                }, ButtonContainer, Name, options.Tooltip)
             end
 
             -- TOGGLE
@@ -4121,7 +4500,7 @@ end
                         table.insert(changeListeners, fn)
                     end
                 }
-                finishController(toggleObj, ToggleContainer, Name)
+                finishController(toggleObj, ToggleContainer, Name, options.Tooltip)
                 Library:RegisterOption(Flag, toggleObj)
                 return toggleObj
             end
@@ -4266,7 +4645,7 @@ end
                     SetSilent = function(self, val) SetValue(val, false) end,
                     Get = function() return Value end
                 }
-                finishController(sliderObj, SliderContainer, Name)
+                finishController(sliderObj, SliderContainer, Name, options.Tooltip)
                 Library:RegisterOption(Flag, sliderObj)
                 return sliderObj
             end
@@ -4544,7 +4923,7 @@ end
                     end,
                     SetExpanded = function(self, open) SetExpanded(open) end
                 }
-                finishController(dropObj, DropdownContainer, Name)
+                finishController(dropObj, DropdownContainer, Name, options.Tooltip)
                 Library:RegisterOption(Flag, dropObj)
                 return dropObj
             end
@@ -4747,7 +5126,7 @@ end
                 return finishController({
                     SetImage = function(self, newImage) img.Image = newImage end,
                     SetSize = function(self, w, h) container.Size = UDim2.new(0, w, 0, h) end
-                }, container, "Image")
+                }, container, "Image", options.Tooltip)
             end
 
             -- KEYBIND PICKER
@@ -4755,13 +5134,19 @@ end
                 options = options or {}
                 local name = options.Name or "Keybind"
                 local defaultKey = options.Default or "None"
+                if typeof(defaultKey) == "EnumItem" then defaultKey = defaultKey.Name else defaultKey = tostring(defaultKey) end
                 local mode = options.Mode or "Toggle"
                 local callback = options.Callback or function() end
                 local flag = options.Flag or name
 
                 local currentKey = Library.Flags[flag] or defaultKey
+                if typeof(currentKey) == "EnumItem" then currentKey = currentKey.Name else currentKey = tostring(currentKey) end
                 local toggled = false
                 local listening = false
+                local keyHeld = false
+                local keybindEntry = {name = name, key = currentKey, default = defaultKey, mode = mode, callback = callback, flag = flag}
+                table.insert(Library.KeybindList, keybindEntry)
+                Library.KeybindDefaults[flag] = defaultKey
 
                 local container = Utility:Create("Frame", {
                     Parent = ContentContainer,
@@ -4843,18 +5228,7 @@ end
                             keyBtn.Text = currentKey
                             listening = false
                             conn:Disconnect()
-                            -- Update keybind list entry
-                            local found = false
-                            for _, kb in ipairs(Library.KeybindList) do
-                                if kb.name == name then
-                                    kb.key = currentKey
-                                    found = true
-                                    break
-                                end
-                            end
-                            if not found then
-                                table.insert(Library.KeybindList, {name = name, key = currentKey, mode = mode, callback = callback})
-                            end
+                            keybindEntry.key = currentKey
                         end
                     end)
                 end)
@@ -4894,16 +5268,45 @@ end
                     end)
                 end
 
+                Library:Connect(UserInputService.InputBegan, function(input, processed)
+                    if processed or listening or input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+                    if input.KeyCode.Name ~= currentKey then return end
+                    if mode == "Hold" then
+                        if keyHeld then return end
+                        keyHeld = true
+                        stateIndicator.Visible = true
+                        Utility:SafeCall(callback, currentKey, true)
+                    elseif mode == "Toggle" then
+                        toggled = not toggled
+                        stateIndicator.Visible = toggled
+                        Utility:SafeCall(callback, currentKey, toggled)
+                    else
+                        Utility:SafeCall(callback, currentKey, true)
+                    end
+                end)
+                Library:Connect(UserInputService.InputEnded, function(input)
+                    if mode ~= "Hold" or input.UserInputType ~= Enum.UserInputType.Keyboard or input.KeyCode.Name ~= currentKey then return end
+                    keyHeld = false
+                    stateIndicator.Visible = false
+                    Utility:SafeCall(callback, currentKey, false)
+                end)
+
                 addElement({Holder = container, Text = name})
                 local controller = finishController({
                     Type = "KeyPicker",
-                    Set = function(self, key) currentKey = tostring(key); keyBtn.Text = currentKey; Library.Flags[flag] = currentKey end,
+                    Set = function(self, key)
+                        currentKey = typeof(key) == "EnumItem" and key.Name or tostring(key)
+                        keyBtn.Text = currentKey
+                        Library.Flags[flag] = currentKey
+                        keybindEntry.key = currentKey
+                    end,
                     Get = function() return currentKey end,
                     GetKey = function() return currentKey end,
                     GetState = function() return toggled end
-                }, container, name)
+                }, container, name, options.Tooltip)
                 Library.Flags[flag] = currentKey
                 Library:RegisterOption(flag, controller)
+                keybindEntry.controller = controller
                 return controller
             end
 
@@ -5112,8 +5515,344 @@ end
                     Get = function() return currentColor end,
                     OnChanged = function(self, fn) table.insert(listeners, fn) end,
                     SetExpanded = function(self, open) if expanded ~= (open == true) then setExpanded(open) end end
-                }, container, name)
+                }, container, name, options.Tooltip)
                 Library:RegisterOption(flag, controller)
+                return controller
+            end
+
+            function Section:CreateGroup(options)
+                if type(options) == "string" then options = {Name = options} end
+                options = options or {}
+                local name = tostring(options.Name or "Group")
+                local expanded = options.Expanded ~= false
+                local headerHeight = IsMobile and 38 or 42
+                local container = Utility:Create("Frame", {
+                    Name = "Group_" .. name, Parent = ContentContainer, BackgroundColor3 = Library.Theme.Secondary,
+                    Size = UDim2.new(1, 0, 0, headerHeight), ClipsDescendants = true,
+                    BorderSizePixel = 0, ZIndex = 5
+                })
+                Utility:RegisterProperty(container, "BackgroundColor3", "Secondary")
+                Utility:RegisterMaterial(container, 0.42, 0.08)
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 8)})
+                local groupStroke = Utility:Create("UIStroke", {Parent = container, Color = Library.Theme.Divider, Thickness = 1})
+                Utility:RegisterProperty(groupStroke, "Color", "Divider")
+                local header = Utility:Create("TextButton", {
+                    Parent = container, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, headerHeight),
+                    Text = "", AutoButtonColor = false, ZIndex = 6
+                })
+                local title = Utility:Create("TextLabel", {
+                    Parent = header, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 0),
+                    Size = UDim2.new(1, -48, 1, 0), Text = name, TextColor3 = Library.Theme.Text,
+                    Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7
+                })
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local chevron = Utility:Create("ImageLabel", {
+                    Parent = header, BackgroundTransparency = 1, Position = UDim2.new(1, -28, 0.5, -7),
+                    Size = UDim2.fromOffset(14, 14), Image = ICONS.ChevronDown,
+                    ImageColor3 = Library.Theme.SubText, Rotation = expanded and 0 or -90, ZIndex = 7
+                })
+                Utility:RegisterProperty(chevron, "ImageColor3", "SubText")
+                local body = Utility:Create("Frame", {
+                    Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(0, headerHeight),
+                    Size = UDim2.new(1, 0, 0, 0), Visible = expanded, ZIndex = 6
+                })
+                Utility:Create("UIPadding", {
+                    Parent = body, PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8),
+                    PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 8)
+                })
+                local bodyLayout = Utility:Create("UIListLayout", {Parent = body, Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder})
+                local function refresh()
+                    local bodyHeight = expanded and bodyLayout.AbsoluteContentSize.Y + 12 or 0
+                    body.Visible = expanded
+                    body.Size = UDim2.new(1, 0, 0, bodyHeight)
+                    Utility:Tween(container, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                        Size = UDim2.new(1, 0, 0, headerHeight + bodyHeight)
+                    })
+                    Utility:Tween(chevron, TweenInfo.new(0.2), {Rotation = expanded and 0 or -90})
+                    RefreshLayout()
+                end
+                Library:Connect(bodyLayout:GetPropertyChangedSignal("AbsoluteContentSize"), refresh)
+                addElement({Holder = container, Text = name})
+                local group = finishController({Type = "Group"}, container, name, options.Tooltip)
+                function group:SetExpanded(value) expanded = value == true refresh() return self end
+                function group:Toggle() return self:SetExpanded(not expanded) end
+                function group:IsExpanded() return expanded end
+                function group:SetTitle(value) name = tostring(value); title.Text = name; self.Name = name return self end
+                local function attach(method, value)
+                    local controller = Section[method](Section, value)
+                    if controller and controller.Holder then
+                        controller.Holder.Parent = body
+                        for _, element in ipairs(Section.Elements) do
+                            if element.Holder == controller.Holder then element.NestedParentHolder = container break end
+                        end
+                        Library:Connect(controller.Holder:GetPropertyChangedSignal("Size"), refresh)
+                        task.defer(refresh)
+                    end
+                    return controller
+                end
+                function group:CreateButton(value) return attach("CreateButton", value) end
+                function group:CreateToggle(value) return attach("CreateToggle", value) end
+                function group:CreateSlider(value) return attach("CreateSlider", value) end
+                function group:CreateDropdown(value) return attach("CreateDropdown", value) end
+                function group:CreateMultiDropdown(value) return attach("CreateMultiDropdown", value) end
+                function group:CreateInput(value) return attach("CreateInput", value) end
+                function group:CreateParagraph(value) return attach("CreateParagraph", value) end
+                function group:CreateMetric(value) return attach("CreateMetric", value) end
+                function group:CreateKeyPicker(value) return attach("CreateKeyPicker", value) end
+                function group:CreateColorPicker(value) return attach("CreateColorPicker", value) end
+                function group:CreateImage(value) return attach("CreateImage", value) end
+                function group:CreateLabel(value) return attach("CreateLabel", value) end
+                function group:CreateDivider(value) return attach("CreateDivider", value) end
+                function group:CreateGroup(value) return attach("CreateGroup", value) end
+                function group:CreateList(value) return attach("CreateList", value) end
+                function group:CreateTable(value) return attach("CreateTable", value) end
+                function group:CreatePlayerList(value) return attach("CreatePlayerList", value) end
+                function group:CreateLogConsole(value) return attach("CreateLogConsole", value) end
+                function group:CreateSkeleton(value) return attach("CreateSkeleton", value) end
+                Library:Connect(header.MouseButton1Click, function() group:Toggle() end)
+                task.defer(refresh)
+                return group
+            end
+
+            function Section:CreateList(options)
+                options = options or {}
+                local name = tostring(options.Name or "List")
+                local items = type(options.Items) == "table" and options.Items or {}
+                local selected = options.Default
+                local container = Utility:Create("Frame", {
+                    Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface,
+                    Size = UDim2.new(1, 0, 0, tonumber(options.Height) or 176),
+                    BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5
+                })
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 7)})
+                local stroke = Utility:Create("UIStroke", {Parent = container, Color = Library.Theme.Stroke, Thickness = 1})
+                Utility:RegisterProperty(stroke, "Color", "Stroke")
+                local title = Utility:Create("TextLabel", {
+                    Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 5),
+                    Size = UDim2.new(1, -20, 0, 24), Text = name, TextColor3 = Library.Theme.Text,
+                    Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+                })
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local list = Utility:Create("ScrollingFrame", {
+                    Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(7, 32),
+                    Size = UDim2.new(1, -14, 1, -39), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                    ScrollBarThickness = 2, ScrollBarImageColor3 = Library.Theme.Accent, BorderSizePixel = 0, ZIndex = 6
+                })
+                Utility:RegisterProperty(list, "ScrollBarImageColor3", "Accent")
+                Utility:Create("UIListLayout", {Parent = list, Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder})
+                local controller
+                local function parts(item)
+                    if type(item) == "table" then return tostring(item.Label or item.Name or item.Value or "Item"), item.Value ~= nil and item.Value or item, item.Description end
+                    return tostring(item), item, nil
+                end
+                local function render()
+                    for _, child in ipairs(list:GetChildren()) do if child:IsA("GuiObject") then child:Destroy() end end
+                    for index, item in ipairs(items) do
+                        local labelText, value, description = parts(item)
+                        local row = Utility:Create("TextButton", {
+                            Parent = list, BackgroundColor3 = Library.Theme.Secondary,
+                            BackgroundTransparency = value == selected and 0 or 0.24,
+                            Size = UDim2.new(1, -4, 0, description and 44 or 34), Text = "",
+                            AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = index, ZIndex = 7
+                        })
+                        Utility:RegisterProperty(row, "BackgroundColor3", value == selected and "Accent" or "Secondary")
+                        Utility:Create("UICorner", {Parent = row, CornerRadius = UDim.new(0, 5)})
+                        local label = Utility:Create("TextLabel", {
+                            Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(9, description and 4 or 0),
+                            Size = UDim2.new(1, -18, 0, description and 20 or 34), Text = labelText,
+                            TextColor3 = Library.Theme.Text, Font = Enum.Font.Gotham, TextSize = 12,
+                            TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8
+                        })
+                        Utility:RegisterProperty(label, "TextColor3", "Text")
+                        if description then
+                            local detail = Utility:Create("TextLabel", {
+                                Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(9, 22),
+                                Size = UDim2.new(1, -18, 0, 16), Text = tostring(description), TextColor3 = Library.Theme.SubText,
+                                Font = Enum.Font.Gotham, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8
+                            })
+                            Utility:RegisterProperty(detail, "TextColor3", "SubText")
+                        end
+                        Library:Connect(row.MouseButton1Click, function()
+                            selected = value
+                            render()
+                            Utility:SafeCall(options.Callback, value, item, index)
+                        end)
+                    end
+                end
+                addElement({Holder = container, Text = name})
+                controller = finishController({Type = "List"}, container, name, options.Tooltip)
+                function controller:SetItems(nextItems) items = type(nextItems) == "table" and nextItems or {} render() return self end
+                function controller:GetItems() return items end
+                function controller:Add(item) table.insert(items, item) render() return self end
+                function controller:Remove(value)
+                    for index, item in ipairs(items) do local _, itemValue = parts(item) if itemValue == value then table.remove(items, index) break end end
+                    if selected == value then selected = nil end render() return self
+                end
+                function controller:Clear() table.clear(items) selected = nil render() return self end
+                function controller:Select(value) selected = value render() return self end
+                function controller:GetSelected() return selected end
+                render()
+                return controller
+            end
+
+            function Section:CreateTable(options)
+                options = options or {}
+                local name = tostring(options.Name or "Table")
+                local columns = type(options.Columns) == "table" and options.Columns or {{Key = "value", Name = "Value"}}
+                local rows = type(options.Rows) == "table" and options.Rows or {}
+                local container = Utility:Create("Frame", {
+                    Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface,
+                    Size = UDim2.new(1, 0, 0, tonumber(options.Height) or 196), BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5
+                })
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 7)})
+                local title = Utility:Create("TextLabel", {
+                    Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 4), Size = UDim2.new(1, -20, 0, 24),
+                    Text = name, TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 12,
+                    TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+                })
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local header = Utility:Create("Frame", {Parent = container, BackgroundColor3 = Library.Theme.Secondary, Position = UDim2.fromOffset(7, 30), Size = UDim2.new(1, -14, 0, 28), BorderSizePixel = 0, ZIndex = 6})
+                Utility:RegisterProperty(header, "BackgroundColor3", "Secondary")
+                Utility:Create("UICorner", {Parent = header, CornerRadius = UDim.new(0, 5)})
+                local list = Utility:Create("ScrollingFrame", {
+                    Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(7, 63), Size = UDim2.new(1, -14, 1, -70),
+                    CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 2,
+                    ScrollBarImageColor3 = Library.Theme.Accent, BorderSizePixel = 0, ZIndex = 6
+                })
+                Utility:RegisterProperty(list, "ScrollBarImageColor3", "Accent")
+                Utility:Create("UIListLayout", {Parent = list, Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder})
+                local function cell(parent, text, index, count, bold)
+                    local label = Utility:Create("TextLabel", {
+                        Parent = parent, BackgroundTransparency = 1, Position = UDim2.new((index - 1) / count, 7, 0, 0),
+                        Size = UDim2.new(1 / count, -12, 1, 0), Text = tostring(text or ""), TextColor3 = bold and Library.Theme.Text or Library.Theme.SubText,
+                        Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham, TextSize = bold and 10 or 11,
+                        TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = parent.ZIndex + 1
+                    })
+                    Utility:RegisterProperty(label, "TextColor3", bold and "Text" or "SubText")
+                end
+                local function render()
+                    for _, child in ipairs(header:GetChildren()) do if child:IsA("TextLabel") then child:Destroy() end end
+                    for index, column in ipairs(columns) do cell(header, column.Name or column.Label or column.Key or index, index, #columns, true) end
+                    for _, child in ipairs(list:GetChildren()) do if child:IsA("GuiObject") then child:Destroy() end end
+                    for rowIndex, rowData in ipairs(rows) do
+                        local row = Utility:Create("Frame", {Parent = list, BackgroundColor3 = Library.Theme.Secondary, BackgroundTransparency = 0.3, Size = UDim2.new(1, -4, 0, 30), BorderSizePixel = 0, LayoutOrder = rowIndex, ZIndex = 7})
+                        Utility:RegisterProperty(row, "BackgroundColor3", "Secondary")
+                        Utility:Create("UICorner", {Parent = row, CornerRadius = UDim.new(0, 4)})
+                        for columnIndex, column in ipairs(columns) do
+                            local key = column.Key or column.Field or columnIndex
+                            cell(row, type(rowData) == "table" and rowData[key] or rowData, columnIndex, #columns, false)
+                        end
+                    end
+                end
+                addElement({Holder = container, Text = name})
+                local controller = finishController({Type = "Table"}, container, name, options.Tooltip)
+                function controller:SetRows(nextRows) rows = type(nextRows) == "table" and nextRows or {} render() return self end
+                function controller:SetColumns(nextColumns) columns = type(nextColumns) == "table" and nextColumns or columns render() return self end
+                function controller:AddRow(row) table.insert(rows, row) render() return self end
+                function controller:Clear() table.clear(rows) render() return self end
+                function controller:GetRows() return rows end
+                render()
+                return controller
+            end
+
+            function Section:CreatePlayerList(options)
+                options = options or {}
+                local listOptions = {}
+                for key, value in pairs(options) do listOptions[key] = value end
+                listOptions.Name = options.Name or "Players"
+                local userCallback = options.Callback
+                listOptions.Callback = function(player) Utility:SafeCall(userCallback, player) end
+                local controller = self:CreateList(listOptions)
+                controller.Type = "PlayerList"
+                local function refreshPlayers()
+                    local values = {}
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        table.insert(values, {Label = player.DisplayName, Description = "@" .. player.Name, Value = player})
+                    end
+                    table.sort(values, function(a, b) return a.Label:lower() < b.Label:lower() end)
+                    controller:SetItems(values)
+                end
+                Library:Connect(Players.PlayerAdded, function() task.defer(refreshPlayers) end)
+                Library:Connect(Players.PlayerRemoving, function() task.defer(refreshPlayers) end)
+                refreshPlayers()
+                return controller
+            end
+
+            function Section:CreateLogConsole(options)
+                options = options or {}
+                local name = tostring(options.Name or "Console")
+                local maxLines = math.max(10, tonumber(options.MaxLines) or 150)
+                local entries = {}
+                local container = Utility:Create("Frame", {
+                    Parent = ContentContainer, BackgroundColor3 = Library.Theme.Main,
+                    Size = UDim2.new(1, 0, 0, tonumber(options.Height) or 190), BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5
+                })
+                Utility:RegisterProperty(container, "BackgroundColor3", "Main")
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 7)})
+                local title = Utility:Create("TextLabel", {Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 4), Size = UDim2.new(1, -78, 0, 24), Text = name, TextColor3 = Library.Theme.Text, Font = Enum.Font.Code, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6})
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local clearButton = Utility:Create("TextButton", {Parent = container, BackgroundTransparency = 1, Position = UDim2.new(1, -64, 0, 4), Size = UDim2.fromOffset(54, 24), Text = "Clear", TextColor3 = Library.Theme.SubText, Font = Enum.Font.GothamBold, TextSize = 10, AutoButtonColor = false, ZIndex = 7})
+                Utility:RegisterProperty(clearButton, "TextColor3", "SubText")
+                local output = Utility:Create("ScrollingFrame", {Parent = container, BackgroundColor3 = Library.Theme.Secondary, BackgroundTransparency = 0.25, Position = UDim2.fromOffset(7, 31), Size = UDim2.new(1, -14, 1, -38), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 2, ScrollBarImageColor3 = Library.Theme.Accent, BorderSizePixel = 0, ZIndex = 6})
+                Utility:RegisterProperty(output, "BackgroundColor3", "Secondary")
+                Utility:RegisterProperty(output, "ScrollBarImageColor3", "Accent")
+                Utility:Create("UIPadding", {Parent = output, PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6)})
+                Utility:Create("UIListLayout", {Parent = output, Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder})
+                local function render()
+                    for _, child in ipairs(output:GetChildren()) do if child:IsA("TextLabel") then child:Destroy() end end
+                    for index, entry in ipairs(entries) do
+                        local semantic = entry.Level == "Error" and "Error" or entry.Level == "Warn" and "Warn" or entry.Level == "Success" and "Success" or "SubText"
+                        local line = Utility:Create("TextLabel", {Parent = output, BackgroundTransparency = 1, Size = UDim2.new(1, -4, 0, 16), AutomaticSize = Enum.AutomaticSize.Y, Text = "[" .. entry.Level .. "] " .. entry.Text, TextColor3 = Library.Theme[semantic], Font = Enum.Font.Code, TextSize = 11, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, LayoutOrder = index, ZIndex = 7})
+                        Utility:RegisterProperty(line, "TextColor3", semantic)
+                    end
+                    task.defer(function() output.CanvasPosition = Vector2.new(0, math.max(0, output.AbsoluteCanvasSize.Y)) end)
+                end
+                addElement({Holder = container, Text = name})
+                local controller = finishController({Type = "LogConsole"}, container, name, options.Tooltip)
+                function controller:Write(text, level)
+                    table.insert(entries, {Text = tostring(text), Level = tostring(level or "Info")})
+                    while #entries > maxLines do table.remove(entries, 1) end
+                    render() return self
+                end
+                function controller:Log(text) return self:Write(text, "Info") end
+                function controller:Warn(text) return self:Write(text, "Warn") end
+                function controller:Error(text) return self:Write(text, "Error") end
+                function controller:Success(text) return self:Write(text, "Success") end
+                function controller:Clear() table.clear(entries) render() return self end
+                function controller:GetEntries() return entries end
+                Library:Connect(clearButton.MouseButton1Click, function() controller:Clear() end)
+                for _, entry in ipairs(options.Entries or {}) do controller:Write(entry.Text or entry[1] or entry, entry.Level or entry[2]) end
+                return controller
+            end
+
+            function Section:CreateSkeleton(options)
+                options = options or {}
+                local lineCount = math.clamp(tonumber(options.Lines) or 3, 1, 8)
+                local container = Utility:Create("Frame", {Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, 22 + lineCount * 18), BorderSizePixel = 0, ZIndex = 5})
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 7)})
+                local bars = {}
+                for index = 1, lineCount do
+                    local bar = Utility:Create("Frame", {Parent = container, BackgroundColor3 = Library.Theme.Hover, BackgroundTransparency = 0.15, Position = UDim2.new(0, 10, 0, 10 + (index - 1) * 18), Size = UDim2.new(index == lineCount and 0.62 or 1, index == lineCount and -10 or -20, 0, 10), BorderSizePixel = 0, ZIndex = 6})
+                    Utility:RegisterProperty(bar, "BackgroundColor3", "Hover")
+                    Utility:Create("UICorner", {Parent = bar, CornerRadius = UDim.new(1, 0)})
+                    table.insert(bars, bar)
+                end
+                addElement({Holder = container, Text = tostring(options.Name or "Loading placeholder")})
+                local controller = finishController({Type = "Skeleton"}, container, options.Name or "Skeleton")
+                local animationToken = 1
+                task.spawn(function()
+                    local bright = false
+                    while animationToken == 1 and container.Parent and not Library.Unloaded do
+                        bright = not bright
+                        for _, bar in ipairs(bars) do Utility:Tween(bar, TweenInfo.new(0.55), {BackgroundTransparency = bright and 0.48 or 0.15}) end
+                        task.wait(0.62)
+                    end
+                end)
+                local destroy = controller.Destroy
+                function controller:Destroy() animationToken = 0 destroy(self) end
                 return controller
             end
 
@@ -5473,8 +6212,14 @@ end
         Content = "RenLib reflows from the UI's real visible width, so small scales and phones use one safe column. Frosted material is local to the RenLib window and never changes the game screen."
     })
 
+    local UtilitySection = SettingsTab:CreateSection({ Name = "Utilities", Side = "Right" })
+    UtilitySection:CreateButton({
+        Name = "Keybind manager",
+        Description = "Review, edit, or reset every registered shortcut in one place.",
+        Icon = ICONS.Menu,
+        Callback = function() Window:ShowKeybindManager() end
+    })
     if options.ShowInfiniteYield == nil or options.ShowInfiniteYield then
-        local UtilitySection = SettingsTab:CreateSection({ Name = "Utilities", Side = "Right" })
         UtilitySection:CreateButton({
             Name = "Launch Infinite Yield",
             Description = "Fetch the current official EdgeIY source after confirmation.",
@@ -5618,6 +6363,9 @@ function Library:Unload(reason)
     if self.Unloaded then return end
     self.Unloaded = true
     self.ScalePreview = nil
+    for index = #self.AddonOrder, 1, -1 do
+        self:UnregisterAddon(self.AddonOrder[index])
+    end
     for _, tween in pairs(self.ActiveTweens) do
         pcall(function() tween:Cancel() end)
     end
@@ -5641,10 +6389,13 @@ function Library:Unload(reason)
     table.clear(self.BrandMarks)
     table.clear(self.Scales)
     table.clear(self.Options)
+    table.clear(self.KeybindList)
+    table.clear(self.KeybindDefaults)
     table.clear(self.PendingAutoloadFlags)
     table.clear(self.LayoutTweens)
     table.clear(self.VisibilityTweens)
     self.Window = nil
+    self.KeybindManager = nil
     self.ScreenGui = nil
     if RuntimeEnvironment[RUNTIME_KEY] == self then RuntimeEnvironment[RUNTIME_KEY] = nil end
     print("[RenLib] Unloaded" .. (reason and (" (" .. tostring(reason) .. ")") or ""))

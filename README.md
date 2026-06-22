@@ -1,6 +1,6 @@
-# RenLib V6.7 — Native Overview & Seamless Glass
+# RenLib V7.0 — Reliable UI Framework
 
-RenLib is a responsive Roblox/Luau interface library for desktop, tablet, and phone. V6.7 adds a native Overview destination to every window, makes the frosted sidebar one seamless composited surface, preserves saved themes in migrated scripts, and keeps header/search geometry balanced at every sidebar state.
+RenLib is a responsive Roblox/Luau UI framework for desktop, tablet, and phone. V7 keeps the polished V6.7 interface, but replaces fragile cross-connected state with centralized navigation, non-destructive search, reusable framework controls, addons, tooltips, prompts, loading states, and a complete keybind manager.
 
 ```lua
 local RenLib = loadstring(game:HttpGet(
@@ -26,7 +26,20 @@ General:CreateToggle({
 })
 ```
 
-## What changed in V6.7
+## What changed in V7.0
+
+- `Window:SelectTab()` is the only authority allowed to select a page. Sidebar buttons, native Overview, Settings, search results, and public tab activation all use the same state transition.
+- Search never changes the structural `Visible` state of tabs, pages, sections, or controls. It indexes matches, adds a dedicated accent outline, reports the result count, and cycles through results with Enter.
+- Every returned control supports `SetLoading(true, message)` and optional mouse/touch `Tooltip` help.
+- `Window:Prompt()` provides validated text input dialogs.
+- `CreateGroup()` adds collapsible control groups that can contain normal controls, data controls, and nested groups.
+- Added `CreateList`, `CreateTable`, `CreatePlayerList`, `CreateLogConsole`, and `CreateSkeleton`.
+- Added a native keybind manager for reviewing, editing, and resetting registered shortcuts.
+- Added lifecycle-managed addons through `RegisterAddon`, `EnableAddon`, `DisableAddon`, and `UnregisterAddon`.
+- The icon catalog is public through `RenLib.Icons`, `RegisterIcon`, and `GetIcon`.
+- `Showcase.lua` demonstrates every V7 framework family in one script.
+
+## V6.7 visual foundations retained
 
 - Every window receives a pinned native Overview below the profile and above UI Settings.
 - Overview includes a confirmed **Relaunch RenHub** action that unloads RenLib before starting the official selector loader.
@@ -127,6 +140,12 @@ local Window = RenLib:CreateWindow({
 
 Window:SetTitle("New title")
 Window:SetSearch("movement")
+Window:FocusSearchResult(1)
+Window:ClearSearch()
+Window:SelectTab(Window.Tabs[1])
+Window:OnTabChanged(function(current, previous, revision)
+    print(current and current.Name, previous and previous.Name, revision)
+end)
 Window:SetMaximized(true)
 Window:Minimize()
 Window:Restore()
@@ -212,7 +231,40 @@ Stateful controls support `Set`, `Get`, and usually `OnChanged`. Every returned 
 speed:Lock()
 speed:Unlock()
 speed:SetVisible(false)
+speed:SetLoading(true, "Applying...")
+speed:SetTooltip("Applied after the drag is released.")
 speed:Destroy()
+```
+
+## Groups and data controls
+
+```lua
+local Group = Movement:CreateGroup({Name = "Advanced movement", Expanded = true})
+Group:CreateToggle({Name = "Air control", Default = true})
+Group:CreateSlider({Name = "Boost", Min = 0, Max = 100, Default = 25})
+
+local Targets = Movement:CreateList({
+    Name = "Targets",
+    Items = {
+        {Label = "Nearest", Description = "Lowest distance", Value = "nearest"},
+        {Label = "Lowest health", Value = "health"},
+    },
+    Callback = function(value) print(value) end,
+})
+Targets:Add({Label = "Manual", Value = "manual"})
+
+local Stats = Movement:CreateTable({
+    Name = "Stats",
+    Columns = {{Key = "name", Name = "Name"}, {Key = "value", Name = "Value"}},
+    Rows = {{name = "FPS", value = 60}, {name = "Ping", value = "48 ms"}},
+})
+
+local Players = Movement:CreatePlayerList({Name = "Players in server"})
+local Console = Movement:CreateLogConsole({Name = "Runtime log", MaxLines = 100})
+Console:Log("Ready")
+Console:Warn("Example warning")
+Console:Error("Example error")
+Movement:CreateSkeleton({Lines = 3})
 ```
 
 ## Themes and motion
@@ -305,6 +357,47 @@ Window:Dialog({
         {Name = "Reset", Primary = true, Callback = function() print("Reset") end},
     },
 })
+
+Window:Prompt({
+    Title = "Rename config",
+    Placeholder = "New name",
+    Validate = function(value)
+        return #value >= 3, "Use at least three characters."
+    end,
+    Callback = function(value) print("New name:", value) end,
+})
+```
+
+## Tooltips, keybinds, icons, and addons
+
+```lua
+local Action = Movement:CreateButton({
+    Name = "Protected action",
+    Tooltip = "Mouse over, or touch and hold, to read this help.",
+    Callback = function() end,
+})
+
+Movement:CreateKeyPicker({
+    Name = "Toggle action",
+    Flag = "ToggleActionKey",
+    Default = "P",
+    Mode = "Toggle", -- "Toggle", "Hold", or "Press"
+    Callback = function(key, active) print(key, active) end,
+})
+RenLib.KeybindManager:Show()
+
+print(RenLib.Icons.Home)
+RenLib:RegisterIcon("MyLogo", "1234567890")
+local CustomIcon = RenLib:GetIcon("MyLogo")
+
+RenLib:RegisterAddon("Telemetry", {
+    Start = function(self, library) print("Started with", library.Version) end,
+    Stop = function() print("Stopped") end,
+    Unload = function() print("Released") end,
+})
+RenLib:DisableAddon("Telemetry")
+RenLib:EnableAddon("Telemetry")
+RenLib:UnregisterAddon("Telemetry")
 ```
 
 ## Configs
@@ -329,8 +422,8 @@ All RenLib-managed connections, active tweens, registered theme/material objects
 
 ## Compatibility
 
-- `RenLib.lua` is the canonical V6.6.1 file.
-- `RenLibBêta.lua` and `RenLibTesting.lua` remain available for older loadstrings and mirror V6.6.1.
+- `RenLib.lua` is the canonical V7.0 file.
+- `RenLibBêta.lua` and `RenLibTesting.lua` remain available for older loadstrings and mirror V7.0 exactly.
 - Existing V4/V5 calls for windows, tabs, sections, buttons, toggles, sliders, dropdowns, labels, key pickers, warning boxes, images, and notifications remain supported.
 
 ## Design references
@@ -339,4 +432,4 @@ V6.5 studies hierarchy and interaction principles from [Luna Interface Suite](ht
 
 The project Obsidian vault is intentionally local-only and excluded from this repository.
 
-See [`Showcase.lua`](./Showcase.lua) for a fuller example.
+See [`Showcase.lua`](./Showcase.lua) for a complete runnable example, [`docs/API.md`](./docs/API.md) for the API map, [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for state invariants, and [`docs/QA-CHECKLIST.md`](./docs/QA-CHECKLIST.md) before publishing.
