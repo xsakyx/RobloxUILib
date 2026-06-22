@@ -2808,75 +2808,170 @@ function Library:CreateWindow(options)
         Utility:Tween(CloseBtn, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Surface})
     end)
 
-    -- GLOBAL SEARCH FUNCTIONALITY
-    if SearchBox then
-        local function searchInSection(section, searchText)
-            local anyVisible = false
-            local visibleHolders = {}
-            for _, element in ipairs(section.Elements or {}) do
-                if element.Holder then
-                    local text = element.Text or element.Name or ""
-                    local matches = searchText == "" or text:lower():find(searchText)
-                    if matches then
-                        visibleHolders[element.Holder] = true
-                        if element.NestedParentHolder then visibleHolders[element.NestedParentHolder] = true end
-                        anyVisible = true
+-- GLOBAL SEARCH FUNCTIONALITY
+if SearchBox then
+    local searchActive = false
+    local tabBeforeSearch = nil
+
+    local function restoreTabVisibility()
+        for _, tab in ipairs(Window.Tabs) do
+            if tab.TabBtn then
+                tab.TabBtn.Visible = true
+            end
+
+            for _, section in pairs(tab.Sections or {}) do
+                if section.SectionFrame then
+                    section.SectionFrame.Visible = true
+                end
+
+                for _, element in ipairs(section.Elements or {}) do
+                    if element.Holder then
+                        element.Holder.Visible = true
+                    end
+                    if element.NestedParentHolder then
+                        element.NestedParentHolder.Visible = true
                     end
                 end
             end
-            for _, element in ipairs(section.Elements or {}) do
-                if element.Holder then
-                    element.Holder.Visible = visibleHolders[element.Holder] == true
-                end
+
+            if tab.Page then
+                tab.Page.Visible = false
             end
-            if section.SectionFrame then
-                section.SectionFrame.Visible = anyVisible
-            end
-            return anyVisible
         end
 
-        local function searchInTab(tab, searchText)
-            local anyVisible = false
-            for _, section in pairs(tab.Sections) do
-                if searchInSection(section, searchText) then
+        for _, category in ipairs(Window.TabCategories) do
+            category.Label.Visible = not isCompact
+        end
+
+        local target = tabBeforeSearch or Window.ActiveTab or Window.OverviewTab or Window.Tabs[1]
+
+        searchActive = false
+        tabBeforeSearch = nil
+
+        if target then
+            if Window.ActiveTab ~= target then
+                target:Activate()
+            elseif target.Page then
+                target.Page.Visible = true
+                Window:MoveNavigationSelection(false)
+            end
+        end
+    end
+
+    local function searchInSection(section, searchText)
+        local anyVisible = false
+        local visibleHolders = {}
+
+        for _, element in ipairs(section.Elements or {}) do
+            if element.Holder then
+                local text = tostring(element.Text or element.Name or ""):lower()
+                local matches = text:find(searchText, 1, true) ~= nil
+
+                if matches then
+                    visibleHolders[element.Holder] = true
+                    if element.NestedParentHolder then
+                        visibleHolders[element.NestedParentHolder] = true
+                    end
                     anyVisible = true
                 end
             end
-            if tab.Page then
-                tab.Page.Visible = anyVisible
-            end
-            return anyVisible
         end
 
-        Library:Connect(SearchBox:GetPropertyChangedSignal("Text"), function()
-            local searchText = SearchBox.Text:lower()
-            for _, tab in ipairs(Window.Tabs) do
-                if tab.IsSettings then
-                    searchInTab(tab, searchText)
-                else
-                    local visible = searchInTab(tab, searchText)
-                    if tab.TabBtn then
-                        tab.TabBtn.Visible = visible
-                    end
-                end
+        for _, element in ipairs(section.Elements or {}) do
+            if element.Holder then
+                element.Holder.Visible = visibleHolders[element.Holder] == true
             end
-            for _, category in ipairs(Window.TabCategories) do
-                local hasVisibleTab = false
-                for _, categoryTab in ipairs(category.Tabs) do
-                    if categoryTab.TabBtn and categoryTab.TabBtn.Visible then hasVisibleTab = true; break end
-                end
-                category.Label.Visible = not isCompact and hasVisibleTab
+            if element.NestedParentHolder then
+                element.NestedParentHolder.Visible = visibleHolders[element.NestedParentHolder] == true
             end
-            if Window.ActiveTab and not Window.ActiveTab.Page.Visible then
-                for _, tab in ipairs(Window.Tabs) do
-                    if tab.Page and tab.Page.Visible then
-                        tab:Activate()
-                        break
-                    end
-                end
-            end
-        end)
+        end
+
+        if section.SectionFrame then
+            section.SectionFrame.Visible = anyVisible
+        end
+
+        return anyVisible
     end
+
+    local function searchInTab(tab, searchText)
+        local anyVisible = false
+
+        for _, section in pairs(tab.Sections or {}) do
+            if searchInSection(section, searchText) then
+                anyVisible = true
+            end
+        end
+
+        return anyVisible
+    end
+
+    Library:Connect(SearchBox:GetPropertyChangedSignal("Text"), function()
+        local searchText = SearchBox.Text:lower():match("^%s*(.-)%s*$") or ""
+
+        if searchText == "" then
+            restoreTabVisibility()
+            return
+        end
+
+        if not searchActive then
+            searchActive = true
+            tabBeforeSearch = Window.ActiveTab
+        end
+
+        local firstVisibleTab = nil
+
+        for _, tab in ipairs(Window.Tabs) do
+            local visible = searchInTab(tab, searchText)
+
+            if tab.TabBtn then
+                tab.TabBtn.Visible = visible
+            end
+
+            if visible and not firstVisibleTab then
+                firstVisibleTab = tab
+            end
+
+            if tab.Page then
+                tab.Page.Visible = false
+            end
+        end
+
+        for _, category in ipairs(Window.TabCategories) do
+            local hasVisibleTab = false
+
+            for _, categoryTab in ipairs(category.Tabs) do
+                if categoryTab.TabBtn and categoryTab.TabBtn.Visible then
+                    hasVisibleTab = true
+                    break
+                end
+            end
+
+            category.Label.Visible = not isCompact and hasVisibleTab
+        end
+
+        local activeStillVisible =
+            Window.ActiveTab
+            and Window.ActiveTab.TabBtn
+            and Window.ActiveTab.TabBtn.Visible
+
+        local target = activeStillVisible and Window.ActiveTab or firstVisibleTab
+
+        if target then
+            if Window.ActiveTab ~= target then
+                target:Activate()
+            elseif target.Page then
+                target.Page.Visible = true
+            end
+        end
+
+        -- Final safety: never allow multiple pages visible at once.
+        for _, tab in ipairs(Window.Tabs) do
+            if tab ~= target and tab.Page then
+                tab.Page.Visible = false
+            end
+        end
+    end)
+end
 
     -- NOTIFICATIONS
     function Library:Notify(notifyOpts)
