@@ -3025,11 +3025,62 @@ function Library:CreateWindow(options)
             Set = function(_, value) input.Text = tostring(value or "") end, Frame = card, Input = input}
     end
 
-    function Window:ShowKeybindManager()
-        if self.KeybindManagerOverlay and self.KeybindManagerOverlay.Parent then
-            self.KeybindManagerOverlay.Visible = true
-            return self.KeybindManagerOverlay
+    local function ensureBuiltinKeybinds()
+    if Library.__BuiltinKeybindsRegistered then
+        return
+    end
+
+    Library.__BuiltinKeybindsRegistered = true
+
+    local savedToggleKey = Library.Flags.__RenLibToggleUI
+    if type(savedToggleKey) == "string" and Enum.KeyCode[savedToggleKey] then
+        Library.ToggleKey = Enum.KeyCode[savedToggleKey]
+    end
+
+    local entry
+    entry = {
+        name = "Toggle UI",
+        key = Library.ToggleKey.Name,
+        default = Library.ToggleKey.Name,
+        mode = "Press",
+        flag = "__RenLibToggleUI",
+        Virtual = true,
+    }
+
+    entry.controller = {
+        Set = function(_, key)
+            local keyName = typeof(key) == "EnumItem" and key.Name or tostring(key)
+
+            if Enum.KeyCode[keyName] then
+                Library.ToggleKey = Enum.KeyCode[keyName]
+                Library.Flags.__RenLibToggleUI = keyName
+                entry.key = keyName
+            end
+        end,
+
+        Get = function()
+            return entry.key
+        end,
+
+        GetKey = function()
+            return entry.key
+        end,
+    }
+
+    table.insert(Library.KeybindList, entry)
+end
+
+function Window:ShowKeybindManager()
+    ensureBuiltinKeybinds()
+
+    if self.KeybindManagerOverlay and self.KeybindManagerOverlay.Parent then
+        if self.KeybindManagerRebuild then
+            self.KeybindManagerRebuild()
         end
+
+        self.KeybindManagerOverlay.Visible = true
+        return self.KeybindManagerOverlay
+    end
         local overlay = Utility:Create("TextButton", {
             Name = "KeybindManagerOverlay", Parent = ScreenGui, BackgroundColor3 = Color3.new(0, 0, 0),
             BackgroundTransparency = 0.35, Size = UDim2.fromScale(1, 1), Text = "",
@@ -3066,54 +3117,133 @@ function Library:CreateWindow(options)
         })
         Utility:RegisterProperty(list, "ScrollBarImageColor3", "Accent")
         Utility:Create("UIListLayout", {Parent = list, Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder})
-        local function rebuild()
-            for _, child in ipairs(list:GetChildren()) do if child:IsA("GuiObject") then child:Destroy() end end
-            for _, entry in ipairs(Library.KeybindList) do
-                if entry.controller and entry.controller.Holder and entry.controller.Holder.Parent then
-                    local row = Utility:Create("Frame", {
-                        Parent = list, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, -4, 0, 42),
-                        BorderSizePixel = 0, ZIndex = 843
-                    })
-                    Utility:RegisterProperty(row, "BackgroundColor3", "Surface")
-                    Utility:Create("UICorner", {Parent = row, CornerRadius = UDim.new(0, 6)})
-                    local label = Utility:Create("TextLabel", {
-                        Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 0),
-                        Size = UDim2.new(1, -160, 1, 0), Text = entry.name .. "  ·  " .. entry.mode,
-                        TextColor3 = Library.Theme.Text, Font = Enum.Font.Gotham, TextSize = 12,
-                        TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 844
-                    })
-                    Utility:RegisterProperty(label, "TextColor3", "Text")
-                    local keyButton = Utility:Create("TextButton", {
-                        Parent = row, BackgroundColor3 = Library.Theme.Secondary, Position = UDim2.new(1, -142, 0.5, -14),
-                        Size = UDim2.fromOffset(76, 28), Text = tostring(entry.key), TextColor3 = Library.Theme.Text,
-                        Font = Enum.Font.GothamBold, TextSize = 11, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 844
-                    })
-                    Utility:RegisterProperty(keyButton, "BackgroundColor3", "Secondary")
-                    Utility:RegisterProperty(keyButton, "TextColor3", "Text")
-                    Utility:Create("UICorner", {Parent = keyButton, CornerRadius = UDim.new(0, 5)})
-                    local resetButton = Utility:Create("TextButton", {
-                        Parent = row, BackgroundTransparency = 1, Position = UDim2.new(1, -60, 0.5, -14),
-                        Size = UDim2.fromOffset(52, 28), Text = "Reset", TextColor3 = Library.Theme.SubText,
-                        Font = Enum.Font.GothamBold, TextSize = 10, AutoButtonColor = false, ZIndex = 844
-                    })
-                    Utility:RegisterProperty(resetButton, "TextColor3", "SubText")
-                    Library:Connect(keyButton.MouseButton1Click, function()
-                        keyButton.Text = "Press…"
-                        local connection
-                        connection = UserInputService.InputBegan:Connect(function(input, processed)
-                            if processed or input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-                            connection:Disconnect()
-                            entry.controller:Set(input.KeyCode.Name)
-                            keyButton.Text = input.KeyCode.Name
-                        end)
-                    end)
-                    Library:Connect(resetButton.MouseButton1Click, function()
-                        entry.controller:Set(entry.default)
-                        keyButton.Text = tostring(entry.default)
-                    end)
-                end
-            end
+local function rebuild()
+    for _, child in ipairs(list:GetChildren()) do
+        if child:IsA("GuiObject") then
+            child:Destroy()
         end
+    end
+
+    local rendered = 0
+
+    for _, entry in ipairs(Library.KeybindList) do
+        local isVisibleEntry =
+            entry.Virtual == true
+            or (entry.controller and entry.controller.Holder and entry.controller.Holder.Parent)
+
+        if isVisibleEntry then
+            rendered += 1
+
+            local row = Utility:Create("Frame", {
+                Parent = list,
+                BackgroundColor3 = Library.Theme.Surface,
+                Size = UDim2.new(1, -4, 0, 42),
+                BorderSizePixel = 0,
+                ZIndex = 843
+            })
+
+            Utility:RegisterProperty(row, "BackgroundColor3", "Surface")
+            Utility:Create("UICorner", {Parent = row, CornerRadius = UDim.new(0, 6)})
+
+            local label = Utility:Create("TextLabel", {
+                Parent = row,
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(10, 0),
+                Size = UDim2.new(1, -160, 1, 0),
+                Text = entry.name .. "  ·  " .. entry.mode,
+                TextColor3 = Library.Theme.Text,
+                Font = Enum.Font.Gotham,
+                TextSize = 12,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                ZIndex = 844
+            })
+
+            Utility:RegisterProperty(label, "TextColor3", "Text")
+
+            local keyButton = Utility:Create("TextButton", {
+                Parent = row,
+                BackgroundColor3 = Library.Theme.Secondary,
+                Position = UDim2.new(1, -142, 0.5, -14),
+                Size = UDim2.fromOffset(76, 28),
+                Text = tostring(entry.key),
+                TextColor3 = Library.Theme.Text,
+                Font = Enum.Font.GothamBold,
+                TextSize = 11,
+                AutoButtonColor = false,
+                BorderSizePixel = 0,
+                ZIndex = 844
+            })
+
+            Utility:RegisterProperty(keyButton, "BackgroundColor3", "Secondary")
+            Utility:RegisterProperty(keyButton, "TextColor3", "Text")
+            Utility:Create("UICorner", {Parent = keyButton, CornerRadius = UDim.new(0, 5)})
+
+            local resetButton = Utility:Create("TextButton", {
+                Parent = row,
+                BackgroundTransparency = 1,
+                Position = UDim2.new(1, -60, 0.5, -14),
+                Size = UDim2.fromOffset(52, 28),
+                Text = "Reset",
+                TextColor3 = Library.Theme.SubText,
+                Font = Enum.Font.GothamBold,
+                TextSize = 10,
+                AutoButtonColor = false,
+                ZIndex = 844
+            })
+
+            Utility:RegisterProperty(resetButton, "TextColor3", "SubText")
+
+            Library:Connect(keyButton.MouseButton1Click, function()
+                keyButton.Text = "Press…"
+
+                local connection
+                connection = UserInputService.InputBegan:Connect(function(input, processed)
+                    if processed or input.UserInputType ~= Enum.UserInputType.Keyboard then
+                        return
+                    end
+
+                    connection:Disconnect()
+
+                    if entry.controller and entry.controller.Set then
+                        entry.controller:Set(input.KeyCode.Name)
+                    end
+
+                    entry.key = input.KeyCode.Name
+                    keyButton.Text = input.KeyCode.Name
+                end)
+            end)
+
+            Library:Connect(resetButton.MouseButton1Click, function()
+                if entry.controller and entry.controller.Set then
+                    entry.controller:Set(entry.default)
+                end
+
+                entry.key = entry.default
+                keyButton.Text = tostring(entry.default)
+            end)
+        end
+    end
+
+    if rendered == 0 then
+        local empty = Utility:Create("TextLabel", {
+            Parent = list,
+            BackgroundTransparency = 1,
+            Size = UDim2.new(1, -8, 0, 90),
+            Text = "No keybinds registered yet.\nUse CreateKeyPicker(...) to add shortcuts here.",
+            TextColor3 = Library.Theme.SubText,
+            Font = Enum.Font.Gotham,
+            TextSize = 13,
+            TextWrapped = true,
+            TextXAlignment = Enum.TextXAlignment.Center,
+            TextYAlignment = Enum.TextYAlignment.Center,
+            ZIndex = 843
+        })
+
+        Utility:RegisterProperty(empty, "TextColor3", "SubText")
+    end
+end
+
+self.KeybindManagerRebuild = rebuild
         local footer = Utility:Create("TextButton", {
             Parent = card, BackgroundColor3 = Library.Theme.Surface, Position = UDim2.new(0, 12, 1, -42),
             Size = UDim2.new(1, -24, 0, 30), Text = "Reset all keybinds", TextColor3 = Library.Theme.Text,
