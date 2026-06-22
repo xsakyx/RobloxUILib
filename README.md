@@ -1,6 +1,6 @@
-# RenLib V6.6.1 — Reliable Motion & Configs
+# RenLib V6.7 — Native Overview & Seamless Glass
 
-RenLib is a responsive Roblox/Luau interface library for desktop, tablet, and phone. V6.6 makes dynamic navigation deterministic, gives the sidebar-mode control a stable click target, repairs outer-corner clipping, and turns configs into a complete selectable workflow with working startup autoload.
+RenLib is a responsive Roblox/Luau interface library for desktop, tablet, and phone. V6.7 adds a native Overview destination to every window, makes the frosted sidebar one seamless composited surface, preserves saved themes in migrated scripts, and keeps header/search geometry balanced at every sidebar state.
 
 ```lua
 local RenLib = loadstring(game:HttpGet(
@@ -26,7 +26,17 @@ General:CreateToggle({
 })
 ```
 
-## What changed in V6.6
+## What changed in V6.7
+
+- Every window receives a pinned native Overview below the profile and above UI Settings.
+- Overview includes a confirmed **Relaunch RenHub** action that unloads RenLib before starting the official selector loader.
+- The frosted sidebar is composited once, removing the dark doubled strip caused by overlapping translucent surfaces.
+- The labelled `Pin` / `Auto` surface no longer overlaps the RenLib wordmark.
+- Desktop search is centered inside the top bar; mobile search keeps its full-width responsive placement.
+- Invalid `Icon = 0` values now fall back to the repository brand icon, including the minimized restore cube.
+- Adapter-based scripts respect the autoloaded RenLib theme instead of overwriting it with a legacy hard-coded theme.
+
+## V6.6 reliability foundations retained
 
 - Layout, visibility, and hover/selection animations use independent channels, so one interaction cannot strand a tab, label, or profile card in the wrong sidebar state.
 - The compact sidebar toggle stays under the pointer, while its expanded state becomes a labelled `Pin` / `Auto` button with clear hover feedback.
@@ -86,7 +96,7 @@ General:CreateToggle({
 - Modal dialogs, maximize support, DPI scaling, and richer window controls.
 - Shared component methods: `Lock`, `Unlock`, `SetLocked`, `SetVisible`, and `Destroy`.
 - New controls: input, multiline input, paragraph, divider, key picker, image, warning box, dependency box, tabbox, and a functional HSV color picker.
-- Removed RenHub-specific external script buttons from the UI library core.
+- External launch actions remain confirmation-gated and unload the current RenLib session before relaunching RenHub.
 
 ## Window API
 
@@ -107,6 +117,9 @@ local Window = RenLib:CreateWindow({
     SidebarMode = "Dynamic", -- "Dynamic", "Expanded", or "Compact"
     MaterialMode = "Frosted", -- or "Solid"
     MaterialIntensity = 18, -- local glass transparency; never a screen blur
+    BeforeRelaunch = function()
+        -- Optional: stop script-owned loops/connections before RenHub restarts.
+    end,
     OnDeviceChanged = function(mode)
         print(mode) -- "Desktop", "Tablet", or "Phone"
     end,

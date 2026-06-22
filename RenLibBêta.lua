@@ -46,6 +46,7 @@ local ScreenSize = getViewport()
 local CONFIG_FOLDER = "RenLib/Configs"
 local RUNTIME_KEY = "__RENLIB_V6_RUNTIME"
 local INFINITE_YIELD_URL = "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"
+local RENHUB_LOADER_URL = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/RenHubLoader"
 local BRAND_ICON_MANIFEST_URL = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Assets/Brand/icon.txt"
 local RuntimeEnvironment = (getgenv and getgenv()) or shared or _G
 
@@ -104,7 +105,7 @@ local ICONS = {
 
 --// ROOT LIBRARY
 local Library = {}
-Library.Version = "6.6.1"
+Library.Version = "6.7.0"
 Library.Title = "RenLib"
 Library.Connections = {}
 Library.Tasks = {}
@@ -112,6 +113,7 @@ Library.Flags = {}
 Library.Options = {}
 Library.PendingAutoloadFlags = {}
 Library.AutoloadConfigName = nil
+Library.AutoloadThemeName = nil
 Library.KnownConfigs = {}
 Library.Unloaded = false
 Library.Keybinds = {}
@@ -289,6 +291,7 @@ function Utility:NormalizeAssetId(asset, fallback)
     if asset == nil or asset == "" then return fallback end
     local value = tostring(asset)
     if value:match("^%d+$") then
+        if tonumber(value) <= 0 then return fallback end
         return "rbxassetid://" .. value
     end
     if value:match("^rbxassetid://%d+$") or value:match("^https?://") then
@@ -589,13 +592,15 @@ function Utility:RegisterGradient(instance, ...)
     instance.Color = buildGradient(keys)
 end
 
-function Utility:RegisterMaterial(instance, frostedTransparency, solidTransparency)
+function Utility:RegisterMaterial(instance, frostedTransparency, solidTransparency, property)
+    property = property or "BackgroundTransparency"
     Library.MaterialRegistry[instance] = {
         Frosted = math.clamp(tonumber(frostedTransparency) or 0.18, 0, 1),
-        Solid = math.clamp(tonumber(solidTransparency) or instance.BackgroundTransparency or 0, 0, 1)
+        Solid = math.clamp(tonumber(solidTransparency) or instance[property] or 0, 0, 1),
+        Property = property
     }
     local state = Library.MaterialRegistry[instance]
-    instance.BackgroundTransparency = Library:ResolveMaterialTransparency(state)
+    instance[property] = Library:ResolveMaterialTransparency(state)
 end
 
 --// DYNAMIC THEME UPDATE
@@ -663,7 +668,7 @@ function Library:SetMaterialIntensity(value)
     if self.MaterialMode == "Frosted" then
         for instance, state in pairs(self.MaterialRegistry) do
             pcall(function()
-                instance.BackgroundTransparency = self:ResolveMaterialTransparency(state)
+                instance[state.Property or "BackgroundTransparency"] = self:ResolveMaterialTransparency(state)
             end)
         end
     end
@@ -685,8 +690,9 @@ function Library:SetMaterialMode(mode)
     self.MaterialMode = mode
     for instance, state in pairs(self.MaterialRegistry) do
         pcall(function()
+            local property = state.Property or "BackgroundTransparency"
             Utility:Tween(instance, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                BackgroundTransparency = self:ResolveMaterialTransparency(state)
+                [property] = self:ResolveMaterialTransparency(state)
             })
         end)
     end
@@ -943,11 +949,15 @@ function Library:ClearAutoloadConfig()
             if type(delfile) == "function" then delfile("RenLib/autoload.txt") else writefile("RenLib/autoload.txt", "") end
         end
     end)
-    if ok then self.AutoloadConfigName = nil end
+    if ok then
+        self.AutoloadConfigName = nil
+        self.AutoloadThemeName = nil
+    end
     return ok, ok and nil or err
 end
 
 function Library:PrepareAutoloadConfig()
+    self.AutoloadThemeName = nil
     local name = self:GetAutoloadConfigName()
     if not name then return false, "No autoload config" end
     local path = CONFIG_FOLDER .. "/" .. name .. ".json"
@@ -966,7 +976,10 @@ function Library:PrepareAutoloadConfig()
         self.Flags[flag] = value
     end
     local preset = self.PendingAutoloadFlags.__RenLibTheme
-    if type(preset) == "string" and self.ThemePresets[preset] then self:ApplyThemePreset(preset) end
+    if type(preset) == "string" and self.ThemePresets[preset] then
+        self.AutoloadThemeName = preset
+        self:ApplyThemePreset(preset)
+    end
     local material = self.PendingAutoloadFlags.__RenLibMaterial
     if material == "Solid" or material == "Frosted" then self:SetMaterialMode(material) end
     if self.PendingAutoloadFlags.__RenLibFrostIntensity ~= nil then
@@ -1035,6 +1048,30 @@ function Library:LaunchInfiniteYield()
         end
     end)
     if self.Notify then self:Notify({Title = "Infinite Yield launched", Content = "Loaded from the official EdgeIY source.", Duration = 3}) end
+    return true
+end
+
+function Library:RelaunchRenHub(beforeRelaunch)
+    if type(loadstring) ~= "function" then
+        if self.Notify then self:Notify({Title = "RenHub unavailable", Content = "This environment does not expose loadstring.", Duration = 4}) end
+        return false, "loadstring is unavailable"
+    end
+    local ok, source = pcall(function() return game:HttpGet(RENHUB_LOADER_URL) end)
+    if not ok or type(source) ~= "string" or source == "" then
+        if self.Notify then self:Notify({Title = "RenHub failed to load", Content = tostring(source), Duration = 5}) end
+        return false, source
+    end
+    local chunk, compileError = loadstring(source)
+    if not chunk then
+        if self.Notify then self:Notify({Title = "RenHub failed to compile", Content = tostring(compileError), Duration = 5}) end
+        return false, compileError
+    end
+    Utility:SafeCall(beforeRelaunch)
+    self:Unload("relaunching RenHub")
+    task.defer(function()
+        local ran, runtimeError = pcall(chunk)
+        if not ran then warn("[RenLib] RenHub relaunch failed: " .. tostring(runtimeError)) end
+    end)
     return true
 end
 
@@ -1108,9 +1145,11 @@ function Library:CreateRayfieldAdapter()
             Bloom = "Rose", DarkBlue = "Midnight", Green = "Moss Archive",
             Light = "Prism Frost", Ocean = "Aurora", Serenity = "Celestial"
         }
-        if type(options.Theme) == "string" then
+        -- A saved autoload theme is the user's explicit choice and must win
+        -- over a legacy script's hard-coded Rayfield theme.
+        if not source.AutoloadThemeName and type(options.Theme) == "string" then
             source:ApplyThemePreset(themeAliases[options.Theme] or options.Theme)
-        elseif type(options.Theme) == "table" then
+        elseif not source.AutoloadThemeName and type(options.Theme) == "table" then
             source:SetTheme({
                 Main = options.Theme.Background,
                 Secondary = options.Theme.Topbar or options.Theme.Background,
@@ -1445,19 +1484,39 @@ function Library:CreateWindow(options)
     local Sidebar = Utility:Create("Frame", {
         Name = "Sidebar",
         Parent = MainFrame,
-        BackgroundColor3 = Library.Theme.Secondary,
+        BackgroundTransparency = 1,
         Size = UDim2.new(0, SidebarWidth, 1, 0),
         ZIndex = 2,
         BorderSizePixel = 0
     })
-    Utility:RegisterProperty(Sidebar, "BackgroundColor3", "Secondary")
-    Utility:RegisterMaterial(Sidebar, 0.32, 0)
-    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = Sidebar})
-    local sidebarGradient = Utility:Create("UIGradient", {Parent = Sidebar, Rotation = 90})
+    -- The rounded shell and square inner extension are composited once by the
+    -- CanvasGroup. Frosted themes therefore keep one uniform tint instead of
+    -- revealing a darker double-layer seam behind the sidebar.
+    local sidebarSurfaceGroup = Utility:Create("CanvasGroup", {
+        Name = "SidebarSurface",
+        Parent = Sidebar,
+        BackgroundTransparency = 1,
+        GroupTransparency = 0,
+        Size = UDim2.fromScale(1, 1),
+        ZIndex = 1,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterMaterial(sidebarSurfaceGroup, 0.32, 0, "GroupTransparency")
+    local sidebarRoundedSurface = Utility:Create("Frame", {
+        Name = "RoundedSurface",
+        Parent = sidebarSurfaceGroup,
+        BackgroundColor3 = Library.Theme.Secondary,
+        Size = UDim2.fromScale(1, 1),
+        ZIndex = 1,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(sidebarRoundedSurface, "BackgroundColor3", "Secondary")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = sidebarRoundedSurface})
+    local sidebarGradient = Utility:Create("UIGradient", {Parent = sidebarRoundedSurface, Rotation = 90})
     Utility:RegisterGradient(sidebarGradient, "Secondary", "Main")
     local sidebarSquareEdge = Utility:Create("Frame", {
         Name = "SidebarSquareInnerEdge",
-        Parent = Sidebar,
+        Parent = sidebarSurfaceGroup,
         BackgroundColor3 = Library.Theme.Secondary,
         Position = UDim2.fromOffset(14, 0),
         Size = UDim2.new(1, -14, 1, 0),
@@ -1465,7 +1524,6 @@ function Library:CreateWindow(options)
         ZIndex = 2
     })
     Utility:RegisterProperty(sidebarSquareEdge, "BackgroundColor3", "Secondary")
-    Utility:RegisterMaterial(sidebarSquareEdge, 0.32, 0)
     local sidebarSquareGradient = Utility:Create("UIGradient", {Parent = sidebarSquareEdge, Rotation = 90})
     Utility:RegisterGradient(sidebarSquareGradient, "Secondary", "Main")
     local sidebarDivider = Utility:Create("Frame", {
@@ -1549,12 +1607,13 @@ function Library:CreateWindow(options)
         Parent = NavHeader,
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(52, 4),
-        Size = UDim2.new(1, -88, 0, 22),
+        Size = UDim2.new(1, -118, 0, 22),
         Font = Enum.Font.GothamBold,
         Text = Library.Title,
         TextColor3 = Library.Theme.Text,
         TextSize = 15,
         TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
         Visible = not IsMobile,
         ZIndex = 101
     })
@@ -1563,12 +1622,13 @@ function Library:CreateWindow(options)
         Parent = NavHeader,
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(52, 24),
-        Size = UDim2.new(1, -88, 0, 16),
+        Size = UDim2.new(1, -118, 0, 16),
         Font = Enum.Font.Gotham,
         Text = "Interface Suite",
         TextColor3 = Library.Theme.SubText,
         TextSize = 10,
         TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
         Visible = not IsMobile,
         ZIndex = 101
     })
@@ -1579,8 +1639,8 @@ function Library:CreateWindow(options)
         Parent = NavHeader,
         BackgroundColor3 = Library.Theme.SurfaceAlt,
         BackgroundTransparency = 0.34,
-        Position = UDim2.new(1, -32, 0, 9),
-        Size = UDim2.fromOffset(28, 28),
+        Position = SidebarMode == "Expanded" and UDim2.new(1, -62, 0, 9) or UDim2.new(1, -32, 0, 9),
+        Size = SidebarMode == "Expanded" and UDim2.fromOffset(58, 28) or UDim2.fromOffset(28, 28),
         Text = "",
         AutoButtonColor = false,
         ZIndex = 104,
@@ -1675,6 +1735,64 @@ function Library:CreateWindow(options)
     Utility:RegisterProperty(SettingsIndicator, "BackgroundColor3", "Accent")
     Utility:Create("UICorner", {CornerRadius = UDim.new(0, 2), Parent = SettingsIndicator})
 
+    -- NATIVE OVERVIEW BUTTON
+    -- Overview is pinned with the profile and settings destinations so user
+    -- tabs can scroll independently without hiding the session launcher.
+    local OverviewBtn = Utility:Create("TextButton", {
+        Name = "OverviewBtn",
+        Parent = Sidebar,
+        BackgroundColor3 = Library.Theme.Accent,
+        BackgroundTransparency = 0.64,
+        Position = IsMobile and UDim2.new(0.5, -settingsBtnSize / 2, 1, -(settingsBtnSize + 62)) or UDim2.new(0, 10, 1, -102),
+        Size = IsMobile and UDim2.fromOffset(settingsBtnSize, settingsBtnSize) or UDim2.new(1, -20, 0, 42),
+        AutoButtonColor = false,
+        Text = "",
+        ZIndex = 100,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(OverviewBtn, "BackgroundColor3", "Accent")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = OverviewBtn})
+    local overviewStroke = Utility:Create("UIStroke", {Parent = OverviewBtn, Color = Library.Theme.Stroke, Thickness = 1})
+    Utility:RegisterProperty(overviewStroke, "Color", "Stroke")
+    local overviewGradient = Utility:Create("UIGradient", {Parent = OverviewBtn, Rotation = 18})
+    Utility:RegisterGradient(overviewGradient, "Accent", "Accent2", "Accent3")
+    local OverviewIcon = Utility:Create("ImageLabel", {
+        Parent = OverviewBtn,
+        BackgroundTransparency = 1,
+        Position = IsMobile and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(8, 5),
+        Size = IsMobile and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32),
+        Image = ICONS.Dashboard,
+        ImageColor3 = Library.Theme.SubText,
+        ScaleType = Enum.ScaleType.Fit,
+        ZIndex = 101
+    })
+    Utility:RegisterProperty(OverviewIcon, "ImageColor3", "SubText")
+    local OverviewLabel = Utility:Create("TextLabel", {
+        Parent = OverviewBtn,
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(48, 0),
+        Size = UDim2.new(1, -58, 1, 0),
+        Font = Enum.Font.Gotham,
+        Text = "Overview",
+        TextColor3 = Library.Theme.SubText,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Visible = not IsMobile,
+        ZIndex = 101
+    })
+    Utility:RegisterProperty(OverviewLabel, "TextColor3", "SubText")
+    local OverviewIndicator = Utility:Create("Frame", {
+        Parent = OverviewBtn,
+        BackgroundColor3 = Library.Theme.Accent,
+        Position = UDim2.new(0, 0, 0.5, -10),
+        Size = UDim2.new(0, 4, 0, 20),
+        BackgroundTransparency = 1,
+        ZIndex = 102,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(OverviewIndicator, "BackgroundColor3", "Accent")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 2), Parent = OverviewIndicator})
+
     -- A single selection surface moves between every navigation destination.
     -- Keeping it outside the UIListLayout lets it travel cleanly across
     -- category gaps and down to the pinned Settings destination.
@@ -1728,7 +1846,7 @@ function Library:CreateWindow(options)
             Parent = Sidebar,
             BackgroundColor3 = Library.Theme.Surface,
             BackgroundTransparency = ProfileCompact and 1 or 0,
-            Position = ProfileCompact and UDim2.new(0.5, -19, 1, -(settingsBtnSize + 62)) or UDim2.new(0, 10, 1, -110),
+            Position = ProfileCompact and UDim2.new(0.5, -19, 1, -(settingsBtnSize + 112)) or UDim2.new(0, 10, 1, -158),
             Size = ProfileCompact and UDim2.fromOffset(38, 38) or UDim2.new(1, -20, 0, 48),
             ClipsDescendants = true,
             ZIndex = 98,
@@ -1855,8 +1973,8 @@ function Library:CreateWindow(options)
     end
 
     local function getNavigationBottomInset(compact, mobile, hideProfile)
-        if ShowUserProfile and not hideProfile then return compact and 170 or 202 end
-        return mobile and 122 or 142
+        if ShowUserProfile and not hideProfile then return compact and 224 or 234 end
+        return 176
     end
 
     local function applyProfileLayout(compact, hidden, animated)
@@ -1865,7 +1983,7 @@ function Library:CreateWindow(options)
         ProfileCard.Visible = not hidden
         applyLayout(ProfileCard, {
             BackgroundTransparency = compact and 1 or Library:ResolveMaterialTransparency(Library.MaterialRegistry[ProfileCard]),
-            Position = compact and UDim2.new(0.5, -19, 1, -(settingsBtnSize + 62)) or UDim2.new(0, 10, 1, -110),
+            Position = compact and UDim2.new(0.5, -19, 1, -(settingsBtnSize + 112)) or UDim2.new(0, 10, 1, -158),
             Size = compact and UDim2.fromOffset(38, 38) or UDim2.new(1, -20, 0, 48)
         }, animated)
         applyLayout(ProfileAvatar, {
@@ -1996,7 +2114,8 @@ function Library:CreateWindow(options)
         SearchBox = Utility:Create("TextBox", {
             Parent = TopBar,
             BackgroundColor3 = Library.Theme.Surface,
-            Position = IsMobile and UDim2.new(0, 8, 0, 50) or UDim2.new(1, -360, 0, 15),
+            AnchorPoint = IsMobile and Vector2.new(0, 0) or Vector2.new(0.5, 0),
+            Position = IsMobile and UDim2.new(0, 8, 0, 50) or UDim2.new(0.5, 0, 0, 15),
             Size = IsMobile and UDim2.new(1, -16, 0, 30) or UDim2.new(0, 250, 0, 30),
             PlaceholderText = "Search controls...",
             Text = "",
@@ -2195,6 +2314,9 @@ function Library:CreateWindow(options)
         if SidebarModeButton.Visible and overlaps(LogoContainer, SidebarModeButton, 2) then
             add("nav-header-overlap", "The brand mark and sidebar-mode control overlap")
         end
+        if BrandLabel.Visible and SidebarModeButton.Visible and overlaps(BrandLabel, SidebarModeButton, 2) then
+            add("nav-header-label-overlap", "The sidebar-mode control overlaps the RenLib wordmark")
+        end
         if SidebarModeButton.Visible and (SidebarModeButton.AbsoluteSize.X < 28 or SidebarModeButton.AbsoluteSize.Y < 28) then
             add("nav-toggle-hit-area", "The sidebar-mode control is smaller than its safe pointer target")
         end
@@ -2205,6 +2327,12 @@ function Library:CreateWindow(options)
         if self.SidebarVisualExpanded and ProfileCard and ProfileCard.Visible
             and ProfileCard.AbsoluteSize.X < Sidebar.AbsoluteSize.X * 0.6 then
             add("profile-state", "The profile card is still using compact geometry inside an expanded sidebar")
+        end
+        if OverviewBtn.Visible and overlaps(OverviewBtn, SettingsBtn, 4) then
+            add("native-navigation-overlap", "Overview and Settings overlap")
+        end
+        if ProfileCard and ProfileCard.Visible and overlaps(ProfileCard, OverviewBtn, 4) then
+            add("profile-overview-overlap", "The profile card overlaps Overview")
         end
         local seamDistance = math.abs((Sidebar.AbsolutePosition.X + Sidebar.AbsoluteSize.X) - TopBar.AbsolutePosition.X)
         if seamDistance > 2 then
@@ -2353,18 +2481,19 @@ function Library:CreateWindow(options)
         MinimizeBtn.Position = UDim2.new(1, -76, 0, mobile and 8 or 15)
         CloseBtn.Position = UDim2.new(1, -40, 0, mobile and 8 or 15)
         local activeLogoSize = mobile and 28 or (isCompact and 26 or 36)
+        local showWordmark = not isCompact and sidebarWidth >= 174
         applyLayout(LogoContainer, {
             Size = UDim2.fromOffset(activeLogoSize, activeLogoSize),
             Position = mobile and UDim2.new(0.5, -activeLogoSize / 2, 0, 9)
                 or (isCompact and UDim2.fromOffset(4, 10) or UDim2.fromOffset(7, 5))
         }, animateNavigation)
-        setNavigationLabel(BrandLabel, not isCompact, animateNavigation)
-        setNavigationLabel(BrandSubtitle, not isCompact, animateNavigation)
+        setNavigationLabel(BrandLabel, showWordmark, animateNavigation)
+        setNavigationLabel(BrandSubtitle, showWordmark, animateNavigation)
         SidebarModeButton.Visible = not mobile
         SidebarModeLabel.Text = SidebarMode == "Expanded" and "Auto" or "Pin"
         applyLayout(SidebarModeButton, {
-            Position = isCompact and UDim2.new(1, -32, 0, 9) or UDim2.new(1, -78, 0, 9),
-            Size = isCompact and UDim2.fromOffset(28, 28) or UDim2.fromOffset(74, 28)
+            Position = isCompact and UDim2.new(1, -32, 0, 9) or UDim2.new(1, -62, 0, 9),
+            Size = isCompact and UDim2.fromOffset(28, 28) or UDim2.fromOffset(58, 28)
         }, animateNavigation)
         applyLayout(SidebarModeIcon, {
             Position = isCompact and UDim2.fromOffset(6, 6) or UDim2.fromOffset(7, 6),
@@ -2385,12 +2514,23 @@ function Library:CreateWindow(options)
             Size = isCompact and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32)
         }, animateNavigation)
         setNavigationLabel(SettingsLabel, not isCompact, animateNavigation)
+        applyLayout(OverviewBtn, {
+            Position = isCompact and UDim2.new(0.5, -settingsBtnSize / 2, 1, -(settingsBtnSize + 62)) or UDim2.new(0, 10, 1, -102),
+            Size = isCompact and UDim2.fromOffset(settingsBtnSize, settingsBtnSize) or UDim2.new(1, -20, 0, 42)
+        }, animateNavigation)
+        applyLayout(OverviewIcon, {
+            Position = isCompact and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(8, 5),
+            Size = isCompact and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32)
+        }, animateNavigation)
+        setNavigationLabel(OverviewLabel, not isCompact, animateNavigation)
         applyProfileLayout(isCompact, hideProfile, animateNavigation)
         NotifyArea.Position = UDim2.new(1, mobile and -12 or -20, 1, -20)
         NotifyArea.Size = UDim2.new(0, mobile and math.max(180, math.min(300, layoutViewport.X - 24)) or 300, 1, 0)
         if SearchBox then
             SearchBox.Visible = not hideSearch
-            SearchBox.Position = mobile and UDim2.new(0, 8, 0, shortViewport and 41 or 50) or UDim2.new(1, -390, 0, 15)
+            SearchBox.AnchorPoint = mobile and Vector2.new(0, 0) or Vector2.new(0.5, 0)
+            SearchBox.Position = mobile and UDim2.new(0, 8, 0, shortViewport and 41 or 50)
+                or UDim2.new(0.5, 0, 0, 15)
             SearchBox.Size = mobile and UDim2.new(1, -16, 0, shortViewport and 26 or 30) or UDim2.new(0, 270, 0, 30)
         end
         if dividerLine then
@@ -2471,6 +2611,8 @@ function Library:CreateWindow(options)
     Library:Connect(TabContainer.MouseLeave, function() setSidebarHover(false) end)
     Library:Connect(SettingsBtn.MouseEnter, function() setSidebarHover(true) end)
     Library:Connect(SettingsBtn.MouseLeave, function() setSidebarHover(false) end)
+    Library:Connect(OverviewBtn.MouseEnter, function() setSidebarHover(true) end)
+    Library:Connect(OverviewBtn.MouseLeave, function() setSidebarHover(false) end)
     if ProfileCard then
         Library:Connect(ProfileCard.MouseEnter, function() setSidebarHover(true) end)
         Library:Connect(ProfileCard.MouseLeave, function() setSidebarHover(false) end)
@@ -2917,9 +3059,10 @@ function Library:CreateWindow(options)
         local Name = options.Name or "Tab"
         local Emoji = options.Emoji
         local IsSettings = options.IsSettings or false
+        local IsOverview = options.IsOverview or false
         local Icon = Utility:NormalizeAssetId(options.Icon)
         self.NextNavOrder = self.NextNavOrder + 1
-        if not Icon and Emoji == nil and not IsSettings then Icon = ICONS.Home end
+        if not Icon and Emoji == nil and not IsSettings and not IsOverview then Icon = ICONS.Home end
 
         local Tab = {
             Name = Name,
@@ -2928,18 +3071,19 @@ function Library:CreateWindow(options)
             HeaderHeight = 0,
             ResponsiveCallbacks = {},
             IsSettings = IsSettings,
+            IsOverview = IsOverview,
             Page = nil,
             TabBtn = nil,
             TabLabel = nil
         }
-        if not IsSettings and self.CurrentTabCategory then
+        if not IsSettings and not IsOverview and self.CurrentTabCategory then
             table.insert(self.CurrentTabCategory.Tabs, Tab)
         end
 
         local TabBtn, TabEmoji, Indicator, TabGradient
         local tabBtnSize = IsMobile and 38 or 42
 
-        if not IsSettings then
+        if not IsSettings and not IsOverview then
             TabBtn = Utility:Create("TextButton", {
                 Name = Name,
                 Parent = TabContainer,
@@ -3021,6 +3165,14 @@ function Library:CreateWindow(options)
             Tab.TabLabel = TabLabel
             Tab.TabGradient = TabGradient
             Tab.TabStroke = tabStroke
+        elseif IsOverview then
+            TabEmoji = OverviewIcon
+            Indicator = OverviewIndicator
+            Tab.TabBtn = OverviewBtn
+            Tab.TabLabel = OverviewLabel
+            Tab.TabEmoji = TabEmoji
+            Tab.Indicator = Indicator
+            Tab.TabStroke = overviewStroke
         else
             TabEmoji = SettingsEmoji
             Indicator = SettingsIndicator
@@ -3032,7 +3184,7 @@ function Library:CreateWindow(options)
         end
 
         function Tab:ApplyNavigationLayout(mobile, compact, animated)
-            if self.IsSettings or not self.TabBtn then return end
+            if self.IsSettings or self.IsOverview or not self.TabBtn then return end
             local iconOnly = mobile or compact
             applyLayout(self.TabBtn, {
                 Size = iconOnly and UDim2.fromOffset(tabBtnSize, tabBtnSize) or UDim2.new(1, 0, 0, tabBtnSize)
@@ -3218,7 +3370,7 @@ function Library:CreateWindow(options)
 
         table.insert(Window.Tabs, Tab)
         Tab:ApplyResponsiveLayout(IsMobile, Window.ContentTopInset)
-        if not IsSettings and not Window.ActiveTab then
+        if not IsSettings and not IsOverview and not Window.ActiveTab then
             Tab:Activate()
         end
 
@@ -4973,7 +5125,8 @@ function Library:CreateWindow(options)
         options = options or {}
         local dashboardTab = Window:CreateTab({
             Name = options.Name or "Overview",
-            Icon = options.Icon or ICONS.Dashboard
+            Icon = options.Icon or ICONS.Dashboard,
+            IsOverview = options.IsNative == true
         })
         local heroHeight = IsMobile and 118 or 132
         local hero = Utility:Create("Frame", {
@@ -5080,6 +5233,52 @@ function Library:CreateWindow(options)
         return dashboard
     end
 
+    -- Native Overview is always available directly above UI Settings. It is
+    -- intentionally created after user-navigation plumbing but outside the
+    -- scrollable tab list, so scripts cannot accidentally push it offscreen.
+    local NativeOverview = Window:CreateDashboard({
+        Name = "Overview",
+        IsNative = true,
+        Greeting = "Welcome, " .. (Plr.DisplayName or Plr.Name),
+        Subtitle = "RenLib session · @" .. Plr.Name,
+        Cards = {
+            {
+                Name = "RenHub launcher",
+                Side = "Left",
+                Icon = ICONS.Play,
+                Description = "Close this RenLib session and return to the official RenHub script selector.",
+                Action = {
+                    Name = "Relaunch RenHub",
+                    Description = "Unload this interface, then start the official RenHub loader.",
+                    Icon = ICONS.Restore,
+                    Callback = function()
+                        Window:Dialog({
+                            Title = "Relaunch RenHub?",
+                            Content = "RenLib will close this interface and start the official RenHub selector.",
+                            Actions = {
+                                {Name = "Cancel"},
+                                {Name = "Relaunch", Primary = true, Callback = function()
+                                    Library:RelaunchRenHub(options.BeforeRelaunch)
+                                end}
+                            }
+                        })
+                    end
+                }
+            },
+            {
+                Name = "Session",
+                Side = "Right",
+                Icon = ICONS.Dashboard,
+                Metrics = {
+                    {Name = "Library", Value = "V" .. Library.Version, Detail = "Current RenLib release"},
+                    {Name = "Device", Value = Library.DeviceMode, Detail = "Responsive layout mode"},
+                    {Name = "Material", Value = Library.MaterialMode, Detail = "Current window material"}
+                }
+            }
+        }
+    })
+    Window.OverviewTab = NativeOverview.Tab
+
     -- Create Settings Tab
     local SettingsTab = Window:CreateTab({
         Name = "UI Settings",
@@ -5087,6 +5286,12 @@ function Library:CreateWindow(options)
         IsSettings = true
     })
     Window.SettingsTab = SettingsTab
+
+    task.defer(function()
+        if not Library.Unloaded and not Window.ActiveTab and Window.OverviewTab then
+            Window.OverviewTab:Activate()
+        end
+    end)
 
     local UISection = SettingsTab:CreateSection({ Name = "UI Controls", Side = "Left" })
     if not IsMobile then

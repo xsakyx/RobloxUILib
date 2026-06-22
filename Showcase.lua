@@ -5,7 +5,7 @@ local RenLib = loadstring(game:HttpGet(
 RenLib:ApplyThemePreset("Prism Frost")
 
 local Window = RenLib:CreateWindow({
-    Name = "RenLib V6.6.1 Reliable Motion Showcase",
+    Name = "RenLib V6.7 Native Overview Showcase",
     SettingsIcon = "6031280882",
     ShowUserProfile = true,
     ProfileSubtitle = "Harmony session",
@@ -14,50 +14,6 @@ local Window = RenLib:CreateWindow({
     SidebarMode = "Dynamic",
     MaterialMode = "Frosted",
     MaterialIntensity = 18,
-})
-
-Window:CreateTabCategory("Start")
-local Dashboard = Window:CreateDashboard({
-    Name = "Overview",
-    Greeting = "Welcome back, " .. game:GetService("Players").LocalPlayer.DisplayName,
-    Subtitle = "Your RenLib control center · everything useful stays one glance away",
-    Cards = {
-        {
-            Name = "Interface health",
-            Side = "Left",
-            Icon = "6034287594",
-            Description = "Live information about this responsive UI session.",
-            Metrics = {
-                {Name = "Device mode", Value = RenLib.DeviceMode, Detail = "Reflows automatically as the viewport changes"},
-                {Name = "Material", Value = RenLib.MaterialMode, Detail = "Glass stays local to the RenLib window"},
-                {Name = "UI scale", Value = math.floor(RenLib.DPIScale * 100) .. "%", Detail = "Protected by the ten-second recovery flow"},
-            },
-        },
-        {
-            Name = "Session",
-            Side = "Right",
-            Icon = "6022668898",
-            Metrics = {
-                {Name = "Players", Value = tostring(#game:GetService("Players"):GetPlayers()), Detail = "Currently connected"},
-                {Name = "Capacity", Value = tostring(game:GetService("Players").MaxPlayers), Detail = "Maximum server size"},
-                {Name = "Library", Value = "V" .. RenLib.Version, Detail = "Reliable motion release"},
-            },
-        },
-        {
-            Name = "Quick launch",
-            Side = "Right",
-            Icon = "6026663699",
-            Description = "Jump directly into the full component playground.",
-            Action = {
-                Name = "Open playground",
-                Description = "Nested controls, multi-select, colors, and motion.",
-                Icon = "6034328955",
-                Callback = function()
-                    RenLib:Notify({Title = "Playground", Content = "Choose the Elements tab from the sidebar.", Duration = 3})
-                end,
-            },
-        },
-    },
 })
 
 Window:CreateTabCategory("Playground")
