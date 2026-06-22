@@ -3166,6 +3166,7 @@ function Library:CreateWindow(options)
             Tab.TabGradient = TabGradient
             Tab.TabStroke = tabStroke
         elseif IsOverview then
+            TabBtn = OverviewBtn
             TabEmoji = OverviewIcon
             Indicator = OverviewIndicator
             Tab.TabBtn = OverviewBtn
