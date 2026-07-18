@@ -1,47 +1,38 @@
 local scriptChoice = 1
-
-local UpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/FirstStepBêta"
+-- Keep URLs ASCII-only so editors and copy/paste paths cannot corrupt accents.
+local UpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/FirstStepB%C3%AAta"
 local DownString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/DownTimeTaker"
 local TempUpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/TempFirstStep/TempFirstStebBeta"
-
-local function getLoader()
-    if type(loadstring) == "function" then
-        return loadstring
-    end
-    if type(load) == "function" then
-        return load
-    end
-    if syn and type(syn.loadfunc) == "function" then
-        return syn.loadfunc
-    end
-    if KRNL and type(KRNL.load) == "function" then
-        return KRNL.load
-    end
-    return nil
-end
-
 local function loadScript(url, scriptName)
     local success, result = pcall(function()
         return game:HttpGet(url)
     end)
-
     if not success then
         warn("Failed to load " .. scriptName .. ": " .. tostring(result))
         return
     end
-
-    local loader = getLoader()
-    if not loader then
-        warn("No supported loader available for " .. scriptName)
+    if type(result) ~= "string" or result == "" then
+        warn("Invalid HTTP response for " .. scriptName)
         return
     end
-
-    local fn, err = loader(result)
+    -- A UTF-8 BOM can make otherwise valid source fail on stricter compilers.
+    if result:sub(1, 3) == "\239\187\191" then
+        result = result:sub(4)
+    end
+    if type(loadstring) ~= "function" then
+        warn("Unsupported environment for " .. scriptName .. ": loadstring is unavailable")
+        return
+    end
+    -- Some hosts throw while compiling; others return nil plus an error string.
+    local compileCallOk, fn, compileErr = pcall(loadstring, result)
+    if not compileCallOk then
+        warn("Compiler call failed for " .. scriptName .. ": " .. tostring(fn))
+        return
+    end
     if type(fn) ~= "function" then
-        warn("Compile failed for " .. scriptName .. ": " .. tostring(err))
+        warn("Compile failed for " .. scriptName .. ": " .. tostring(compileErr))
         return
     end
-
     local ran, execErr = pcall(fn)
     if not ran then
         warn("Execution failed for " .. scriptName .. ": " .. tostring(execErr))
@@ -49,7 +40,6 @@ local function loadScript(url, scriptName)
         print("Loaded " .. scriptName .. ".")
     end
 end
-
 if scriptChoice == 1 then
     loadScript(UpString, "Main Script")
 elseif scriptChoice == 2 then
