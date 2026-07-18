@@ -389,7 +389,8 @@ local function loadMainHub()
                 error("MainHub execution failed: " .. tostring(hubOk))
             end
             if hubOk == false then
-                error("MainHub reported failure: " .. tostring(hubErr))
+                warn("[SCRIPT HUB] MainHub reported failure: " .. tostring(hubErr))
+                error("MainHub reported a startup failure")
             end
 
             print("[SCRIPT HUB] MainHub initialized successfully!")
@@ -397,8 +398,8 @@ local function loadMainHub()
         
         if not success then
             local errorMsg = "Hub load error: " .. tostring(err)
-            onMessage(errorMsg)
             warn("[SCRIPT HUB] " .. errorMsg)
+            onMessage("Hub failed to start. Check the console for details.")
         end
     end)
 end
