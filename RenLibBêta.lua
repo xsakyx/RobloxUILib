@@ -810,16 +810,43 @@ function Library:PreviewDPIScale(percent, timeout)
     return token
 end
 
+local FilesystemState = nil
+local FilesystemFailure = nil
+local FilesystemWarningShown = false
+
+local function disableFileSystem(reason, shouldWarn)
+    FilesystemState = false
+    FilesystemFailure = tostring(reason or "filesystem APIs are unavailable")
+    if shouldWarn and not FilesystemWarningShown then
+        FilesystemWarningShown = true
+        warn("[RenLib] Config storage disabled: " .. FilesystemFailure)
+    end
+    return false
+end
+
 local function hasFileSystem()
+    if FilesystemState == false then return false end
     return type(isfolder) == "function" and type(makefolder) == "function"
         and type(isfile) == "function" and type(readfile) == "function"
         and type(writefile) == "function"
 end
 
 local function ensureConfigFolders()
-    if not hasFileSystem() then return false end
-    if not isfolder("RenLib") then makefolder("RenLib") end
-    if not isfolder(CONFIG_FOLDER) then makefolder(CONFIG_FOLDER) end
+    if FilesystemState == false then return false end
+    if not hasFileSystem() then
+        return disableFileSystem("required filesystem APIs are unavailable", false)
+    end
+
+    local ok, err = pcall(function()
+        if not isfolder("RenLib") then makefolder("RenLib") end
+        if not isfolder(CONFIG_FOLDER) then makefolder(CONFIG_FOLDER) end
+    end)
+    if not ok then
+        return disableFileSystem(err, true)
+    end
+
+    FilesystemState = true
+    FilesystemFailure = nil
     return true
 end
 
