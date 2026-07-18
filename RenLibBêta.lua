@@ -48,6 +48,8 @@ local RUNTIME_KEY = "__RENLIB_V6_RUNTIME"
 local INFINITE_YIELD_URL = "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"
 local RenCore_LOADER_URL = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/RenCoreLoader"
 local BRAND_ICON_MANIFEST_URL = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Assets/Brand/icon.txt"
+local BRAND_ICON_SOURCE_URL = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Assets/Brand/RenCore.png"
+local BRAND_ICON_CACHE_FILE = "RenCore_Brand.png"
 local function resolveRuntimeEnvironment()
     if type(getgenv) == "function" then
         local ok, environment = pcall(getgenv)
@@ -146,22 +148,25 @@ Library.DeviceMode = DeviceMode
 Library.DPIScale = 1
 Library.ReducedMotion = false
 Library.MotionScale = 1
-Library.ActiveTweens = setmetatable({}, {__mode = "k"})
-Library.LayoutTweens = setmetatable({}, {__mode = "k"})
-Library.VisibilityTweens = setmetatable({}, {__mode = "k"})
-Library.GradientRegistry = setmetatable({}, {__mode = "k"})
+-- Strong registries are intentional. Some injected Instance wrappers are not
+-- stable as weak-table keys, which can make theme entries disappear mid-session.
+-- Every registry is explicitly cleared by Unload, so this does not leak state.
+Library.ActiveTweens = {}
+Library.LayoutTweens = {}
+Library.VisibilityTweens = {}
+Library.GradientRegistry = {}
 Library.ActiveTheme = "Celestial"
 Library.ScalePreview = nil
 Library.MaterialMode = "Solid"
 Library.MaterialIntensity = 18
-Library.MaterialRegistry = setmetatable({}, {__mode = "k"})
-Library.MaterialDecorations = setmetatable({}, {__mode = "k"})
+Library.MaterialRegistry = {}
+Library.MaterialDecorations = {}
 Library.BrandIcon = ICONS.Palette
 -- Brand marks use semantic text contrast. A dark theme therefore receives a
 -- bright mark while a light theme receives a dark mark, without hard-coded
 -- per-theme exceptions.
 Library.BrandIconTint = "Text"
-Library.BrandMarks = setmetatable({}, {__mode = "k"})
+Library.BrandMarks = {}
 Library.Icons = ICONS
 
 -- Theme (can be changed at runtime)
@@ -269,7 +274,7 @@ Library.ThemePresets = {
 }
 
 -- Registry for dynamic theming
-Library.Registry = setmetatable({}, {__mode = "k"})
+Library.Registry = {}
 Library.Scales = {}
 
 -- Global keybinds list
@@ -366,18 +371,73 @@ function Utility:Create(class, properties)
     return instance
 end
 
+local function getCustomAssetFunction()
+    local candidates = {}
+    local function capture(candidate)
+        if type(candidate) == "function" then
+            candidates[#candidates + 1] = candidate
+        end
+    end
+    pcall(function() capture(getcustomasset) end)
+    pcall(function() capture(getsynasset) end)
+    pcall(function() capture(syn and syn.getcustomasset) end)
+    return candidates[1]
+end
+
+local function loadGitHubBrandIcon()
+    local customAsset = getCustomAssetFunction()
+    if type(customAsset) ~= "function" or type(writefile) ~= "function" then
+        return nil
+    end
+
+    local function resolveCachedFile()
+        local ok, value = pcall(customAsset, BRAND_ICON_CACHE_FILE)
+        if ok and type(value) == "string" and value ~= "" then
+            return value
+        end
+        return nil
+    end
+
+    local cacheExists = false
+    if type(isfile) == "function" then
+        local ok, value = pcall(isfile, BRAND_ICON_CACHE_FILE)
+        cacheExists = ok and value == true
+    end
+    if cacheExists then
+        local cached = resolveCachedFile()
+        if cached then return cached end
+    end
+
+    local fetchOk, imageData = pcall(function()
+        return game:HttpGet(BRAND_ICON_SOURCE_URL)
+    end)
+    if not fetchOk or type(imageData) ~= "string" or imageData:sub(1, 4) ~= "\137PNG" then
+        return nil
+    end
+
+    local writeOk = pcall(writefile, BRAND_ICON_CACHE_FILE, imageData)
+    if not writeOk then return nil end
+    return resolveCachedFile()
+end
+
 function Utility:LoadBrandIcon(callback)
     task.spawn(function()
         local resolved = Library.BrandIcon
         local tintKey = Library.BrandIconTint
-        local ok, manifest = pcall(function()
-            return game:HttpGet(BRAND_ICON_MANIFEST_URL)
-        end)
-        if ok and type(manifest) == "string" then
-            local assetLine = manifest:match("^%s*([^\r\n]+)")
-            local requestedTint = manifest:match("[\r\n]+%s*[Tt][Ii][Nn][Tt]%s*=%s*([%w_]+)")
-            resolved = Utility:NormalizeAssetId(assetLine, resolved)
-            tintKey = requestedTint and Library.Theme[requestedTint] and requestedTint or nil
+        local customIcon = loadGitHubBrandIcon()
+        if customIcon then
+            resolved = customIcon
+            tintKey = nil
+        else
+            local ok, manifest = pcall(function()
+                return game:HttpGet(BRAND_ICON_MANIFEST_URL)
+            end)
+            if ok and type(manifest) == "string" then
+                local assetLine = manifest:match("^%s*([^\r\n]+)")
+                local requestedTint = manifest:match("[\r\n]+%s*[Tt][Ii][Nn][Tt]%s*=%s*([%w_]+)")
+                resolved = Utility:NormalizeAssetId(assetLine, resolved)
+                tintKey = requestedTint and Library.Theme[requestedTint] and requestedTint or nil
+            end
         end
         Library.BrandIcon = resolved
         Library.BrandIconTint = tintKey
@@ -643,15 +703,23 @@ function Library:UpdateColors()
 end
 
 function Library:SetTheme(newTheme)
-    local nextAccent = newTheme.Accent or self.Theme.Accent
-    local nextAccent2 = newTheme.Accent2 or nextAccent
-    newTheme.Accent3 = newTheme.Accent3 or nextAccent2
-    for k, v in pairs(newTheme) do
-        self.Theme[k] = v
+    if type(newTheme) ~= "table" then return false, "Theme must be a table" end
+    local merged = {}
+    for key, value in pairs(self.Theme) do merged[key] = value end
+    for key, value in pairs(newTheme) do
+        if typeof(value) == "Color3" then merged[key] = value end
     end
+    if typeof(newTheme.Accent2) ~= "Color3" and typeof(newTheme.Accent) == "Color3" then
+        merged.Accent2 = newTheme.Accent
+    end
+    if typeof(newTheme.Accent3) ~= "Color3" then
+        merged.Accent3 = merged.Accent2 or merged.Accent
+    end
+    for key, value in pairs(merged) do self.Theme[key] = value end
     self:UpdateColors()
     self:SetMaterialIntensity(self.MaterialIntensity)
     if self.Window and self.Window.RefreshThemeState then self.Window:RefreshThemeState() end
+    return true
 end
 
 function Library:ApplyThemePreset(name)
