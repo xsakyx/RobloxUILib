@@ -370,15 +370,29 @@ local function loadMainHub()
                 error("MainHub script is empty")
             end
             
-            print("[SCRIPT HUB] Executing MainHub...")
-            
-            local func = loadstring(scriptContent)
-            if func then
-                func()
-                print("[SCRIPT HUB] MainHub loaded successfully!")
-            else
-                error("loadstring returned nil")
+            if type(loadstring) ~= "function" then
+                error("MainHub compile failed: loadstring is unavailable")
             end
+
+            print("[SCRIPT HUB] Compiling MainHub...")
+            local compilerOk, func, compileErr = pcall(loadstring, scriptContent)
+            if not compilerOk then
+                error("MainHub compiler call failed: " .. tostring(func))
+            end
+            if type(func) ~= "function" then
+                error("MainHub compile failed: " .. tostring(compileErr))
+            end
+
+            print("[SCRIPT HUB] Executing MainHub...")
+            local ranOk, hubOk, hubErr = pcall(func)
+            if not ranOk then
+                error("MainHub execution failed: " .. tostring(hubOk))
+            end
+            if hubOk == false then
+                error("MainHub reported failure: " .. tostring(hubErr))
+            end
+
+            print("[SCRIPT HUB] MainHub initialized successfully!")
         end)
         
         if not success then
