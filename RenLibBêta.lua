@@ -48,7 +48,26 @@ local RUNTIME_KEY = "__RENLIB_V6_RUNTIME"
 local INFINITE_YIELD_URL = "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"
 local RenCore_LOADER_URL = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/RenCoreLoader"
 local BRAND_ICON_MANIFEST_URL = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Assets/Brand/icon.txt"
-local RuntimeEnvironment = (getgenv and getgenv()) or shared or _G
+local function resolveRuntimeEnvironment()
+    if type(getgenv) == "function" then
+        local ok, environment = pcall(getgenv)
+        if ok and type(environment) == "table" then
+            return environment
+        end
+        if not ok then
+            warn("[RenLib] getgenv failed; using a fallback environment: " .. tostring(environment))
+        end
+    end
+    if type(shared) == "table" then
+        return shared
+    end
+    if type(_G) == "table" then
+        return _G
+    end
+    return {}
+end
+
+local RuntimeEnvironment = resolveRuntimeEnvironment()
 
 -- Only one RenLib session may own input and UI at a time.
 local PreviousSession = RuntimeEnvironment[RUNTIME_KEY]
@@ -6532,16 +6551,36 @@ function Library:Unload(reason)
 end
 
 --// TOGGLE KEY (PC only)
-Library:Connect(UserInputService.InputBegan, function(input, gpe)
-    if gpe then return end
-    if input.KeyCode == Library.ToggleKey then
-        if Library.Window then Library.Window:Toggle() end
-    end
+local inputOk, inputErr = pcall(function()
+    Library:Connect(UserInputService.InputBegan, function(input, gpe)
+        if gpe then return end
+        if input.KeyCode == Library.ToggleKey then
+            if Library.Window then Library.Window:Toggle() end
+        end
+    end)
 end)
+if not inputOk then
+    warn("[RenLib] Input initialization failed: " .. tostring(inputErr))
+end
 
-RuntimeEnvironment[RUNTIME_KEY] = Library
-ensureConfigFolders()
-Library:PrepareAutoloadConfig()
+local runtimeOk, runtimeErr = pcall(function()
+    RuntimeEnvironment[RUNTIME_KEY] = Library
+end)
+if not runtimeOk then
+    warn("[RenLib] Runtime registration failed: " .. tostring(runtimeErr))
+end
+
+local filesystemOk, filesystemReady = pcall(ensureConfigFolders)
+if not filesystemOk then
+    warn("[RenLib] Filesystem initialization failed: " .. tostring(filesystemReady))
+elseif filesystemReady then
+    local autoloadOk, autoloadErr = pcall(function()
+        Library:PrepareAutoloadConfig()
+    end)
+    if not autoloadOk then
+        warn("[RenLib] Autoload initialization failed: " .. tostring(autoloadErr))
+    end
+end
 
 print("[RenLib] Loaded - Version " .. Library.Version .. " (" .. Library.DeviceMode .. ")")
 
