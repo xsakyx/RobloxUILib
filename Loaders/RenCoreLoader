@@ -1,4 +1,4 @@
-local scriptChoice = 1
+local scriptChoice = 3
 -- Keep URLs ASCII-only so editors and copy/paste paths cannot corrupt accents.
 local UpString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/FirstStepB%C3%AAta"
 local DownString = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/DownTimeTaker"
