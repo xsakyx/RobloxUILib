@@ -1,0 +1,8077 @@
+-- RenBanana Farming Runtime
+-- Reconstructed from Gravity Hub / Banana MainV2 (commit 1970c5ed..., 2026-08-21).
+-- Self-contained: no mutable HTTP dependencies. The old 2024 validator remote is not used.
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualUser = game:GetService("VirtualUser")
+local Lighting = game:GetService("Lighting")
+local TeleportService = game:GetService("TeleportService")
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+local Environment = (getgenv and getgenv()) or _G
+
+if Environment.RenBanana and type(Environment.RenBanana.Destroy) == "function" then
+    pcall(Environment.RenBanana.Destroy)
+end
+
+local PLACE_TO_SEA = {
+    [2753915549] = 1,
+    [4442272183] = 2,
+    [7449423635] = 3,
+}
+
+local Sea = PLACE_TO_SEA[game.PlaceId]
+assert(Sea, "RenBanana: unsupported PlaceId " .. tostring(game.PlaceId))
+
+local LEVEL_DATA = {
+    [1] = {
+        { Min=1, Max=9, Team="Marines", Enemy="Trainee", Quest="MarineQuest", Slot=1, Title="Trainee", QuestCFrame=CFrame.new(-2708.54956, 23.9876823, 2105.38086, 0.551831365, -0.171465367, 0.816138268, 0.0559562929, 0.984042466, 0.168906137, -0.832076192, -0.0475396216, 0.552620113), EnemyCFrame=CFrame.new(-2709.67944, 24.5206585, 2104.24585, -0.744724929, -3.97967455e-8, -0.667371571, 4.32403588e-8, 1, -1.07884304e-7, 0.667371571, -1.09201515e-7, -0.744724929) },
+        { Min=1, Max=9, Team="Pirates", Enemy="Bandit", Quest="BanditQuest1", Slot=1, Title="Bandit", QuestCFrame=CFrame.new(1059.0304, 16.2651749, 1551.71191, 0.588351011, 0.0359242484, -0.807807326, -0.000423941325, 0.999026179, 0.0441192314, 0.808605552, -0.0256151129, 0.587793291), EnemyCFrame=CFrame.new(1045.962646484375, 27.00250816345215, 1560.8203125) },
+        { Min=10, Max=14, Team=nil, Enemy="Monkey", Quest="JungleQuest", Slot=1, Title="Monkey", QuestCFrame=CFrame.new(-1598.10095, 36.3327827, 153.365112, 0.565101802, -0.0235849079, 0.824684024, -0.00421982305, 0.999495566, 0.0314758494, -0.825010478, -0.0212670621, 0.564717233), EnemyCFrame=CFrame.new(-1448.51806640625, 67.85301208496094, 11.46579647064209) },
+        { Min=15, Max=29, Team=nil, Enemy="Gorilla", Quest="JungleQuest", Slot=2, Title="Gorilla", QuestCFrame=CFrame.new(-1598.10095, 36.3327827, 153.365112, 0.565101802, -0.0235849079, 0.824684024, -0.00421982305, 0.999495566, 0.0314758494, -0.825010478, -0.0212670621, 0.564717233), EnemyCFrame=CFrame.new(-1129.8836669921875, 40.46354675292969, -525.4237060546875) },
+        { Min=30, Max=39, Team=nil, Enemy="Pirate", Quest="BuggyQuest1", Slot=1, Title="Pirate", QuestCFrame=CFrame.new(-1141.11523, 4.22801352, 3831.57739, 0.466678292, -0.0266258121, -0.884026289, -0.00679375185, 0.999409318, -0.0336874351, 0.884401083, 0.0217270516, 0.46622175), EnemyCFrame=CFrame.new(-1103.513427734375, 13.752052307128906, 3896.091064453125) },
+        { Min=40, Max=59, Team=nil, Enemy="Brute", Quest="BuggyQuest1", Slot=2, Title="Brute", QuestCFrame=CFrame.new(-1141.11523, 4.22801352, 3831.57739, 0.466678292, -0.0266258121, -0.884026289, -0.00679375185, 0.999409318, -0.0336874351, 0.884401083, 0.0217270516, 0.46622175), EnemyCFrame=CFrame.new(-1140.083740234375, 14.809885025024414, 4322.92138671875) },
+        { Min=60, Max=74, Team=nil, Enemy="Desert Bandit", Quest="DesertQuest", Slot=1, Title="Desert Bandit", QuestCFrame=CFrame.new(894.546265, 5.94077444, 4392.45166, 0.28321889, 0.0492709801, 0.957788825, -0.00534322672, 0.998745084, -0.0497978739, -0.959040463, 0.0089860186, 0.283126742), EnemyCFrame=CFrame.new(924.7998046875, 6.44867467880249, 4481.5859375) },
+        { Min=75, Max=89, Team=nil, Enemy="Desert Officer", Quest="DesertQuest", Slot=2, Title="Desert Officer", QuestCFrame=CFrame.new(894.546265, 5.94077444, 4392.45166, 0.28321889, 0.0492709801, 0.957788825, -0.00534322672, 0.998745084, -0.0497978739, -0.959040463, 0.0089860186, 0.283126742), EnemyCFrame=CFrame.new(1608.2822265625, 8.614224433898926, 4371.00732421875) },
+        { Min=90, Max=99, Team=nil, Enemy="Snow Bandit", Quest="SnowQuest", Slot=1, Title="Snow Bandit", QuestCFrame=CFrame.new(1387.2179, 86.7898254, -1295.06165, -0.19740738, 0.0237135217, 0.980034709, -0.0140903126, 0.999535501, -0.027023565, -0.980220258, -0.0191436484, -0.196981549), EnemyCFrame=CFrame.new(1354.347900390625, 87.27277374267578, -1393.946533203125) },
+        { Min=100, Max=119, Team=nil, Enemy="Snowman", Quest="SnowQuest", Slot=2, Title="Snowman", QuestCFrame=CFrame.new(1387.2179, 86.7898254, -1295.06165, -0.19740738, 0.0237135217, 0.980034709, -0.0140903126, 0.999535501, -0.027023565, -0.980220258, -0.0191436484, -0.196981549), EnemyCFrame=CFrame.new(6241.9951171875, 51.522083282471, -1243.9771728516) },
+        { Min=120, Max=149, Team=nil, Enemy="Chief Petty Officer", Quest="MarineQuest2", Slot=1, Title="Chief Petty Officer", QuestCFrame=CFrame.new(-5039.58643, 27.3500385, 4324.68018, 0, 0, -1, 0, 1, 0, 1, 0, 0), EnemyCFrame=CFrame.new(-4881.23095703125, 22.65204429626465, 4273.75244140625) },
+        { Min=150, Max=174, Team=nil, Enemy="Sky Bandit", Quest="SkyQuest", Slot=1, Title="Sky Bandit", QuestCFrame=CFrame.new(-4839.53027, 716.368591, -2619.44165, 0.866007268, 0, 0.500031412, 0, 1, 0, -0.500031412, 0, 0.866007268), EnemyCFrame=CFrame.new(-4953.20703125, 295.74420166015625, -2899.22900390625) },
+        { Min=175, Max=189, Team=nil, Enemy="Dark Master", Quest="SkyQuest", Slot=2, Title="Dark Master", QuestCFrame=CFrame.new(-4839.53027, 716.368591, -2619.44165, 0.866007268, 0, 0.500031412, 0, 1, 0, -0.500031412, 0, 0.866007268), EnemyCFrame=CFrame.new(-5259.8447265625, 391.3976745605469, -2229.035400390625) },
+        { Min=190, Max=209, Team=nil, Enemy="Prisoner", Quest="PrisonerQuest", Slot=1, Title="Prisoner", QuestCFrame=CFrame.new(5308.93115, 1.65517521, 475.120514, -0.0894274712, -5.00292918e-9, -0.995993316, 1.60817859e-9, 1, -5.16744869e-9, 0.995993316, -2.06384709e-9, -0.0894274712), EnemyCFrame=CFrame.new(5098.9736328125, -0.3204058110713959, 474.2373352050781) },
+        { Min=210, Max=249, Team=nil, Enemy="Dangerous Prisoner", Quest="PrisonerQuest", Slot=2, Title="Dangerous Prisoner", QuestCFrame=CFrame.new(5308.93115, 1.65517521, 475.120514, -0.0894274712, -5.00292918e-9, -0.995993316, 1.60817859e-9, 1, -5.16744869e-9, 0.995993316, -2.06384709e-9, -0.0894274712), EnemyCFrame=CFrame.new(5654.5634765625, 15.633401870727539, 866.2991943359375) },
+        { Min=250, Max=274, Team=nil, Enemy="Toga Warrior", Quest="ColosseumQuest", Slot=1, Title="Toga Warrior", QuestCFrame=CFrame.new(-1580.04663, 6.35000277, -2986.47534, -0.515037298, 0, -0.857167721, 0, 1, 0, 0.857167721, 0, -0.515037298), EnemyCFrame=CFrame.new(-1820.21484375, 51.68385696411133, -2740.6650390625) },
+        { Min=275, Max=299, Team=nil, Enemy="Gladiator", Quest="ColosseumQuest", Slot=2, Title="Gladiator", QuestCFrame=CFrame.new(-1580.04663, 6.35000277, -2986.47534, -0.515037298, 0, -0.857167721, 0, 1, 0, 0.857167721, 0, -0.515037298), EnemyCFrame=CFrame.new(-1292.838134765625, 56.380882263183594, -3339.031494140625) },
+        { Min=300, Max=324, Team=nil, Enemy="Military Soldier", Quest="MagmaQuest", Slot=1, Title="Military Soldier", QuestCFrame=CFrame.new(-5313.37012, 10.9500084, 8515.29395, -0.499959469, 0, 0.866048813, 0, 1, 0, -0.866048813, 0, -0.499959469), EnemyCFrame=CFrame.new(-5411.16455078125, 11.081554412841797, 8454.29296875) },
+        { Min=325, Max=374, Team=nil, Enemy="Military Spy", Quest="MagmaQuest", Slot=2, Title="Military Spy", QuestCFrame=CFrame.new(-5313.37012, 10.9500084, 8515.29395, -0.499959469, 0, 0.866048813, 0, 1, 0, -0.866048813, 0, -0.499959469), EnemyCFrame=CFrame.new(-5802.8681640625, 86.26241302490234, 8828.859375) },
+        { Min=375, Max=399, Team=nil, Enemy="Fishman Warrior", Quest="FishmanQuest", Slot=1, Title="Fishman Warrior", QuestCFrame=CFrame.new(61122.65234375, 18.497442245483, 1569.3997802734), EnemyCFrame=CFrame.new(60878.30078125, 18.482830047607422, 1543.7574462890625) },
+        { Min=400, Max=449, Team=nil, Enemy="Fishman Commando", Quest="FishmanQuest", Slot=2, Title="Fishman Commando", QuestCFrame=CFrame.new(61122.65234375, 18.497442245483, 1569.3997802734), EnemyCFrame=CFrame.new(61922.6328125, 18.482830047607422, 1493.934326171875) },
+        { Min=450, Max=474, Team=nil, Enemy="God's Guard", Quest="SkyExp1Quest", Slot=1, Title="God's Guard", QuestCFrame=CFrame.new(-4721.88867, 843.874695, -1949.96643, 0.996191859, 0, -0.0871884301, 0, 1, 0, 0.0871884301, 0, 0.996191859), EnemyCFrame=CFrame.new(-4710.04296875, 845.2769775390625, -1927.3079833984375) },
+        { Min=475, Max=524, Team=nil, Enemy="Shanda", Quest="SkyExp1Quest", Slot=2, Title="Shanda", QuestCFrame=CFrame.new(-7859.09814, 5544.19043, -381.476196, -0.422592998, 0, 0.906319618, 0, 1, 0, -0.906319618, 0, -0.422592998), EnemyCFrame=CFrame.new(-7678.48974609375, 5566.40380859375, -497.2156066894531) },
+        { Min=525, Max=549, Team=nil, Enemy="Royal Squad", Quest="SkyExp2Quest", Slot=1, Title="Royal Squad", QuestCFrame=CFrame.new(-7906.81592, 5634.6626, -1411.99194, 0, 0, -1, 0, 1, 0, 1, 0, 0), EnemyCFrame=CFrame.new(-7624.25244140625, 5658.13330078125, -1467.354248046875) },
+        { Min=550, Max=624, Team=nil, Enemy="Royal Soldier", Quest="SkyExp2Quest", Slot=2, Title="Royal Soldier", QuestCFrame=CFrame.new(-7906.81592, 5634.6626, -1411.99194, 0, 0, -1, 0, 1, 0, 1, 0, 0), EnemyCFrame=CFrame.new(-7836.75341796875, 5645.6640625, -1790.6236572265625) },
+        { Min=625, Max=649, Team=nil, Enemy="Galley Pirate", Quest="FountainQuest", Slot=1, Title="Galley Pirate", QuestCFrame=CFrame.new(5259.81982, 37.3500175, 4050.0293, 0.087131381, 0, 0.996196866, 0, 1, 0, -0.996196866, 0, 0.087131381), EnemyCFrame=CFrame.new(5551.02197265625, 78.90135192871094, 3930.412841796875) },
+        { Min=650, Max=math.huge, Team=nil, Enemy="Galley Captain", Quest="FountainQuest", Slot=2, Title="Galley Captain", QuestCFrame=CFrame.new(5259.81982, 37.3500175, 4050.0293, 0.087131381, 0, 0.996196866, 0, 1, 0, -0.996196866, 0, 0.087131381), EnemyCFrame=CFrame.new(5441.95166015625, 42.50205993652344, 4950.09375) },
+    },
+    [2] = {
+        { Min=700, Max=724, Team=nil, Enemy="Raider", Quest="Area1Quest", Slot=1, Title="Raider", QuestCFrame=CFrame.new(-429.543518, 71.7699966, 1836.18188, -0.22495985, 0, -0.974368095, 0, 1, 0, 0.974368095, 0, -0.22495985), EnemyCFrame=CFrame.new(-728.3267211914062, 52.779319763183594, 2345.7705078125) },
+        { Min=725, Max=774, Team=nil, Enemy="Mercenary", Quest="Area1Quest", Slot=2, Title="Mercenary", QuestCFrame=CFrame.new(-429.543518, 71.7699966, 1836.18188, -0.22495985, 0, -0.974368095, 0, 1, 0, 0.974368095, 0, -0.22495985), EnemyCFrame=CFrame.new(-1004.3244018554688, 80.15886688232422, 1424.619384765625) },
+        { Min=775, Max=799, Team=nil, Enemy="Swan Pirate", Quest="Area2Quest", Slot=1, Title="Swan Pirate", QuestCFrame=CFrame.new(638.43811, 71.769989, 918.282898, 0.139203906, 0, 0.99026376, 0, 1, 0, -0.99026376, 0, 0.139203906), EnemyCFrame=CFrame.new(1068.664306640625, 137.61428833007812, 1322.1060791015625) },
+        { Min=800, Max=874, Team=nil, Enemy="Factory Staff", Quest="Area2Quest", Slot=2, Title="Factory Staff", QuestCFrame=CFrame.new(632.698608, 73.1055908, 918.666321, -0.0319722369, 8.96074881e-10, -0.999488771, 1.36326533e-10, 1, 8.92172336e-10, 0.999488771, -1.07732087e-10, -0.0319722369), EnemyCFrame=CFrame.new(73.07867431640625, 81.86344146728516, -27.470672607421875) },
+        { Min=875, Max=899, Team=nil, Enemy="Marine Lieutenant", Quest="MarineQuest3", Slot=1, Title="Marine Lieutenant", QuestCFrame=CFrame.new(-2440.79639, 71.7140732, -3216.06812, 0.866007268, 0, 0.500031412, 0, 1, 0, -0.500031412, 0, 0.866007268), EnemyCFrame=CFrame.new(-2821.372314453125, 75.89727783203125, -3070.089111328125) },
+        { Min=900, Max=949, Team=nil, Enemy="Marine Captain", Quest="MarineQuest3", Slot=2, Title="Marine Captain", QuestCFrame=CFrame.new(-2440.79639, 71.7140732, -3216.06812, 0.866007268, 0, 0.500031412, 0, 1, 0, -0.500031412, 0, 0.866007268), EnemyCFrame=CFrame.new(-1861.2310791015625, 80.17658233642578, -3254.697509765625) },
+        { Min=950, Max=974, Team=nil, Enemy="Zombie", Quest="ZombieQuest", Slot=1, Title="Zombie", QuestCFrame=CFrame.new(-5497.06152, 47.5923004, -795.237061, -0.29242146, 0, -0.95628953, 0, 1, 0, 0.95628953, 0, -0.29242146), EnemyCFrame=CFrame.new(-5657.77685546875, 78.96973419189453, -928.68701171875) },
+        { Min=975, Max=999, Team=nil, Enemy="Vampire", Quest="ZombieQuest", Slot=2, Title="Vampire", QuestCFrame=CFrame.new(-5497.06152, 47.5923004, -795.237061, -0.29242146, 0, -0.95628953, 0, 1, 0, 0.95628953, 0, -0.29242146), EnemyCFrame=CFrame.new(-6037.66796875, 32.18463897705078, -1340.6597900390625) },
+        { Min=1000, Max=1049, Team=nil, Enemy="Snow Trooper", Quest="SnowMountainQuest", Slot=1, Title="Snow Trooper", QuestCFrame=CFrame.new(609.858826, 400.119904, -5372.25928, -0.374604106, 0, 0.92718488, 0, 1, 0, -0.92718488, 0, -0.374604106), EnemyCFrame=CFrame.new(549.1473388671875, 427.3870544433594, -5563.69873046875) },
+        { Min=1050, Max=1099, Team=nil, Enemy="Winter Warrior", Quest="SnowMountainQuest", Slot=2, Title="Winter Warrior", QuestCFrame=CFrame.new(609.858826, 400.119904, -5372.25928, -0.374604106, 0, 0.92718488, 0, 1, 0, -0.92718488, 0, -0.374604106), EnemyCFrame=CFrame.new(1142.7451171875, 475.6398010253906, -5199.41650390625) },
+        { Min=1100, Max=1124, Team=nil, Enemy="Lab Subordinate", Quest="IceSideQuest", Slot=1, Title="Lab Subordinate", QuestCFrame=CFrame.new(-6064.06885, 15.2422857, -4902.97852, 0.453972578, 0, -0.891015649, 0, 1, 0, 0.891015649, 0, 0.453972578), EnemyCFrame=CFrame.new(-5707.4716796875, 15.951709747314453, -4513.39208984375) },
+        { Min=1125, Max=1174, Team=nil, Enemy="Horned Warrior", Quest="IceSideQuest", Slot=2, Title="Horned Warrior", QuestCFrame=CFrame.new(-6064.06885, 15.2422857, -4902.97852, 0.453972578, 0, -0.891015649, 0, 1, 0, 0.891015649, 0, 0.453972578), EnemyCFrame=CFrame.new(-6341.36669921875, 15.951770782470703, -5723.162109375) },
+        { Min=1175, Max=1199, Team=nil, Enemy="Magma Ninja", Quest="FireSideQuest", Slot=1, Title="Magma Ninja", QuestCFrame=CFrame.new(-5428.03174, 15.0622921, -5299.43457, -0.882952213, 0, 0.469463557, 0, 1, 0, -0.469463557, 0, -0.882952213), EnemyCFrame=CFrame.new(-5449.6728515625, 76.65874481201172, -5808.20068359375) },
+        { Min=1200, Max=1249, Team=nil, Enemy="Lava Pirate", Quest="FireSideQuest", Slot=2, Title="Lava Pirate", QuestCFrame=CFrame.new(-5428.03174, 15.0622921, -5299.43457, -0.882952213, 0, 0.469463557, 0, 1, 0, -0.469463557, 0, -0.882952213), EnemyCFrame=CFrame.new(-5213.33154296875, 49.73788070678711, -4701.451171875) },
+        { Min=1250, Max=1274, Team=nil, Enemy="Ship Deckhand", Quest="ShipQuest1", Slot=1, Title="Ship Deckhand", QuestCFrame=CFrame.new(1037.80127, 125.092171, 32911.6016), EnemyCFrame=CFrame.new(1212.0111083984375, 150.79205322265625, 33059.24609375) },
+        { Min=1275, Max=1299, Team=nil, Enemy="Ship Engineer", Quest="ShipQuest1", Slot=2, Title="Ship Engineer", QuestCFrame=CFrame.new(1037.80127, 125.092171, 32911.6016), EnemyCFrame=CFrame.new(919.4786376953125, 43.54401397705078, 32779.96875) },
+        { Min=1300, Max=1324, Team=nil, Enemy="Ship Steward", Quest="ShipQuest2", Slot=1, Title="Ship Steward", QuestCFrame=CFrame.new(968.80957, 125.092171, 33244.125), EnemyCFrame=CFrame.new(919.4385375976562, 129.55599975585938, 33436.03515625) },
+        { Min=1325, Max=1349, Team=nil, Enemy="Ship Officer", Quest="ShipQuest2", Slot=2, Title="Ship Officer", QuestCFrame=CFrame.new(968.80957, 125.092171, 33244.125), EnemyCFrame=CFrame.new(1036.0179443359375, 181.4390411376953, 33315.7265625) },
+        { Min=1350, Max=1374, Team=nil, Enemy="Arctic Warrior", Quest="FrostQuest", Slot=1, Title="Arctic Warrior", QuestCFrame=CFrame.new(5667.6582, 26.7997818, -6486.08984, -0.933587909, 0, -0.358349502, 0, 1, 0, 0.358349502, 0, -0.933587909), EnemyCFrame=CFrame.new(5966.24609375, 62.97002029418945, -6179.3828125) },
+        { Min=1375, Max=1424, Team=nil, Enemy="Snow Lurker", Quest="FrostQuest", Slot=2, Title="Snow Lurker", QuestCFrame=CFrame.new(5667.6582, 26.7997818, -6486.08984, -0.933587909, 0, -0.358349502, 0, 1, 0, 0.358349502, 0, -0.933587909), EnemyCFrame=CFrame.new(5407.07373046875, 69.19437408447266, -6880.88037109375) },
+        { Min=1425, Max=1449, Team=nil, Enemy="Sea Soldier", Quest="ForgottenQuest", Slot=1, Title="Sea Soldier", QuestCFrame=CFrame.new(-3054.44458, 235.544281, -10142.8193, 0.990270376, 0, -0.13915664, 0, 1, 0, 0.13915664, 0, 0.990270376), EnemyCFrame=CFrame.new(-3028.2236328125, 64.67451477050781, -9775.4267578125) },
+        { Min=1450, Max=math.huge, Team=nil, Enemy="Water Fighter", Quest="ForgottenQuest", Slot=2, Title="Water Fighter", QuestCFrame=CFrame.new(-3054.44458, 235.544281, -10142.8193, 0.990270376, 0, -0.13915664, 0, 1, 0, 0.13915664, 0, 0.990270376), EnemyCFrame=CFrame.new(-3352.9013671875, 285.01556396484375, -10534.841796875) },
+    },
+    [3] = {
+        { Min=1500, Max=1524, Team=nil, Enemy="Pirate Millionaire", Quest="PiratePortQuest", Slot=1, Title="Pirate Millionaire", QuestCFrame=CFrame.new(-712.8272705078125, 98.5770492553711, 5711.9541015625), EnemyCFrame=CFrame.new(-712.8272705078125, 98.5770492553711, 5711.9541015625) },
+        { Min=1525, Max=1574, Team=nil, Enemy="Pistol Billionaire", Quest="PiratePortQuest", Slot=2, Title="Pistol Billionaire", QuestCFrame=CFrame.new(-723.4331665039062, 147.42906188964844, 5931.9931640625), EnemyCFrame=CFrame.new(-723.4331665039062, 147.42906188964844, 5931.9931640625) },
+        { Min=1575, Max=1599, Team=nil, Enemy="Dragon Crew Warrior", Quest="DragonCrewQuest", Slot=1, Title="Dragon Crew Warrior", QuestCFrame=CFrame.new(6735.12061, 127.107239, -711.085754, -0.474887252, 0.0169004519, -0.879884422, -0.00234961393, 0.999787629, 0.020471612, 0.880043507, 0.0117890798, -0.474746734), EnemyCFrame=CFrame.new(6735.12061, 127.107239, -711.085754, -0.474887252, 0.0169004519, -0.879884422, -0.00234961393, 0.999787629, 0.020471612, 0.880043507, 0.0117890798, -0.474746734) },
+        { Min=1600, Max=1624, Team=nil, Enemy="Dragon Crew Archer", Quest="DragonCrewQuest", Slot=2, Title="Dragon Crew Archer", QuestCFrame=CFrame.new(6955.8974609375, 546.6658935546875, 309.0401306152344), EnemyCFrame=CFrame.new(6955.8974609375, 546.6658935546875, 309.0401306152344) },
+        { Min=1625, Max=1649, Team=nil, Enemy="Hydra Enforcer", Quest="VenomCrewQuest", Slot=1, Title="Hydra Enforcer", QuestCFrame=CFrame.new(4620.61572265625, 1002.2954711914062, 399.0868835449219), EnemyCFrame=CFrame.new(4620.61572265625, 1002.2954711914062, 399.0868835449219) },
+        { Min=1650, Max=1699, Team=nil, Enemy="Venomous Assailant", Quest="VenomCrewQuest", Slot=2, Title="Venomous Assailant", QuestCFrame=CFrame.new(4697.5918, 1100.65137, 946.401978, 0.579397917, -4.19689783e-10, 0.81504482, -1.49287818e-10, 1, 6.21053986e-10, -0.81504482, -4.81513662e-10, 0.579397917), EnemyCFrame=CFrame.new(4697.5918, 1100.65137, 946.401978, 0.579397917, -4.19689783e-10, 0.81504482, -1.49287818e-10, 1, 6.21053986e-10, -0.81504482, -4.81513662e-10, 0.579397917) },
+        { Min=1700, Max=1724, Team=nil, Enemy="Marine Commodore", Quest="MarineTreeIsland", Slot=1, Title="Marine Commodore", QuestCFrame=CFrame.new(2180.54126, 27.8156815, -6741.5498, -0.965929747, 0, 0.258804798, 0, 1, 0, -0.258804798, 0, -0.965929747), EnemyCFrame=CFrame.new(2286.0078125, 73.13391876220703, -7159.80908203125) },
+        { Min=1725, Max=1774, Team=nil, Enemy="Marine Rear Admiral", Quest="MarineTreeIsland", Slot=2, Title="Marine Rear Admiral", QuestCFrame=CFrame.new(2179.98828125, 28.731239318848, -6740.0551757813), EnemyCFrame=CFrame.new(3656.773681640625, 160.52406311035156, -7001.5986328125) },
+        { Min=1775, Max=1799, Team=nil, Enemy="Fishman Raider", Quest="DeepForestIsland3", Slot=1, Title="Fishman Raider", QuestCFrame=CFrame.new(-10581.6563, 330.872955, -8761.18652, -0.882952213, 0, 0.469463557, 0, 1, 0, -0.469463557, 0, -0.882952213), EnemyCFrame=CFrame.new(-10407.5263671875, 331.76263427734375, -8368.5166015625) },
+        { Min=1800, Max=1824, Team=nil, Enemy="Fishman Captain", Quest="DeepForestIsland3", Slot=2, Title="Fishman Captain", QuestCFrame=CFrame.new(-10581.6563, 330.872955, -8761.18652, -0.882952213, 0, 0.469463557, 0, 1, 0, -0.469463557, 0, -0.882952213), EnemyCFrame=CFrame.new(-10994.701171875, 352.38140869140625, -9002.1103515625) },
+        { Min=1825, Max=1849, Team=nil, Enemy="Forest Pirate", Quest="DeepForestIsland", Slot=1, Title="Forest Pirate", QuestCFrame=CFrame.new(-13234.04, 331.488495, -7625.40137, 0.707134247, 0, -0.707079291, 0, 1, 0, 0.707079291, 0, 0.707134247), EnemyCFrame=CFrame.new(-13274.478515625, 332.3781433105469, -7769.58056640625) },
+        { Min=1850, Max=1899, Team=nil, Enemy="Mythological Pirate", Quest="DeepForestIsland", Slot=2, Title="Mythological Pirate", QuestCFrame=CFrame.new(-13234.04, 331.488495, -7625.40137, 0.707134247, 0, -0.707079291, 0, 1, 0, 0.707079291, 0, 0.707134247), EnemyCFrame=CFrame.new(-13680.607421875, 501.08154296875, -6991.189453125) },
+        { Min=1900, Max=1924, Team=nil, Enemy="Jungle Pirate", Quest="DeepForestIsland2", Slot=1, Title="Jungle Pirate", QuestCFrame=CFrame.new(-12680.3818, 389.971039, -9902.01953, -0.0871315002, 0, 0.996196866, 0, 1, 0, -0.996196866, 0, -0.0871315002), EnemyCFrame=CFrame.new(-12256.16015625, 331.73828125, -10485.8369140625) },
+        { Min=1925, Max=1974, Team=nil, Enemy="Musketeer Pirate", Quest="DeepForestIsland2", Slot=2, Title="Musketeer Pirate", QuestCFrame=CFrame.new(-12680.3818, 389.971039, -9902.01953, -0.0871315002, 0, 0.996196866, 0, 1, 0, -0.996196866, 0, -0.0871315002), EnemyCFrame=CFrame.new(-13457.904296875, 391.545654296875, -9859.177734375) },
+        { Min=1975, Max=1999, Team=nil, Enemy="Reborn Skeleton", Quest="HauntedQuest1", Slot=1, Title="Reborn Skeleton", QuestCFrame=CFrame.new(-9479.2168, 141.215088, 5566.09277, 0, 0, 1, 0, 1, 0, -1, 0, 0), EnemyCFrame=CFrame.new(-8763.7236328125, 165.72299194335938, 6159.86181640625) },
+        { Min=2000, Max=2024, Team=nil, Enemy="Living Zombie", Quest="HauntedQuest1", Slot=2, Title="Living Zombie", QuestCFrame=CFrame.new(-9479.2168, 141.215088, 5566.09277, 0, 0, 1, 0, 1, 0, -1, 0, 0), EnemyCFrame=CFrame.new(-10144.1318359375, 138.62667846679688, 5838.0888671875) },
+        { Min=2025, Max=2049, Team=nil, Enemy="Demonic Soul", Quest="HauntedQuest2", Slot=1, Title="Demonic Soul", QuestCFrame=CFrame.new(-9516.99316, 172.017181, 6078.46533, 0, 0, -1, 0, 1, 0, 1, 0, 0), EnemyCFrame=CFrame.new(-9505.8720703125, 172.10482788085938, 6158.9931640625) },
+        { Min=2050, Max=2074, Team=nil, Enemy="Posessed Mummy", Quest="HauntedQuest2", Slot=2, Title="Posessed Mummy", QuestCFrame=CFrame.new(-9516.99316, 172.017181, 6078.46533, 0, 0, -1, 0, 1, 0, 1, 0, 0), EnemyCFrame=CFrame.new(-9582.0224609375, 6.251527309417725, 6205.478515625) },
+        { Min=2075, Max=2099, Team=nil, Enemy="Peanut Scout", Quest="NutsIslandQuest", Slot=1, Title="Peanut Scout", QuestCFrame=CFrame.new(-2104.3908691406, 38.104167938232, -10194.21875, 0, 0, -1, 0, 1, 0, 1, 0, 0), EnemyCFrame=CFrame.new(-2143.241943359375, 47.72198486328125, -10029.9951171875) },
+        { Min=2100, Max=2124, Team=nil, Enemy="Peanut President", Quest="NutsIslandQuest", Slot=2, Title="Peanut President", QuestCFrame=CFrame.new(-2104.3908691406, 38.104167938232, -10194.21875, 0, 0, -1, 0, 1, 0, 1, 0, 0), EnemyCFrame=CFrame.new(-1859.35400390625, 38.10316848754883, -10422.4296875) },
+        { Min=2125, Max=2149, Team=nil, Enemy="Ice Cream Chef", Quest="IceCreamIslandQuest", Slot=1, Title="Ice Cream Chef", QuestCFrame=CFrame.new(-820.64825439453, 65.819526672363, -10965.795898438, 0, 0, -1, 0, 1, 0, 1, 0, 0), EnemyCFrame=CFrame.new(-872.24658203125, 65.81957244873047, -10919.95703125) },
+        { Min=2150, Max=2199, Team=nil, Enemy="Ice Cream Commander", Quest="IceCreamIslandQuest", Slot=2, Title="Ice Cream Commander", QuestCFrame=CFrame.new(-820.64825439453, 65.819526672363, -10965.795898438, 0, 0, -1, 0, 1, 0, 1, 0, 0), EnemyCFrame=CFrame.new(-558.06103515625, 112.04895782470703, -11290.7744140625) },
+        { Min=2200, Max=2224, Team=nil, Enemy="Cookie Crafter", Quest="CakeQuest1", Slot=1, Title="Cookie Crafter", QuestCFrame=CFrame.new(-2021.32007, 37.7982254, -12028.7295, 0.957576931, -8.80302053e-8, 0.288177818, 6.9301187e-8, 1, 7.51931211e-8, -0.288177818, -5.2032135e-8, 0.957576931), EnemyCFrame=CFrame.new(-2374.13671875, 37.79826354980469, -12125.30859375) },
+        { Min=2225, Max=2249, Team=nil, Enemy="Cake Guard", Quest="CakeQuest1", Slot=2, Title="Cake Guard", QuestCFrame=CFrame.new(-2021.32007, 37.7982254, -12028.7295, 0.957576931, -8.80302053e-8, 0.288177818, 6.9301187e-8, 1, 7.51931211e-8, -0.288177818, -5.2032135e-8, 0.957576931), EnemyCFrame=CFrame.new(-1598.3070068359375, 43.773197174072266, -12244.5810546875) },
+        { Min=2250, Max=2274, Team=nil, Enemy="Baking Staff", Quest="CakeQuest2", Slot=1, Title="Baking Staff", QuestCFrame=CFrame.new(-1927.91602, 37.7981339, -12842.5391, -0.96804446, 4.22142143e-8, 0.250778586, 4.74911062e-8, 1, 1.49904711e-8, -0.250778586, 2.64211941e-8, -0.96804446), EnemyCFrame=CFrame.new(-1887.8099365234375, 77.6185073852539, -12998.3505859375) },
+        { Min=2275, Max=2299, Team=nil, Enemy="Head Baker", Quest="CakeQuest2", Slot=2, Title="Head Baker", QuestCFrame=CFrame.new(-1927.91602, 37.7981339, -12842.5391, -0.96804446, 4.22142143e-8, 0.250778586, 4.74911062e-8, 1, 1.49904711e-8, -0.250778586, 2.64211941e-8, -0.96804446), EnemyCFrame=CFrame.new(-2216.188232421875, 82.884521484375, -12869.2939453125) },
+        { Min=2300, Max=2324, Team=nil, Enemy="Cocoa Warrior", Quest="ChocQuest1", Slot=1, Title="Cocoa Warrior", QuestCFrame=CFrame.new(233.22836303710938, 29.876001358032227, -12201.2333984375), EnemyCFrame=CFrame.new(-21.55328369140625, 80.57499694824219, -12352.3876953125) },
+        { Min=2325, Max=2349, Team=nil, Enemy="Chocolate Bar Battler", Quest="ChocQuest1", Slot=2, Title="Chocolate Bar Battler", QuestCFrame=CFrame.new(233.22836303710938, 29.876001358032227, -12201.2333984375), EnemyCFrame=CFrame.new(582.590576171875, 77.18809509277344, -12463.162109375) },
+        { Min=2350, Max=2374, Team=nil, Enemy="Sweet Thief", Quest="ChocQuest2", Slot=1, Title="Sweet Thief", QuestCFrame=CFrame.new(150.5066375732422, 30.693693161010742, -12774.5029296875), EnemyCFrame=CFrame.new(165.1884765625, 76.05885314941406, -12600.8369140625) },
+        { Min=2375, Max=2399, Team=nil, Enemy="Candy Rebel", Quest="ChocQuest2", Slot=2, Title="Candy Rebel", QuestCFrame=CFrame.new(150.5066375732422, 30.693693161010742, -12774.5029296875), EnemyCFrame=CFrame.new(134.86563110351562, 77.2476806640625, -12876.5478515625) },
+        { Min=2400, Max=2449, Team=nil, Enemy="Candy Pirate", Quest="CandyQuest1", Slot=1, Title="Candy Pirate", QuestCFrame=CFrame.new(-1150.0400390625, 20.378934860229492, -14446.3349609375), EnemyCFrame=CFrame.new(-1310.5003662109375, 26.016523361206055, -14562.404296875) },
+        { Min=2450, Max=2474, Team=nil, Enemy="Isle Outlaw", Quest="TikiQuest1", Slot=1, Title="Isle Outlaw", QuestCFrame=CFrame.new(-16548.8164, 55.6059914, -172.8125, 0.213092566, 0, -0.977032006, 0, 1, 0, 0.977032006, 0, 0.213092566), EnemyCFrame=CFrame.new(-16479.900390625, 226.6117401123047, -300.3114318847656) },
+        { Min=2475, Max=2499, Team=nil, Enemy="Island Boy", Quest="TikiQuest1", Slot=2, Title="Island Boy", QuestCFrame=CFrame.new(-16548.8164, 55.6059914, -172.8125, 0.213092566, 0, -0.977032006, 0, 1, 0, 0.977032006, 0, 0.213092566), EnemyCFrame=CFrame.new(-16849.396484375, 192.86505126953125, -150.7853240966797) },
+        { Min=2500, Max=2524, Team=nil, Enemy="Sun-kissed Warrior", Quest="TikiQuest2", Slot=1, Title="kissed Warrior", QuestCFrame=CFrame.new(-16538, 55, 1049), EnemyCFrame=CFrame.new(-16347, 64, 984) },
+        { Min=2525, Max=2550, Team=nil, Enemy="Isle Champion", Quest="TikiQuest2", Slot=2, Title="Isle Champion", QuestCFrame=CFrame.new(-16541.0215, 57.3082275, 1051.46118, 0.0410757065, 0, -0.999156058, 0, 1, 0, 0.999156058, 0, 0.0410757065), EnemyCFrame=CFrame.new(-16602.1015625, 130.38734436035156, 1087.24560546875) },
+        { Min=2551, Max=2574, Team=nil, Enemy="Serpent Hunter", Quest="TikiQuest3", Slot=1, Title="Serpent Hunter", QuestCFrame=CFrame.new(-16679.4785, 176.7473, 1474.3995), EnemyCFrame=CFrame.new(-16679.4785, 176.7473, 1474.3995) },
+        { Min=2575, Max=2599, Team=nil, Enemy="Skull Slayer", Quest="TikiQuest3", Slot=2, Title="Skull Slayer", QuestCFrame=CFrame.new(-16759.5898, 71.2837, 1595.3399), EnemyCFrame=CFrame.new(-16759.5898, 71.2837, 1595.3399) },
+        { Min=2600, Max=2624, Team=nil, Enemy="Reef Bandit", Quest="SubmergedQuest1", Slot=1, Title="Reef Bandit", QuestCFrame=CFrame.new(10882.264, -2086.322, 10034.226), EnemyCFrame=CFrame.new(10736.6191, -2087.8439, 9338.4882) },
+        { Min=2625, Max=2649, Team=nil, Enemy="Coral Pirate", Quest="SubmergedQuest1", Slot=2, Title="Coral Pirate", QuestCFrame=CFrame.new(10882.264, -2086.322, 10034.226), EnemyCFrame=CFrame.new(10965.1025, -2158.8842, 9177.2597) },
+        { Min=2650, Max=2674, Team=nil, Enemy="Sea Chanter", Quest="SubmergedQuest2", Slot=1, Title="Sea Chanter", QuestCFrame=CFrame.new(10882.264, -2086.322, 10034.226), EnemyCFrame=CFrame.new(10621.0342, -2087.844, 10102.0332) },
+        { Min=2675, Max=2699, Team=nil, Enemy="Ocean Prophet", Quest="SubmergedQuest2", Slot=2, Title="Ocean Prophet", QuestCFrame=CFrame.new(10882.264, -2086.322, 10034.226), EnemyCFrame=CFrame.new(11056.1445, -2001.6717, 10117.4493) },
+        { Min=2700, Max=2724, Team=nil, Enemy="High Disciple", Quest="SubmergedQuest3", Slot=1, Title="High Disciple", QuestCFrame=CFrame.new(9636.52441, -1992.19507, 9609.52832), EnemyCFrame=CFrame.new(9828.087890625, -1940.908935546875, 9693.0634765625) },
+        { Min=2725, Max=2800, Team=nil, Enemy="Grand Devotee", Quest="SubmergedQuest3", Slot=2, Title="Grand Devotee", QuestCFrame=CFrame.new(9636.52441, -1992.19507, 9609.52832), EnemyCFrame=CFrame.new(9557.5849609375, -1928.0404052734375, 9859.1826171875) },
+    },
+}
+
+local BOSS_DATA = {
+    [1] = {
+        ["The Gorilla King"] = { Model="The Gorilla King", Quest="JungleQuest", Slot=3, QuestCFrame=CFrame.new(-1601.6553955078, 36.85213470459, 153.38809204102), BossCFrame=CFrame.new(-1088.75977, 8.13463783, -488.559906, -0.707134247, 0, 0.707079291, 0, 1, 0, -0.707079291, 0, -0.707134247) },
+        ["Bobby"] = { Model="Bobby", Quest="BuggyQuest1", Slot=3, QuestCFrame=CFrame.new(-1140.1761474609, 4.752049446106, 3827.4057617188), BossCFrame=CFrame.new(-1087.3760986328, 46.949409484863, 4040.1462402344) },
+        ["The Saw"] = { Model="The Saw", Quest=nil, Slot=nil, QuestCFrame=nil, BossCFrame=CFrame.new(-784.89715576172, 72.427383422852, 1603.5822753906) },
+        ["Yeti"] = { Model="Yeti", Quest="SnowQuest", Slot=3, QuestCFrame=CFrame.new(1386.8073730469, 87.272789001465, -1298.3576660156), BossCFrame=CFrame.new(1218.7956542969, 138.01184082031, -1488.0262451172) },
+        ["Mob Leader"] = { Model="Mob Leader", Quest=nil, Slot=nil, QuestCFrame=nil, BossCFrame=CFrame.new(-2844.7307128906, 7.4180502891541, 5356.6723632813) },
+        ["Vice Admiral"] = { Model="Vice Admiral", Quest="MarineQuest2", Slot=2, QuestCFrame=CFrame.new(-5036.2465820313, 28.677835464478, 4324.56640625), BossCFrame=CFrame.new(-5006.5454101563, 88.032081604004, 4353.162109375) },
+        ["Saber Expert"] = { Model="Saber Expert", Quest=nil, Slot=nil, QuestCFrame=nil, BossCFrame=CFrame.new(-1458.89502, 29.8870335, -50.633564) },
+        ["Warden"] = { Model="Warden", Quest="ImpelQuest", Slot=1, QuestCFrame=CFrame.new(5191.86133, 2.84020686, 686.438721, -0.731384635, 0, 0.681965172, 0, 1, 0, -0.681965172, 0, -0.731384635), BossCFrame=CFrame.new(5278.04932, 2.15167475, 944.101929, 0.220546961, -0.00000449946401, 0.975376427, -0.0000195412576, 1, 0.00000903162072, -0.975376427, -0.0000210519756, 0.220546961) },
+        ["Chief Warden"] = { Model="Chief Warden", Quest="ImpelQuest", Slot=2, QuestCFrame=CFrame.new(5191.86133, 2.84020686, 686.438721, -0.731384635, 0, 0.681965172, 0, 1, 0, -0.681965172, 0, -0.731384635), BossCFrame=CFrame.new(5206.92578, 0.997753382, 814.976746, 0.342041343, -0.00062915677, 0.939684749, 0.00191645394, 0.999998152, -0.0000280422337, -0.939682961, 0.00181045406, 0.342041939) },
+        ["Swan"] = { Model="Swan", Quest="ImpelQuest", Slot=3, QuestCFrame=CFrame.new(5191.86133, 2.84020686, 686.438721, -0.731384635, 0, 0.681965172, 0, 1, 0, -0.681965172, 0, -0.731384635), BossCFrame=CFrame.new(5325.09619, 7.03906584, 719.570679, -0.309060812, 0, 0.951042235, 0, 1, 0, -0.951042235, 0, -0.309060812) },
+        ["Magma Admiral"] = { Model="Magma Admiral", Quest="MagmaQuest", Slot=3, QuestCFrame=CFrame.new(-5314.6220703125, 12.262420654297, 8517.279296875), BossCFrame=CFrame.new(-5765.8969726563, 82.92064666748, 8718.3046875) },
+        ["Fishman Lord"] = { Model="Fishman Lord", Quest="FishmanQuest", Slot=3, QuestCFrame=CFrame.new(61122.65234375, 18.497442245483, 1569.3997802734), BossCFrame=CFrame.new(61260.15234375, 30.950881958008, 1193.4329833984) },
+        ["Wysper"] = { Model="Wysper", Quest="SkyExp1Quest", Slot=3, QuestCFrame=CFrame.new(-7861.947265625, 5545.517578125, -379.85974121094), BossCFrame=CFrame.new(-7866.1333007813, 5576.4311523438, -546.74816894531) },
+        ["Thunder God"] = { Model="Thunder God", Quest="SkyExp2Quest", Slot=3, QuestCFrame=CFrame.new(-7903.3828125, 5635.9897460938, -1410.923828125), BossCFrame=CFrame.new(-7994.984375, 5761.025390625, -2088.6479492188) },
+        ["Cyborg"] = { Model="Cyborg", Quest="FountainQuest", Slot=3, QuestCFrame=CFrame.new(5258.2788085938, 38.526931762695, 4050.044921875), BossCFrame=CFrame.new(6094.0249023438, 73.770050048828, 3825.7348632813) },
+        ["Ice Admiral"] = { Model="Ice Admiral", Quest=nil, Slot=nil, QuestCFrame=CFrame.new(1266.08948, 26.1757946, -1399.57678, -0.573599219, 0, -0.81913656, 0, 1, 0, 0.81913656, 0, -0.573599219), BossCFrame=CFrame.new(1266.08948, 26.1757946, -1399.57678, -0.573599219, 0, -0.81913656, 0, 1, 0, 0.81913656, 0, -0.573599219) },
+        ["Greybeard"] = { Model="Greybeard", Quest=nil, Slot=nil, QuestCFrame=CFrame.new(-5081.3452148438, 85.221641540527, 4257.3588867188), BossCFrame=CFrame.new(-5081.3452148438, 85.221641540527, 4257.3588867188) },
+    },
+    [2] = {
+        ["Diamond"] = { Model="Diamond", Quest="Area1Quest", Slot=3, QuestCFrame=CFrame.new(-427.5666809082, 73.313781738281, 1835.4208984375), BossCFrame=CFrame.new(-1576.7166748047, 198.59265136719, 13.724286079407) },
+        ["Jeremy"] = { Model="Jeremy", Quest="Area2Quest", Slot=3, QuestCFrame=CFrame.new(636.79943847656, 73.413787841797, 918.00415039063), BossCFrame=CFrame.new(2006.9261474609, 448.95666503906, 853.98284912109) },
+        ["Orbitus"] = { Model="Orbitus", Quest="MarineQuest3", Slot=3, QuestCFrame=CFrame.new(-2441.986328125, 73.359344482422, -3217.5324707031), BossCFrame=CFrame.new(-2172.7399902344, 103.32216644287, -4015.025390625) },
+        ["Don Swan"] = { Model="Don Swan", Quest=nil, Slot=nil, QuestCFrame=nil, BossCFrame=CFrame.new(2286.2004394531, 15.177839279175, 863.8388671875) },
+        ["Smoke Admiral"] = { Model="Smoke Admiral", Quest="IceSideQuest", Slot=3, QuestCFrame=CFrame.new(-5429.0473632813, 15.977565765381, -5297.9614257813), BossCFrame=CFrame.new(-5275.1987304688, 20.757257461548, -5260.6669921875) },
+        ["Awakened Ice Admiral"] = { Model="Awakened Ice Admiral", Quest="FrostQuest", Slot=3, QuestCFrame=CFrame.new(5668.9780273438, 28.519989013672, -6483.3520507813), BossCFrame=CFrame.new(6403.5439453125, 340.29766845703, -6894.5595703125) },
+        ["Tide Keeper"] = { Model="Tide Keeper", Quest="ForgottenQuest", Slot=3, QuestCFrame=CFrame.new(-3053.9814453125, 237.18954467773, -10145.0390625), BossCFrame=CFrame.new(-3795.6423339844, 105.88877105713, -11421.307617188) },
+        ["Darkbeard"] = { Model="Darkbeard", Quest=nil, Slot=nil, QuestCFrame=CFrame.new(3677.08203125, 62.751937866211, -3144.8332519531), BossCFrame=CFrame.new(3677.08203125, 62.751937866211, -3144.8332519531) },
+        ["Cursed Captaim"] = { Model="Cursed Captain", Quest=nil, Slot=nil, QuestCFrame=CFrame.new(916.928589, 181.092773, 33422), BossCFrame=CFrame.new(916.928589, 181.092773, 33422) },
+        ["Order"] = { Model="Order", Quest=nil, Slot=nil, QuestCFrame=CFrame.new(-6217.2021484375, 28.047645568848, -5053.1357421875), BossCFrame=CFrame.new(-6217.2021484375, 28.047645568848, -5053.1357421875) },
+    },
+    [3] = {
+        ["Stone"] = { Model="Stone", Quest="PiratePortQuest", Slot=3, QuestCFrame=CFrame.new(-289.76705932617, 43.819011688232, 5579.9384765625), BossCFrame=CFrame.new(-1027.6512451172, 92.404174804688, 6578.8530273438) },
+        ["Hydra Leader"] = { Model="Hydra Leader", Quest="VenomCrewQuest", Slot=3, QuestCFrame=CFrame.new(5211.021484375, 1004.35778859375, 758.1847534179688), BossCFrame=CFrame.new(5821.89794921875, 1019.0950927734375, -73.71923065185547) },
+        ["Kilo Admiral"] = { Model="Kilo Admiral", Quest="MarineTreeIsland", Slot=3, QuestCFrame=CFrame.new(2179.3010253906, 28.731239318848, -6739.9741210938), BossCFrame=CFrame.new(2764.2233886719, 432.46154785156, -7144.4580078125) },
+        ["Captain Elephant"] = { Model="Captain Elephant", Quest="DeepForestIsland", Slot=3, QuestCFrame=CFrame.new(-13232.682617188, 332.40396118164, -7626.01171875), BossCFrame=CFrame.new(-13376.7578125, 433.28689575195, -8071.392578125) },
+        ["Beautiful Pirate"] = { Model="Beautiful Pirate", Quest="DeepForestIsland2", Slot=3, QuestCFrame=CFrame.new(-12682.096679688, 390.88653564453, -9902.1240234375), BossCFrame=CFrame.new(5283.609375, 22.56223487854, -110.78285217285) },
+        ["Cake Queen"] = { Model="Cake Queen", Quest="IceCreamIslandQuest", Slot=3, QuestCFrame=CFrame.new(-819.376709, 64.9259796, -10967.2832, -0.766061664, 0, 0.642767608, 0, 1, 0, -0.642767608, 0, -0.766061664), BossCFrame=CFrame.new(-678.648804, 381.353943, -11114.2012, -0.908641815, 0.00149294338, 0.41757378, 0.00837114919, 0.999857843, 0.0146408929, -0.417492568, 0.0167988986, -0.90852499) },
+        ["Longma"] = { Model="Longma", Quest=nil, Slot=nil, QuestCFrame=CFrame.new(-10238.875976563, 389.7912902832, -9549.7939453125), BossCFrame=CFrame.new(-10238.875976563, 389.7912902832, -9549.7939453125) },
+        ["Soul Reaper"] = { Model="Soul Reaper", Quest=nil, Slot=nil, QuestCFrame=CFrame.new(-9524.7890625, 315.80429077148, 6655.7192382813), BossCFrame=CFrame.new(-9524.7890625, 315.80429077148, 6655.7192382813) },
+    },
+}
+
+local BOSS_LISTS = {
+    [1] = { "The Gorilla King", "Bobby", "The Saw", "Yeti", "Mob Leader", "Vice Admiral", "Saber Expert", "Warden", "Chief Warden", "Swan", "Magma Admiral", "Fishman Lord", "Wysper", "Thunder God", "Cyborg", "Ice Admiral", "Greybeard" },
+    [2] = { "Diamond", "Jeremy", "Orbitus", "Don Swan", "Smoke Admiral", "Awakened Ice Admiral", "Tide Keeper", "Darkbeard", "Cursed Captain", "Order" },
+    [3] = { "Stone", "Hydra Leader", "Kilo Admiral", "Captain Elephant", "Beautiful Pirate", "Cake Queen", "Dough King", "Longma", "Soul Reaper", "rip_indra True Form", "Tyrant of the Skies" },
+}
+
+-- Exact current metadata defect, repaired only at the public selection boundary.
+local BOSS_ALIASES = { ["Cursed Captain"] = "Cursed Captaim" }
+
+local Settings = {
+    AutoFarmLevel = false,
+    AutoFarmNearest = false,
+    AutoKillMob = false,
+    AutoFarmBoss = false,
+    AutoFarmAllBoss = false,
+    AutoEventEnemy = false,
+    AcceptLevelQuests = true,
+    AcceptBossQuests = true,
+    BringMobs = true,
+    FastAttack = true,
+    ActivateTool = true,
+    SelectedMob = "Bandit",
+    SelectedBoss = BOSS_LISTS[Sea][1],
+    SelectedEventEnemy = "Terrorshark",
+    WeaponCategory = "Melee",
+    ExactToolName = nil,
+    Height = 20,
+    TweenSpeed = 200,
+    BringRadius = 3000,
+    TargetRadius = 60,
+    HitboxSize = 60,
+    HitboxTransparency = 0.82,
+    AttackMode = "Fast Attack",
+    StatsValue = 10,
+    AutoMelee = false,
+    AutoDefense = false,
+    AutoSword = false,
+    AutoGun = false,
+    AutoFruitStats = false,
+    AutoRandomFruit = false,
+    AutoCollectFruit = false,
+    AutoStoreFruit = false,
+    AutoRaceV3 = false,
+    AutoRaceV4 = false,
+    AutoSeaBeast = false,
+    AutoShark = false,
+    AutoPiranha = false,
+    AutoTerrorShark = false,
+    AutoBuso = true,
+    AntiAFK = true,
+    FullBright = false,
+    RemoveFog = false,
+    CreateUI = true,
+}
+
+local ATTACK_DELAYS = {
+    ["Normal Attack"] = 0.3,
+    ["Fast Attack"] = 0.2,
+    ["Super Fast Attack"] = 0.1,
+    ["Gravity hub"] = 0.05,
+}
+
+local Runtime = {
+    Alive = true,
+    Connections = {},
+    EnemyBuckets = {},
+    CurrentTarget = nil,
+    CurrentMode = "Idle",
+    FastTargets = {},
+    HitParts = {},
+    PrimaryTarget = nil,
+    AttackTransport = nil,
+    LastAttack = 0,
+    LastQuestRemote = 0,
+    LastSimulationRadius = 0,
+    MovementTween = nil,
+    MovementGoal = nil,
+    FarmAnchor = nil,
+    FarmAnchorKey = nil,
+    AnchorReached = false,
+    OwnedBodyMovers = setmetatable({}, { __mode = "k" }),
+    CollisionState = setmetatable({}, { __mode = "k" }),
+    EnemyMutationState = setmetatable({}, { __mode = "k" }),
+    FeatureLastRun = {},
+    UIControls = {},
+}
+
+local function connect(signal, callback)
+    local connection = signal:Connect(callback)
+    table.insert(Runtime.Connections, connection)
+    return connection
+end
+
+local function character()
+    return LocalPlayer.Character
+end
+
+local function characterParts()
+    local model = character()
+    if not model then return nil, nil, nil end
+    return model, model:FindFirstChildOfClass("Humanoid"), model:FindFirstChild("HumanoidRootPart")
+end
+
+local function aliveModel(model)
+    if not model or not model.Parent then return nil, nil end
+    local humanoid = model:FindFirstChildOfClass("Humanoid") or model:FindFirstChild("Humanoid")
+    local root = model:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not root or humanoid.Health <= 0 then return nil, nil end
+    return humanoid, root
+end
+
+local function enemiesFolder()
+    return workspace:FindFirstChild("Enemies")
+end
+
+local function addEnemy(model)
+    if not model:IsA("Model") then return end
+    local name = model.Name
+    local bucket = Runtime.EnemyBuckets[name]
+    if not bucket then
+        bucket = setmetatable({}, { __mode = "k" })
+        Runtime.EnemyBuckets[name] = bucket
+    end
+    bucket[model] = true
+end
+
+local function removeEnemy(model)
+    local bucket = Runtime.EnemyBuckets[model.Name]
+    if bucket then bucket[model] = nil end
+    if Runtime.CurrentTarget == model then Runtime.CurrentTarget = nil end
+end
+
+local function rebuildEnemyCache()
+    table.clear(Runtime.EnemyBuckets)
+    local folder = enemiesFolder()
+    if not folder then return end
+    for _, model in ipairs(folder:GetChildren()) do addEnemy(model) end
+end
+
+local EnemyFolder = enemiesFolder() or workspace:WaitForChild("Enemies", 15)
+assert(EnemyFolder, "RenBanana: workspace.Enemies was not found")
+rebuildEnemyCache()
+connect(EnemyFolder.ChildAdded, addEnemy)
+connect(EnemyFolder.ChildRemoved, removeEnemy)
+
+local function fruitIdentity(tool)
+    if not tool or not tool:IsA("Tool") then return nil end
+    local original = tool:GetAttribute("OriginalName") or tool:GetAttribute("FruitName")
+    local name = type(original) == "string" and original or tool.Name
+    if string.find(string.lower(name), "fruit", 1, true) then return name end
+    return nil
+end
+
+local WorldFruits = setmetatable({}, { __mode = "k" })
+local function trackWorldFruit(instance)
+    if instance:IsA("Tool") and fruitIdentity(instance) and not instance:IsDescendantOf(LocalPlayer) then
+        WorldFruits[instance] = true
+    end
+end
+for _, instance in ipairs(workspace:GetDescendants()) do trackWorldFruit(instance) end
+connect(workspace.DescendantAdded, trackWorldFruit)
+connect(workspace.DescendantRemoving, function(instance) WorldFruits[instance] = nil end)
+
+local Remotes = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:WaitForChild("Remotes", 15)
+local CommF = Remotes and (Remotes:FindFirstChild("CommF_") or Remotes:WaitForChild("CommF_", 10))
+local CommE = Remotes and Remotes:FindFirstChild("CommE")
+
+local function invokeComm(...)
+    if not CommF then return false end
+    local ok = pcall(CommF.InvokeServer, CommF, ...)
+    return ok
+end
+
+local function fireComm(...)
+    if not CommE then return false end
+    local ok = pcall(CommE.FireServer, CommE, ...)
+    return ok
+end
+
+local function activeFarmMode()
+    if Settings.AutoEventEnemy then return "Event" end
+    if Settings.AutoFarmBoss then return "Boss" end
+    if Settings.AutoFarmAllBoss then return "AllBoss" end
+    if Settings.AutoKillMob then return "Mob" end
+    if Settings.AutoFarmNearest then return "Nearest" end
+    if Settings.AutoFarmLevel then return "Level" end
+    return nil
+end
+
+local function farmEnabled()
+    return activeFarmMode() ~= nil
+end
+
+local function getQuestState()
+    local gui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    local main = gui and gui:FindFirstChild("Main")
+    local quest = main and main:FindFirstChild("Quest")
+    if not quest then return false, "" end
+    local container = quest:FindFirstChild("Container")
+    local questTitle = container and container:FindFirstChild("QuestTitle")
+    local title = questTitle and questTitle:FindFirstChild("Title")
+    return quest.Visible == true, title and title.Text or ""
+end
+
+local function currentLevel()
+    local data = LocalPlayer:FindFirstChild("Data")
+    local value = data and data:FindFirstChild("Level")
+    return value and tonumber(value.Value) or 1
+end
+
+local function teamName()
+    local team = LocalPlayer.Team
+    return team and team.Name or nil
+end
+
+local function levelMetadata()
+    local level = currentLevel()
+    local team = teamName()
+    local fallback
+    for _, row in ipairs(LEVEL_DATA[Sea]) do
+        if level >= row.Min and level <= row.Max then
+            if row.Team == team then return row end
+            if row.Team == nil then fallback = row end
+        end
+    end
+    return fallback
+end
+
+local function bossMetadata(name)
+    local resolved = BOSS_ALIASES[name] or name
+    return BOSS_DATA[Sea][resolved], resolved
+end
+
+local function findNearestByName(name, playerRoot)
+    local bucket = Runtime.EnemyBuckets[name]
+    if not bucket then return nil end
+    local nearest, nearestDistance
+    for model in pairs(bucket) do
+        local humanoid, root = aliveModel(model)
+        if humanoid and root then
+            local distance = (playerRoot.Position - root.Position).Magnitude
+            if not nearestDistance or distance < nearestDistance then
+                nearest, nearestDistance = model, distance
+            end
+        end
+    end
+    return nearest, nearestDistance
+end
+
+local function findNearestBoss(playerRoot)
+    local nearest, nearestDistance
+    for _, name in ipairs(BOSS_LISTS[Sea]) do
+        local bucket = Runtime.EnemyBuckets[name]
+        if bucket then
+            for model in pairs(bucket) do
+                local humanoid, root = aliveModel(model)
+                if humanoid and root then
+                    local distance = (playerRoot.Position - root.Position).Magnitude
+                    if not nearestDistance or distance < nearestDistance then
+                        nearest, nearestDistance = model, distance
+                    end
+                end
+            end
+        end
+    end
+    return nearest, nearestDistance
+end
+
+local function findNearestEnemy(playerRoot)
+    local nearest, nearestDistance
+    for _, bucket in pairs(Runtime.EnemyBuckets) do
+        for model in pairs(bucket) do
+            local humanoid, root = aliveModel(model)
+            if humanoid and root then
+                local distance = (playerRoot.Position - root.Position).Magnitude
+                if not nearestDistance or distance < nearestDistance then
+                    nearest, nearestDistance = model, distance
+                end
+            end
+        end
+    end
+    return nearest, nearestDistance
+end
+
+local Movement = {}
+
+function Movement:Cancel()
+    if Runtime.MovementTween then
+        pcall(Runtime.MovementTween.Cancel, Runtime.MovementTween)
+    end
+    Runtime.MovementTween = nil
+    Runtime.MovementGoal = nil
+end
+
+function Movement:Go(destination)
+    if typeof(destination) ~= "CFrame" then return false end
+    local _, humanoid, root = characterParts()
+    if not humanoid or not root or humanoid.Health <= 0 then return false end
+    if humanoid.Sit then humanoid.Sit = false end
+
+    local distance = (root.Position - destination.Position).Magnitude
+    if distance <= 3 then
+        self:Cancel()
+        root.CFrame = destination
+        return true
+    end
+
+    if Runtime.MovementGoal and (Runtime.MovementGoal.Position - destination.Position).Magnitude <= 2 then
+        return false
+    end
+
+    self:Cancel()
+    Runtime.MovementGoal = destination
+    local speed = math.max(tonumber(Settings.TweenSpeed) or 200, 25)
+    local tween = TweenService:Create(root, TweenInfo.new(distance / speed, Enum.EasingStyle.Linear), {
+        CFrame = destination,
+    })
+    Runtime.MovementTween = tween
+    tween:Play()
+    return true
+end
+
+local function ensureBodyVelocity(root, name, force)
+    local body = root:FindFirstChild(name)
+    if body and body:IsA("BodyVelocity") then return body end
+    body = Instance.new("BodyVelocity")
+    body.Name = name
+    body.MaxForce = force
+    body.Velocity = Vector3.zero
+    body.Parent = root
+    Runtime.OwnedBodyMovers[body] = true
+    return body
+end
+
+local function networkOwner(root)
+    if type(isnetworkowner) ~= "function" then return true end
+    local ok, owned = pcall(isnetworkowner, root)
+    return ok and owned == true
+end
+
+local function expandSimulationRadius()
+    local now = os.clock()
+    if now - Runtime.LastSimulationRadius < 1 then return end
+    Runtime.LastSimulationRadius = now
+    if type(sethiddenproperty) == "function" then
+        pcall(sethiddenproperty, LocalPlayer, "SimulationRadius", math.huge)
+    elseif type(setsimulationradius) == "function" then
+        pcall(setsimulationradius, math.huge, math.huge)
+    end
+end
+
+local function mutateEnemy(model, humanoid, root, destination)
+    local state = Runtime.EnemyMutationState[root]
+    if not state then
+        state = {
+            Size = root.Size,
+            Transparency = root.Transparency,
+            CanCollide = root.CanCollide,
+            WalkSpeed = humanoid.WalkSpeed,
+            JumpPower = humanoid.JumpPower,
+            AutoRotate = humanoid.AutoRotate,
+        }
+        Runtime.EnemyMutationState[root] = state
+    end
+
+    local size = math.clamp(tonumber(Settings.HitboxSize) or 60, 8, 100)
+    root.Size = Vector3.new(size, size, size)
+    root.Transparency = math.clamp(tonumber(Settings.HitboxTransparency) or 0.82, 0, 1)
+    root.CanCollide = false
+    humanoid.WalkSpeed = 0
+    humanoid.JumpPower = 0
+    humanoid.AutoRotate = false
+    ensureBodyVelocity(root, "BodyVelocity", Vector3.new(1e9, 1e9, 1e9))
+    if destination and networkOwner(root) then root.CFrame = destination end
+end
+
+local function restoreEnemies()
+    for root, state in pairs(Runtime.EnemyMutationState) do
+        if root and root.Parent then
+            local model = root.Parent
+            local humanoid = model and model:FindFirstChildOfClass("Humanoid")
+            pcall(function()
+                root.Size = state.Size
+                root.Transparency = state.Transparency
+                root.CanCollide = state.CanCollide
+                if humanoid then
+                    humanoid.WalkSpeed = state.WalkSpeed
+                    humanoid.JumpPower = state.JumpPower
+                    humanoid.AutoRotate = state.AutoRotate
+                end
+            end)
+            local velocity = root:FindFirstChild("BodyVelocity")
+            if velocity and Runtime.OwnedBodyMovers[velocity] then
+                Runtime.OwnedBodyMovers[velocity] = nil
+                pcall(velocity.Destroy, velocity)
+            end
+        end
+        Runtime.EnemyMutationState[root] = nil
+    end
+end
+
+local function clearFarmAnchor(restore)
+    Runtime.FarmAnchor = nil
+    Runtime.FarmAnchorKey = nil
+    Runtime.AnchorReached = false
+    if restore then restoreEnemies() end
+end
+
+local function ensureFarmAnchor(key, fallback)
+    if Runtime.FarmAnchorKey ~= key then
+        clearFarmAnchor(true)
+        Runtime.FarmAnchorKey = key
+    end
+    if not Runtime.FarmAnchor and typeof(fallback) == "CFrame" then
+        Runtime.FarmAnchor = fallback
+    end
+    return Runtime.FarmAnchor
+end
+
+local function bringEnemy(anchor, destination)
+    local anchorHumanoid, anchorRoot = aliveModel(anchor)
+    if not anchorHumanoid or not anchorRoot then return end
+
+    destination = destination or anchorRoot.CFrame
+    if not Settings.BringMobs then
+        mutateEnemy(anchor, anchorHumanoid, anchorRoot, nil)
+        return
+    end
+
+    expandSimulationRadius()
+    local anchorPosition = destination.Position
+    local bucket = Runtime.EnemyBuckets[anchor.Name]
+    if bucket then
+        for candidate in pairs(bucket) do
+            local humanoid, root = aliveModel(candidate)
+            if humanoid and root and (root.Position - anchorPosition).Magnitude <= 3000 then
+                mutateEnemy(candidate, humanoid, root, destination)
+            end
+        end
+    end
+    mutateEnemy(anchor, anchorHumanoid, anchorRoot, destination)
+end
+
+local function toolCategory(tool)
+    local attribute = tool:GetAttribute("WeaponType")
+    if type(attribute) == "string" and attribute ~= "" then return attribute end
+    return tool.ToolTip
+end
+
+local function selectedTool()
+    local model = character()
+    if not model then return nil end
+
+    if Settings.ExactToolName then
+        return model:FindFirstChild(Settings.ExactToolName)
+            or LocalPlayer.Backpack:FindFirstChild(Settings.ExactToolName)
+    end
+
+    local function scan(container)
+        for _, child in ipairs(container:GetChildren()) do
+            if child:IsA("Tool") and toolCategory(child) == Settings.WeaponCategory then
+                return child
+            end
+        end
+    end
+    return scan(model) or scan(LocalPlayer.Backpack)
+end
+
+local function equipWeapon()
+    local model, humanoid = characterParts()
+    if not model or not humanoid then return nil end
+    local tool = selectedTool()
+    if tool and tool.Parent ~= model then
+        pcall(humanoid.EquipTool, humanoid, tool)
+    end
+    return tool
+end
+
+local function appendBaseParts(model, output)
+    for _, child in ipairs(model:GetChildren()) do
+        if child:IsA("BasePart") then output[#output + 1] = child end
+    end
+end
+
+local function collectFastTargets()
+    table.clear(Runtime.FastTargets)
+    table.clear(Runtime.HitParts)
+    Runtime.PrimaryTarget = nil
+
+    local model, humanoid, playerRoot = characterParts()
+    local tool = model and model:FindFirstChildOfClass("Tool")
+    if not tool or not humanoid or not playerRoot or humanoid.Health <= 0 then return end
+
+    local category = toolCategory(tool)
+    local radius = 60
+    local function accept(candidate, fruitMode)
+        local targetHumanoid, root = aliveModel(candidate)
+        if not targetHumanoid or not root then return end
+        if (root.Position - playerRoot.Position).Magnitude > radius then return end
+        Runtime.FastTargets[#Runtime.FastTargets + 1] = candidate
+        if not Runtime.PrimaryTarget then Runtime.PrimaryTarget = candidate:FindFirstChild("Head") end
+        if fruitMode then
+            local part = candidate:FindFirstChild("Head")
+                or candidate:FindFirstChild("UpperTorso")
+                or candidate:FindFirstChild("HumanoidRootPart", true)
+            if part then Runtime.HitParts[#Runtime.HitParts + 1] = part end
+        else
+            appendBaseParts(candidate, Runtime.HitParts)
+        end
+    end
+
+    local fruitMode = category == "Blox Fruit"
+    for _, bucket in pairs(Runtime.EnemyBuckets) do
+        for candidate in pairs(bucket) do accept(candidate, fruitMode) end
+    end
+    local characters = workspace:FindFirstChild("Characters")
+    if characters and not fruitMode then
+        for _, candidate in ipairs(characters:GetChildren()) do
+            if candidate ~= model then accept(candidate, false) end
+        end
+    end
+
+    if fruitMode then
+        local seaBeasts = workspace:FindFirstChild("SeaBeasts")
+        if seaBeasts then
+            for _, beast in ipairs(seaBeasts:GetChildren()) do
+                local health = beast:FindFirstChild("Health")
+                local root = beast:FindFirstChild("HumanoidRootPart", true)
+                if health and root and health.Value > 0
+                    and (root.Position - playerRoot.Position).Magnitude <= radius
+                then
+                    Runtime.FastTargets[#Runtime.FastTargets + 1] = beast
+                    Runtime.HitParts[#Runtime.HitParts + 1] = root
+                end
+            end
+        end
+    end
+end
+
+local function defaultAttackTransport(tool, primaryTarget, hitParts)
+    if not Settings.ActivateTool or not tool or not primaryTarget or #hitParts == 0 then return end
+    pcall(tool.Activate, tool)
+    pcall(function()
+        VirtualUser:CaptureController()
+        VirtualUser:Button1Down(Vector2.zero, workspace.CurrentCamera.CFrame)
+        VirtualUser:Button1Up(Vector2.zero, workspace.CurrentCamera.CFrame)
+    end)
+end
+Runtime.AttackTransport = defaultAttackTransport
+
+local function attackTick()
+    if not Settings.FastAttack then return end
+    collectFastTargets()
+    if not farmEnabled() or not Runtime.PrimaryTarget then return end
+    local now = os.clock()
+    local delay = ATTACK_DELAYS[Settings.AttackMode] or 0.2
+    if now - Runtime.LastAttack < delay then return end
+    Runtime.LastAttack = now
+    local primaryTarget = Runtime.PrimaryTarget
+    local current = Runtime.CurrentTarget
+    if current then
+        local currentHumanoid, currentRoot = aliveModel(current)
+        local _, _, playerRoot = characterParts()
+        if currentHumanoid and currentRoot and playerRoot
+            and (currentRoot.Position - playerRoot.Position).Magnitude <= 60
+        then
+            primaryTarget = current:FindFirstChild("Head") or currentRoot
+        end
+    end
+    local model = character()
+    local tool = model and model:FindFirstChildOfClass("Tool")
+    pcall(Runtime.AttackTransport, tool, primaryTarget, Runtime.HitParts, Runtime.FastTargets)
+end
+
+local function questMatches(title, wanted)
+    return title ~= "" and string.find(string.lower(title), string.lower(wanted), 1, true) ~= nil
+end
+
+local function questRemoteReady(interval)
+    local now = os.clock()
+    if now - Runtime.LastQuestRemote < interval then return false end
+    Runtime.LastQuestRemote = now
+    return true
+end
+
+local function ensureQuest(metadata, titleMatch)
+    if not metadata or not metadata.Quest or not metadata.Slot or not metadata.QuestCFrame then return true end
+    local visible, title = getQuestState()
+    if visible and not questMatches(title, titleMatch) then
+        if questRemoteReady(0.75) then invokeComm("AbandonQuest") end
+        return false
+    end
+    if not visible then
+        Movement:Go(metadata.QuestCFrame)
+        local _, _, root = characterParts()
+        if root and (root.Position - metadata.QuestCFrame.Position).Magnitude <= 5
+            and questRemoteReady(0.75)
+        then
+            invokeComm("StartQuest", metadata.Quest, metadata.Slot)
+        end
+        return false
+    end
+    return true
+end
+
+local function combatTarget(target, anchorKey, fallbackAnchor)
+    local humanoid, root = aliveModel(target)
+    if not humanoid or not root then return false end
+    local _, _, playerRoot = characterParts()
+    if not playerRoot then return false end
+
+    local anchor = ensureFarmAnchor(anchorKey, fallbackAnchor or root.CFrame)
+    if not anchor then return false end
+    Runtime.CurrentTarget = target
+
+    if target:GetAttribute("Locked") == nil then
+        target:SetAttribute("Locked", anchor)
+    end
+    bringEnemy(target, anchor)
+    equipWeapon()
+    local playerGoal = anchor
+        * CFrame.new(0, tonumber(Settings.Height) or 20, 0)
+        * CFrame.Angles(0, math.pi, 0)
+    local distance = (playerRoot.Position - playerGoal.Position).Magnitude
+    if distance <= 6 then
+        Movement:Cancel()
+        playerRoot.CFrame = playerGoal
+        Runtime.AnchorReached = true
+    else
+        Runtime.AnchorReached = false
+        Movement:Go(playerGoal)
+    end
+    return true
+end
+
+local function tickLevel(playerRoot)
+    local metadata = levelMetadata()
+    if not metadata then return end
+    if Settings.AcceptLevelQuests and not ensureQuest(metadata, metadata.Title) then
+        Runtime.CurrentTarget = nil
+        clearFarmAnchor(true)
+        return
+    end
+    local target = Runtime.CurrentTarget
+    local targetHumanoid = target and aliveModel(target)
+    if not targetHumanoid or target.Name ~= metadata.Enemy then
+        target = findNearestByName(metadata.Enemy, playerRoot)
+        Runtime.CurrentTarget = nil
+    end
+    if target then
+        combatTarget(target, "Level:" .. metadata.Enemy, metadata.EnemyCFrame)
+    elseif metadata.EnemyCFrame then
+        local anchor = ensureFarmAnchor("Level:" .. metadata.Enemy, metadata.EnemyCFrame)
+        Movement:Go(anchor * CFrame.new(0, tonumber(Settings.Height) or 20, 0))
+    end
+end
+
+local function tickMob(playerRoot)
+    local target = Runtime.CurrentTarget
+    local targetHumanoid = target and aliveModel(target)
+    if not targetHumanoid or target.Name ~= Settings.SelectedMob then
+        target = findNearestByName(Settings.SelectedMob, playerRoot)
+        Runtime.CurrentTarget = nil
+    end
+    if target then combatTarget(target, "Mob:" .. Settings.SelectedMob) end
+end
+
+local function tickNearest(playerRoot)
+    local target = Runtime.CurrentTarget
+    local targetHumanoid = target and aliveModel(target)
+    if not targetHumanoid then
+        target = findNearestEnemy(playerRoot)
+        Runtime.CurrentTarget = nil
+    end
+    if target then combatTarget(target, "Nearest:" .. target.Name) end
+end
+
+local function tickEvent(playerRoot)
+    local name = Settings.SelectedEventEnemy
+    local target = Runtime.CurrentTarget
+    local targetHumanoid = target and aliveModel(target)
+    if not targetHumanoid or target.Name ~= name then
+        target = findNearestByName(name, playerRoot)
+        Runtime.CurrentTarget = nil
+    end
+    if target then combatTarget(target, "Event:" .. name) end
+end
+
+local function tickBoss(playerRoot)
+    local metadata = bossMetadata(Settings.SelectedBoss)
+    if not metadata then return end
+    if Settings.AcceptBossQuests and metadata.Quest
+        and not ensureQuest(metadata, metadata.Model)
+    then
+        Runtime.CurrentTarget = nil
+        clearFarmAnchor(true)
+        return
+    end
+
+    local target = findNearestByName(metadata.Model, playerRoot)
+    if target then
+        combatTarget(target, "Boss:" .. metadata.Model, metadata.BossCFrame)
+        return
+    end
+
+    Runtime.CurrentTarget = nil
+    local template = ReplicatedStorage:FindFirstChild(metadata.Model)
+    local templateRoot = template and template:FindFirstChild("HumanoidRootPart")
+    if templateRoot then
+        Movement:Go(templateRoot.CFrame * CFrame.new(0, 30, 0))
+    elseif metadata.BossCFrame then
+        Movement:Go(metadata.BossCFrame)
+    end
+end
+
+local function tickAllBoss(playerRoot)
+    local target = Runtime.CurrentTarget
+    local targetHumanoid = target and aliveModel(target)
+    if not targetHumanoid or not table.find(BOSS_LISTS[Sea], target.Name) then
+        target = findNearestBoss(playerRoot)
+        Runtime.CurrentTarget = nil
+    end
+    if target then combatTarget(target, "AllBoss:" .. target.Name) end
+end
+
+local MODE_INTERVALS = { Level = 0.2, Mob = 0.03, Nearest = 0.05, Boss = 0.2, AllBoss = 0.1, Event = 0.06 }
+
+task.spawn(function()
+    local lastMode, lastRun = nil, 0
+    while Runtime.Alive do
+        local mode = activeFarmMode()
+        if mode ~= lastMode then
+            Runtime.CurrentTarget = nil
+            clearFarmAnchor(true)
+            Runtime.CurrentMode = mode or "Idle"
+            lastMode = mode
+        end
+
+        if mode and os.clock() - lastRun >= MODE_INTERVALS[mode] then
+            lastRun = os.clock()
+            local _, humanoid, playerRoot = characterParts()
+            if humanoid and playerRoot and humanoid.Health > 0 then
+                humanoid.Sit = false
+                local ok, err = pcall(function()
+                    if mode == "Level" then tickLevel(playerRoot)
+                    elseif mode == "Mob" then tickMob(playerRoot)
+                    elseif mode == "Nearest" then tickNearest(playerRoot)
+                    elseif mode == "Boss" then tickBoss(playerRoot)
+                    elseif mode == "AllBoss" then tickAllBoss(playerRoot)
+                    elseif mode == "Event" then tickEvent(playerRoot) end
+                end)
+                if not ok then warn("RenBanana farm tick:", err) end
+            end
+        elseif not mode and Runtime.MovementTween then
+            Movement:Cancel()
+        end
+        task.wait(0.03)
+    end
+end)
+
+local function featureReady(key, interval)
+    local now = os.clock()
+    if now - (Runtime.FeatureLastRun[key] or 0) < interval then return false end
+    Runtime.FeatureLastRun[key] = now
+    return true
+end
+
+local function addStats()
+    local amount = math.clamp(math.floor(tonumber(Settings.StatsValue) or 10), 1, 1000)
+    if Settings.AutoMelee then invokeComm("AddPoint", "Melee", amount) end
+    if Settings.AutoDefense then invokeComm("AddPoint", "Defense", amount) end
+    if Settings.AutoSword then invokeComm("AddPoint", "Sword", amount) end
+    if Settings.AutoGun then invokeComm("AddPoint", "Gun", amount) end
+    if Settings.AutoFruitStats then invokeComm("AddPoint", "Demon Fruit", amount) end
+end
+
+local function collectWorldFruits()
+    local _, _, root = characterParts()
+    if not root then return end
+    for tool in pairs(WorldFruits) do
+        if tool and tool.Parent then
+            local handle = tool:FindFirstChild("Handle") or tool:FindFirstChildWhichIsA("BasePart")
+            if handle then
+                if type(firetouchinterest) == "function" then
+                    pcall(firetouchinterest, root, handle, 0)
+                    pcall(firetouchinterest, root, handle, 1)
+                elseif (handle.Position - root.Position).Magnitude <= 120 then
+                    pcall(function() handle.CFrame = root.CFrame end)
+                end
+            end
+        end
+    end
+end
+
+local function storeHeldFruits()
+    local function scan(container)
+        if not container then return end
+        for _, tool in ipairs(container:GetChildren()) do
+            local name = fruitIdentity(tool)
+            if name then pcall(invokeComm, "StoreFruit", name, tool) end
+        end
+    end
+    scan(character())
+    scan(LocalPlayer:FindFirstChildOfClass("Backpack"))
+end
+
+connect(LocalPlayer.Idled, function()
+    if not Settings.AntiAFK then return end
+    pcall(function()
+        VirtualUser:CaptureController()
+        VirtualUser:Button2Down(Vector2.zero, workspace.CurrentCamera.CFrame)
+        task.wait(0.1)
+        VirtualUser:Button2Up(Vector2.zero, workspace.CurrentCamera.CFrame)
+    end)
+end)
+
+task.spawn(function()
+    while Runtime.Alive do
+        if featureReady("Stats", 0.3) then pcall(addStats) end
+        if Settings.AutoBuso and featureReady("Buso", 2) then
+            local model = character()
+            if model and not model:FindFirstChild("HasBuso") then pcall(invokeComm, "Buso") end
+        end
+        if Settings.AutoRandomFruit and featureReady("RandomFruit", 60) then
+            pcall(invokeComm, "Cousin", "Buy")
+        end
+        if Settings.AutoCollectFruit and featureReady("CollectFruit", 0.35) then pcall(collectWorldFruits) end
+        if Settings.AutoStoreFruit and featureReady("StoreFruit", 1) then pcall(storeHeldFruits) end
+        if Settings.AutoRaceV3 and featureReady("RaceV3", 2) then pcall(fireComm, "ActivateAbility") end
+        if Settings.AutoRaceV4 and featureReady("RaceV4", 2) then pcall(fireComm, "ActivateAbility") end
+        task.wait(0.12)
+    end
+end)
+
+local function restoreCharacterPhysics()
+    for part, original in pairs(Runtime.CollisionState) do
+        if part and part.Parent then pcall(function() part.CanCollide = original end) end
+        Runtime.CollisionState[part] = nil
+    end
+    local _, _, root = characterParts()
+    local bodyClip = root and root:FindFirstChild("BodyClip")
+    if bodyClip and Runtime.OwnedBodyMovers[bodyClip] then
+        Runtime.OwnedBodyMovers[bodyClip] = nil
+        pcall(bodyClip.Destroy, bodyClip)
+    end
+end
+
+local fastAccumulator, physicsAccumulator = 0, 0
+connect(RunService.Heartbeat, function(delta)
+    if not Runtime.Alive then return end
+    fastAccumulator += delta
+    local delay = ATTACK_DELAYS[Settings.AttackMode] or 0.2
+    if fastAccumulator >= delay then
+        fastAccumulator = 0
+        local ok, err = pcall(attackTick)
+        if not ok then warn("RenBanana target tick:", err) end
+    end
+
+    physicsAccumulator += delta
+    if physicsAccumulator >= 0.12 then
+        physicsAccumulator = 0
+        if farmEnabled() then
+            local model, _, root = characterParts()
+            if root then ensureBodyVelocity(root, "BodyClip", Vector3.new(100000, 100000, 100000)) end
+            if root and Runtime.AnchorReached and Runtime.FarmAnchor then
+                root.CFrame = Runtime.FarmAnchor
+                    * CFrame.new(0, tonumber(Settings.Height) or 20, 0)
+                    * CFrame.Angles(0, math.pi, 0)
+                root.AssemblyLinearVelocity = Vector3.zero
+            end
+            if model then
+                for _, part in ipairs(model:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        if Runtime.CollisionState[part] == nil then Runtime.CollisionState[part] = part.CanCollide end
+                        part.CanCollide = false
+                    end
+                end
+            end
+        elseif next(Runtime.CollisionState) ~= nil then
+            restoreCharacterPhysics()
+        end
+    end
+end)
+
+local API = {}
+API.Settings = Settings
+API.Runtime = Runtime
+API.LevelData = LEVEL_DATA
+API.BossData = BOSS_DATA
+API.BossLists = BOSS_LISTS
+
+function API.Set(name, value)
+    assert(Settings[name] ~= nil, "Unknown RenBanana setting: " .. tostring(name))
+    local exclusive = {
+        AutoFarmLevel = true,
+        AutoFarmNearest = true,
+        AutoKillMob = true,
+        AutoFarmBoss = true,
+        AutoFarmAllBoss = true,
+        AutoEventEnemy = true,
+    }
+    if value == true and exclusive[name] then
+        for other in pairs(exclusive) do
+            if other ~= name and Settings[other] then
+                Settings[other] = false
+                for _, control in ipairs(Runtime.UIControls[other] or {}) do
+                    pcall(control.Set, control, false)
+                end
+            end
+        end
+    end
+    Settings[name] = value
+    if exclusive[name] or name == "SelectedMob" or name == "SelectedBoss"
+        or name == "SelectedEventEnemy"
+    then
+        Runtime.CurrentTarget = nil
+        clearFarmAnchor(true)
+    elseif name == "BringMobs" and value == false then
+        restoreEnemies()
+    end
+    return value
+end
+
+function API.SetAttackTransport(callback)
+    assert(type(callback) == "function", "Attack transport must be a function")
+    Runtime.AttackTransport = callback
+end
+
+function API.ResetAttackTransport()
+    Runtime.AttackTransport = defaultAttackTransport
+end
+
+function API.GetFastTargets()
+    return Runtime.FastTargets, Runtime.HitParts, Runtime.PrimaryTarget
+end
+
+function API.Bring(target)
+    return bringEnemy(target)
+end
+
+function API.Move(destination)
+    return Movement:Go(destination)
+end
+
+function API.StopAll()
+    for key in pairs(Settings) do
+        if string.sub(key, 1, 4) == "Auto" then
+            Settings[key] = false
+            for _, control in ipairs(Runtime.UIControls[key] or {}) do
+                pcall(control.Set, control, false)
+            end
+        end
+    end
+    Runtime.CurrentTarget = nil
+    Movement:Cancel()
+    clearFarmAnchor(true)
+    restoreCharacterPhysics()
+end
+
+local function uiParent()
+    if type(gethui) == "function" then
+        local ok, result = pcall(gethui)
+        if ok and result then return result end
+    end
+    local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    return playerGui or CoreGui
+end
+
+local function makeUI()
+    local parent = uiParent()
+    local old = parent:FindFirstChild("RenBananaUI")
+    if old then old:Destroy() end
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "RenBananaUI"
+    gui.ResetOnSpawn = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.Parent = parent
+
+    local frame = Instance.new("Frame")
+    frame.Name = "Main"
+    frame.Size = UDim2.fromOffset(420, 510)
+    frame.Position = UDim2.new(0, 24, 0.5, -255)
+    frame.BackgroundColor3 = Color3.fromRGB(13, 13, 18)
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.Parent = gui
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+
+    local stroke = Instance.new("UIStroke", frame)
+    stroke.Color = Color3.fromRGB(255, 45, 145)
+    stroke.Thickness = 2
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -16, 0, 42)
+    title.Position = UDim2.fromOffset(8, 4)
+    title.BackgroundTransparency = 1
+    title.Font = Enum.Font.GothamBold
+    title.Text = "RENBANANA  •  FARMING RUNTIME"
+    title.TextColor3 = Color3.fromRGB(255, 240, 250)
+    title.TextSize = 16
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = frame
+
+    local content = Instance.new("ScrollingFrame")
+    content.Size = UDim2.new(1, -20, 1, -92)
+    content.Position = UDim2.fromOffset(10, 48)
+    content.BackgroundTransparency = 1
+    content.BorderSizePixel = 0
+    content.ScrollBarThickness = 4
+    content.ScrollBarImageColor3 = Color3.fromRGB(255, 45, 145)
+    content.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    content.CanvasSize = UDim2.new()
+    content.Parent = frame
+    local layout = Instance.new("UIListLayout", content)
+    layout.Padding = UDim.new(0, 6)
+
+    local function row(height)
+        local holder = Instance.new("Frame")
+        holder.Size = UDim2.new(1, -4, 0, height or 34)
+        holder.BackgroundColor3 = Color3.fromRGB(24, 24, 32)
+        holder.BorderSizePixel = 0
+        holder.Parent = content
+        Instance.new("UICorner", holder).CornerRadius = UDim.new(0, 6)
+        return holder
+    end
+
+    local function toggle(label, key)
+        local holder = row()
+        local button = Instance.new("TextButton")
+        button.Size = UDim2.new(1, -10, 1, -6)
+        button.Position = UDim2.fromOffset(5, 3)
+        button.BackgroundTransparency = 1
+        button.Font = Enum.Font.GothamMedium
+        button.TextSize = 14
+        button.TextXAlignment = Enum.TextXAlignment.Left
+        button.Parent = holder
+        local function refresh()
+            button.Text = string.format("%s   [%s]", label, Settings[key] and "ON" or "OFF")
+            button.TextColor3 = Settings[key] and Color3.fromRGB(255, 75, 165) or Color3.fromRGB(205, 205, 215)
+        end
+        connect(button.MouseButton1Click, function()
+            API.Set(key, not Settings[key])
+            refresh()
+        end)
+        refresh()
+    end
+
+    local function input(label, key, numeric)
+        local holder = row(38)
+        local text = Instance.new("TextLabel")
+        text.Size = UDim2.new(0.44, -8, 1, 0)
+        text.Position = UDim2.fromOffset(8, 0)
+        text.BackgroundTransparency = 1
+        text.Font = Enum.Font.GothamMedium
+        text.Text = label
+        text.TextColor3 = Color3.fromRGB(205, 205, 215)
+        text.TextSize = 13
+        text.TextXAlignment = Enum.TextXAlignment.Left
+        text.Parent = holder
+        local box = Instance.new("TextBox")
+        box.Size = UDim2.new(0.56, -10, 1, -10)
+        box.Position = UDim2.new(0.44, 2, 0, 5)
+        box.BackgroundColor3 = Color3.fromRGB(35, 35, 46)
+        box.BorderSizePixel = 0
+        box.ClearTextOnFocus = false
+        box.Font = Enum.Font.Code
+        box.Text = tostring(Settings[key] or "")
+        box.TextColor3 = Color3.fromRGB(255, 235, 247)
+        box.TextSize = 13
+        box.Parent = holder
+        Instance.new("UICorner", box).CornerRadius = UDim.new(0, 5)
+        connect(box.FocusLost, function()
+            local value = numeric and tonumber(box.Text) or box.Text
+            if value ~= nil and value ~= "" then API.Set(key, value) end
+            box.Text = tostring(Settings[key] or "")
+        end)
+    end
+
+    toggle("Auto Farm Level", "AutoFarmLevel")
+    toggle("Auto Kill Mob", "AutoKillMob")
+    toggle("Auto Farm Boss", "AutoFarmBoss")
+    toggle("Auto Farm All Boss", "AutoFarmAllBoss")
+    toggle("Accept Level Quests", "AcceptLevelQuests")
+    toggle("Accept Boss Quests", "AcceptBossQuests")
+    toggle("Bring Mobs", "BringMobs")
+    toggle("Fast Target Collector", "FastAttack")
+    toggle("Activate Equipped Tool", "ActivateTool")
+    input("Selected Mob", "SelectedMob", false)
+    input("Selected Boss", "SelectedBoss", false)
+    input("Weapon Category", "WeaponCategory", false)
+    input("Height", "Height", true)
+    input("Tween Speed", "TweenSpeed", true)
+    input("Attack Mode", "AttackMode", false)
+
+    local status = Instance.new("TextLabel")
+    status.Size = UDim2.new(1, -100, 0, 30)
+    status.Position = UDim2.new(0, 10, 1, -38)
+    status.BackgroundTransparency = 1
+    status.Font = Enum.Font.Code
+    status.TextColor3 = Color3.fromRGB(190, 190, 205)
+    status.TextSize = 12
+    status.TextXAlignment = Enum.TextXAlignment.Left
+    status.Parent = frame
+
+    local stop = Instance.new("TextButton")
+    stop.Size = UDim2.fromOffset(84, 28)
+    stop.Position = UDim2.new(1, -94, 1, -37)
+    stop.BackgroundColor3 = Color3.fromRGB(255, 45, 145)
+    stop.BorderSizePixel = 0
+    stop.Font = Enum.Font.GothamBold
+    stop.Text = "STOP ALL"
+    stop.TextColor3 = Color3.new(1, 1, 1)
+    stop.TextSize = 12
+    stop.Parent = frame
+    Instance.new("UICorner", stop).CornerRadius = UDim.new(0, 6)
+    connect(stop.MouseButton1Click, API.StopAll)
+
+    local dragging, dragStart, frameStart
+    connect(title.InputBegan, function(inputObject)
+        if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging, dragStart, frameStart = true, inputObject.Position, frame.Position
+        end
+    end)
+    connect(UserInputService.InputEnded, function(inputObject)
+        if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+    end)
+    connect(UserInputService.InputChanged, function(inputObject)
+        if dragging and inputObject.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = inputObject.Position - dragStart
+            frame.Position = frameStart + UDim2.fromOffset(delta.X, delta.Y)
+        end
+    end)
+
+    task.spawn(function()
+        while Runtime.Alive and gui.Parent do
+            local target = Runtime.CurrentTarget
+            status.Text = string.format("%s  •  %s  •  targets:%d", Runtime.CurrentMode, target and target.Name or "none", #Runtime.FastTargets)
+            task.wait(0.4)
+        end
+    end)
+    Runtime.Gui = gui
+end
+
+local function makeRenLibUI()
+    local RenLib = (function()
+-- RenLib V7.0.0
+-- Responsive Roblox UI framework with centralized navigation, non-destructive
+-- search, mobile-first input, live theming, addons, and deterministic cleanup.
+
+--// SERVICES
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local TextService = game:GetService("TextService")
+local GuiService = game:GetService("GuiService")
+
+--// LOCAL SHORTCUTS
+local Plr = Players.LocalPlayer
+local Mouse = Plr:GetMouse()
+local Camera = workspace.CurrentCamera
+
+--// DEVICE DETECTION
+local function getViewport()
+    Camera = workspace.CurrentCamera or Camera
+    return Camera and Camera.ViewportSize or Vector2.new(800, 600)
+end
+
+local function getDeviceMode(scale)
+    local viewport = getViewport()
+    local normalizedScale = math.max(tonumber(scale) or 1, 0.01)
+    -- Larger UI scales reduce usable physical space, so responsive mode is
+    -- chosen from the canvas people can actually see rather than raw pixels.
+    local scalePressure = normalizedScale < 1 and normalizedScale or (1 / normalizedScale)
+    local effectiveWidth = viewport.X * scalePressure
+    if effectiveWidth <= 620 then
+        return "Phone"
+    elseif effectiveWidth <= 960 or (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled) then
+        return "Tablet"
+    end
+    return "Desktop"
+end
+
+local DeviceMode = getDeviceMode(1)
+local IsMobile = DeviceMode ~= "Desktop"
+local ScreenSize = getViewport()
+
+--// CONSTANTS
+local CONFIG_FOLDER = "RenLib/Configs"
+local RUNTIME_KEY = "__RENLIB_V6_RUNTIME"
+local INFINITE_YIELD_URL = "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"
+local RENHUB_LOADER_URL = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/RenHubLoader"
+local BRAND_ICON_MANIFEST_URL = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Assets/Brand/icon.txt"
+local RuntimeEnvironment = (getgenv and getgenv()) or shared or _G
+
+-- Only one RenLib session may own input and UI at a time.
+local PreviousSession = RuntimeEnvironment[RUNTIME_KEY]
+if PreviousSession and type(PreviousSession.Unload) == "function" then
+    pcall(function()
+        PreviousSession:Unload("replaced")
+    end)
+end
+
+--// EMOJI ICONS
+local EMOJIS = {
+    Logo = "</>",
+    Settings = "⚙️",
+    Search = "🔍",
+    Close = "❌",
+    Minimize = "➖",
+    Arrow = "▼",
+    Check = "✓",
+    Star = "⭐",
+    Play = "▶",
+    Trash = "🗑️",
+    Refresh = "🔄",
+    Info = "ℹ️",
+    Warning = "⚠️",
+    Success = "✅",
+    Error = "❌",
+    Home = "🏠",
+    Code = "</>",
+    Terminal = "💻",
+    User = "👤",
+    Lock = "🔒",
+    Unlock = "🔓"
+}
+
+-- Material icons hosted on Roblox. These keep core chrome crisp at every UI scale.
+local ICONS = {
+    Settings = "rbxassetid://6031280882",
+    Search = "rbxassetid://6031154871",
+    Close = "rbxassetid://6031094678",
+    Minimize = "rbxassetid://6026568240",
+    ChevronDown = "rbxassetid://6034818372",
+    ChevronRight = "rbxassetid://6034818365",
+    Home = "rbxassetid://9080449299",
+    Profile = "rbxassetid://6022668898",
+    Play = "rbxassetid://6026663699",
+    Palette = "rbxassetid://6034316009",
+    Restore = "rbxassetid://6031260800",
+    Dashboard = "rbxassetid://6034287594",
+    Layers = "rbxassetid://6034328955",
+    Glass = "rbxassetid://6034925618",
+    Check = "rbxassetid://6031094667",
+    Menu = "rbxassetid://6031091002"
+}
+
+--// ROOT LIBRARY
+local Library = {}
+Library.Version = "7.0.0"
+Library.Title = "RenLib"
+Library.Connections = {}
+Library.Tasks = {}
+Library.Flags = {}
+Library.Options = {}
+Library.PendingAutoloadFlags = {}
+Library.AutoloadConfigName = nil
+Library.AutoloadThemeName = nil
+Library.KnownConfigs = {}
+Library.Unloaded = false
+Library.Keybinds = {}
+Library.KeybindDefaults = {}
+Library.Addons = {}
+Library.AddonOrder = {}
+Library.ToggleKey = Enum.KeyCode.K
+Library.IsMinimized = false
+Library.IsMobile = IsMobile
+Library.DeviceMode = DeviceMode
+Library.DPIScale = 1
+Library.ReducedMotion = false
+Library.MotionScale = 1
+Library.ActiveTweens = setmetatable({}, {__mode = "k"})
+Library.LayoutTweens = setmetatable({}, {__mode = "k"})
+Library.VisibilityTweens = setmetatable({}, {__mode = "k"})
+Library.GradientRegistry = setmetatable({}, {__mode = "k"})
+Library.ActiveTheme = "Celestial"
+Library.ScalePreview = nil
+Library.MaterialMode = "Solid"
+Library.MaterialIntensity = 18
+Library.MaterialRegistry = setmetatable({}, {__mode = "k"})
+Library.MaterialDecorations = setmetatable({}, {__mode = "k"})
+Library.BrandIcon = ICONS.Palette
+-- Brand marks use semantic text contrast. A dark theme therefore receives a
+-- bright mark while a light theme receives a dark mark, without hard-coded
+-- per-theme exceptions.
+Library.BrandIconTint = "Text"
+Library.BrandMarks = setmetatable({}, {__mode = "k"})
+Library.Icons = ICONS
+
+-- Theme (can be changed at runtime)
+Library.Theme = {
+    Main = Color3.fromRGB(24, 26, 37),
+    Secondary = Color3.fromRGB(29, 32, 44),
+    Surface = Color3.fromRGB(36, 39, 53),
+    SurfaceAlt = Color3.fromRGB(44, 47, 63),
+    Stroke = Color3.fromRGB(82, 86, 111),
+    Divider = Color3.fromRGB(57, 60, 79),
+    Text = Color3.fromRGB(245, 245, 249),
+    SubText = Color3.fromRGB(158, 160, 178),
+    Hover = Color3.fromRGB(48, 51, 68),
+    Click = Color3.fromRGB(55, 59, 77),
+    Accent = Color3.fromRGB(157, 112, 255),
+    Accent2 = Color3.fromRGB(91, 190, 255),
+    Accent3 = Color3.fromRGB(255, 142, 216),
+    Success = Color3.fromRGB(75, 215, 155),
+    Warn = Color3.fromRGB(247, 190, 78),
+    Error = Color3.fromRGB(247, 91, 121)
+}
+
+Library.ThemePresets = {
+    Midnight = {
+        Main = Color3.fromRGB(23, 26, 36), Secondary = Color3.fromRGB(29, 32, 44),
+        Surface = Color3.fromRGB(36, 40, 53), SurfaceAlt = Color3.fromRGB(44, 48, 63),
+        Stroke = Color3.fromRGB(82, 87, 108), Divider = Color3.fromRGB(58, 62, 79),
+        Text = Color3.fromRGB(244, 245, 248), SubText = Color3.fromRGB(158, 160, 176),
+        Hover = Color3.fromRGB(49, 53, 68), Click = Color3.fromRGB(57, 61, 78),
+        Accent = Color3.fromRGB(96, 164, 255), Accent2 = Color3.fromRGB(120, 220, 226), Success = Color3.fromRGB(60, 220, 120),
+        Warn = Color3.fromRGB(240, 200, 60), Error = Color3.fromRGB(240, 60, 60)
+    },
+    Nebula = {
+        Main = Color3.fromRGB(29, 23, 43), Secondary = Color3.fromRGB(36, 29, 52),
+        Surface = Color3.fromRGB(44, 35, 63), SurfaceAlt = Color3.fromRGB(53, 42, 75),
+        Stroke = Color3.fromRGB(91, 75, 122), Divider = Color3.fromRGB(70, 59, 95),
+        Text = Color3.fromRGB(246, 243, 255), SubText = Color3.fromRGB(174, 164, 199),
+        Hover = Color3.fromRGB(58, 47, 80), Click = Color3.fromRGB(66, 53, 90),
+        Accent = Color3.fromRGB(170, 106, 255), Accent2 = Color3.fromRGB(89, 189, 255), Success = Color3.fromRGB(76, 218, 157),
+        Warn = Color3.fromRGB(255, 198, 88), Error = Color3.fromRGB(255, 94, 117)
+    },
+    Celestial = {
+        Main = Color3.fromRGB(24, 26, 37), Secondary = Color3.fromRGB(29, 32, 44),
+        Surface = Color3.fromRGB(36, 39, 53), SurfaceAlt = Color3.fromRGB(44, 47, 63),
+        Stroke = Color3.fromRGB(82, 86, 111), Divider = Color3.fromRGB(57, 60, 79),
+        Text = Color3.fromRGB(245, 245, 249), SubText = Color3.fromRGB(158, 160, 178),
+        Hover = Color3.fromRGB(48, 51, 68), Click = Color3.fromRGB(55, 59, 77),
+        Accent = Color3.fromRGB(157, 112, 255), Accent2 = Color3.fromRGB(91, 190, 255), Success = Color3.fromRGB(66, 224, 171),
+        Warn = Color3.fromRGB(255, 205, 92), Error = Color3.fromRGB(255, 92, 120)
+    },
+    Rose = {
+        Main = Color3.fromRGB(42, 27, 36), Secondary = Color3.fromRGB(50, 32, 43),
+        Surface = Color3.fromRGB(61, 38, 52), SurfaceAlt = Color3.fromRGB(72, 44, 61),
+        Stroke = Color3.fromRGB(111, 70, 91), Divider = Color3.fromRGB(86, 55, 73),
+        Text = Color3.fromRGB(255, 241, 247), SubText = Color3.fromRGB(201, 157, 178),
+        Hover = Color3.fromRGB(77, 48, 65), Click = Color3.fromRGB(86, 53, 73),
+        Accent = Color3.fromRGB(255, 105, 180), Accent2 = Color3.fromRGB(177, 117, 255), Success = Color3.fromRGB(73, 219, 157),
+        Warn = Color3.fromRGB(255, 198, 91), Error = Color3.fromRGB(255, 86, 107)
+    },
+    Aurora = {
+        Main = Color3.fromRGB(18, 32, 38), Secondary = Color3.fromRGB(23, 40, 47),
+        Surface = Color3.fromRGB(29, 49, 57), SurfaceAlt = Color3.fromRGB(36, 59, 67),
+        Stroke = Color3.fromRGB(71, 110, 118), Divider = Color3.fromRGB(50, 81, 88),
+        Text = Color3.fromRGB(238, 253, 252), SubText = Color3.fromRGB(147, 185, 185),
+        Hover = Color3.fromRGB(41, 65, 73), Click = Color3.fromRGB(47, 74, 82),
+        Accent = Color3.fromRGB(48, 226, 183), Accent2 = Color3.fromRGB(102, 149, 255), Success = Color3.fromRGB(64, 226, 158),
+        Warn = Color3.fromRGB(255, 205, 94), Error = Color3.fromRGB(255, 92, 117)
+    },
+    Ember = {
+        Main = Color3.fromRGB(42, 28, 23), Secondary = Color3.fromRGB(51, 34, 28),
+        Surface = Color3.fromRGB(62, 41, 33), SurfaceAlt = Color3.fromRGB(74, 48, 38),
+        Stroke = Color3.fromRGB(118, 79, 62), Divider = Color3.fromRGB(90, 59, 48),
+        Text = Color3.fromRGB(255, 247, 239), SubText = Color3.fromRGB(201, 169, 146),
+        Hover = Color3.fromRGB(80, 52, 41), Click = Color3.fromRGB(91, 59, 46),
+        Accent = Color3.fromRGB(255, 132, 72), Accent2 = Color3.fromRGB(255, 83, 129), Accent3 = Color3.fromRGB(255, 202, 102), Success = Color3.fromRGB(87, 220, 153),
+        Warn = Color3.fromRGB(255, 201, 87), Error = Color3.fromRGB(255, 83, 99)
+    },
+    ["Prism Frost"] = {
+        Main = Color3.fromRGB(218, 228, 232), Secondary = Color3.fromRGB(230, 238, 241),
+        Surface = Color3.fromRGB(242, 246, 248), SurfaceAlt = Color3.fromRGB(250, 252, 253),
+        Stroke = Color3.fromRGB(123, 145, 155), Divider = Color3.fromRGB(168, 184, 191),
+        Text = Color3.fromRGB(31, 39, 43), SubText = Color3.fromRGB(100, 111, 117),
+        Hover = Color3.fromRGB(224, 234, 239), Click = Color3.fromRGB(211, 224, 230),
+        Accent = Color3.fromRGB(168, 208, 255), Accent2 = Color3.fromRGB(255, 222, 166), Accent3 = Color3.fromRGB(186, 222, 255),
+        Success = Color3.fromRGB(67, 171, 127), Warn = Color3.fromRGB(218, 150, 51), Error = Color3.fromRGB(211, 75, 102)
+    },
+    ["Moss Archive"] = {
+        Main = Color3.fromRGB(31, 40, 42), Secondary = Color3.fromRGB(38, 48, 50),
+        Surface = Color3.fromRGB(45, 56, 57), SurfaceAlt = Color3.fromRGB(52, 65, 64),
+        Stroke = Color3.fromRGB(96, 111, 96), Divider = Color3.fromRGB(117, 119, 91),
+        Text = Color3.fromRGB(236, 235, 222), SubText = Color3.fromRGB(190, 181, 151),
+        Hover = Color3.fromRGB(52, 64, 63), Click = Color3.fromRGB(59, 72, 69),
+        Accent = Color3.fromRGB(156, 186, 105), Accent2 = Color3.fromRGB(196, 207, 148), Accent3 = Color3.fromRGB(126, 160, 89),
+        Success = Color3.fromRGB(113, 196, 128), Warn = Color3.fromRGB(223, 180, 88), Error = Color3.fromRGB(225, 104, 105)
+    },
+    ["Velvet Latte"] = {
+        Main = Color3.fromRGB(27, 28, 45), Secondary = Color3.fromRGB(35, 36, 56),
+        Surface = Color3.fromRGB(43, 44, 66), SurfaceAlt = Color3.fromRGB(52, 53, 78),
+        Stroke = Color3.fromRGB(101, 105, 143), Divider = Color3.fromRGB(76, 80, 113),
+        Text = Color3.fromRGB(232, 236, 255), SubText = Color3.fromRGB(175, 181, 215),
+        Hover = Color3.fromRGB(51, 52, 77), Click = Color3.fromRGB(59, 60, 87),
+        Accent = Color3.fromRGB(232, 164, 207), Accent2 = Color3.fromRGB(181, 148, 238), Accent3 = Color3.fromRGB(120, 174, 239),
+        Success = Color3.fromRGB(120, 207, 157), Warn = Color3.fromRGB(238, 190, 104), Error = Color3.fromRGB(239, 117, 144)
+    }
+}
+
+-- Registry for dynamic theming
+Library.Registry = setmetatable({}, {__mode = "k"})
+Library.Scales = {}
+
+-- Global keybinds list
+Library.KeybindManager = nil
+Library.KeybindList = {}
+
+--// MODULE: UTILITY (extended)
+local Utility = {}
+
+function Library:Connect(signal, callback)
+    local connection = signal:Connect(callback)
+    table.insert(self.Connections, connection)
+    return connection
+end
+
+function Utility:SafeCall(callback, ...)
+    if type(callback) ~= "function" then return true end
+    local args = table.pack(...)
+    local ok, err = xpcall(function()
+        callback(table.unpack(args, 1, args.n))
+    end, debug.traceback)
+    if not ok then
+        warn("[RenLib] Callback error:\n" .. tostring(err))
+        if Library.Notify and not Library.Unloaded then
+            Library:Notify({Title = "Callback error", Content = tostring(err):match("^[^\n]+") or "Unknown error", Duration = 5})
+        end
+    end
+    return ok, err
+end
+
+function Utility:RandomString(length)
+    local chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    local result = ""
+    for i = 1, length do
+        local rand = math.random(1, #chars)
+        result = result .. chars:sub(rand, rand)
+    end
+    return result
+end
+
+function Utility:NormalizeAssetId(asset, fallback)
+    if asset == nil or asset == "" then return fallback end
+    local value = tostring(asset)
+    if value:match("^%d+$") then
+        if tonumber(value) <= 0 then return fallback end
+        return "rbxassetid://" .. value
+    end
+    if value:match("^rbxassetid://%d+$") or value:match("^https?://") then
+        return value
+    end
+    return fallback
+end
+
+local THEME_PROPERTY_KEYS = {
+    BackgroundColor3 = {"Main", "Secondary", "Surface", "SurfaceAlt", "Hover", "Click", "Accent", "Accent2", "Accent3", "Success", "Warn", "Error", "Divider"},
+    TextColor3 = {"Text", "SubText", "Accent", "Accent2", "Accent3", "Success", "Warn", "Error"},
+    PlaceholderColor3 = {"SubText", "Text"},
+    ImageColor3 = {"Text", "SubText", "Accent", "Accent2", "Accent3", "Success", "Warn", "Error"},
+    ScrollBarImageColor3 = {"Accent", "Accent2", "SubText", "Text"},
+    Color = {"Stroke", "Divider", "Accent", "Accent2", "Accent3", "Text", "SubText"}
+}
+
+local function resolveThemeKey(property, value)
+    if typeof(value) ~= "Color3" then return nil end
+    for _, key in ipairs(THEME_PROPERTY_KEYS[property] or {}) do
+        if Library.Theme[key] == value then return key end
+    end
+    return nil
+end
+
+function Utility:Create(class, properties)
+    local instance = Instance.new(class)
+    if class == "UIStroke" and properties.Transparency == nil then
+        instance.Transparency = 0.24
+    end
+    for k, v in pairs(properties) do
+        if k ~= "Parent" then
+            instance[k] = v
+        end
+    end
+    -- Theme registration is automatic for semantic theme colors. Explicit
+    -- RegisterProperty calls still override this, but missed labels can no
+    -- longer keep a stale color after a preset change.
+    for property, value in pairs(properties) do
+        local colorKey = resolveThemeKey(property, value)
+        if colorKey then
+            Library.Registry[instance] = Library.Registry[instance] or {}
+            Library.Registry[instance][property] = colorKey
+        end
+    end
+    if properties.Parent then
+        instance.Parent = properties.Parent
+    end
+    return instance
+end
+
+function Utility:LoadBrandIcon(callback)
+    task.spawn(function()
+        local resolved = Library.BrandIcon
+        local tintKey = Library.BrandIconTint
+        local ok, manifest = pcall(function()
+            return game:HttpGet(BRAND_ICON_MANIFEST_URL)
+        end)
+        if ok and type(manifest) == "string" then
+            local assetLine = manifest:match("^%s*([^\r\n]+)")
+            local requestedTint = manifest:match("[\r\n]+%s*[Tt][Ii][Nn][Tt]%s*=%s*([%w_]+)")
+            resolved = Utility:NormalizeAssetId(assetLine, resolved)
+            tintKey = requestedTint and Library.Theme[requestedTint] and requestedTint or nil
+        end
+        Library.BrandIcon = resolved
+        Library.BrandIconTint = tintKey
+        for mark in pairs(Library.BrandMarks) do
+            if mark and mark.Parent then
+                mark.Image = resolved
+                if tintKey then
+                    Utility:RegisterProperty(mark, "ImageColor3", tintKey)
+                else
+                    if Library.Registry[mark] then Library.Registry[mark].ImageColor3 = nil end
+                    mark.ImageColor3 = Color3.new(1, 1, 1)
+                end
+            end
+        end
+        if callback then Utility:SafeCall(callback, resolved) end
+    end)
+end
+
+function Utility:Tween(instance, info, properties, callback)
+    if not instance or not instance.Parent then return nil end
+    local previous = Library.ActiveTweens[instance]
+    if previous then
+        pcall(function() previous:Cancel() end)
+        Library.ActiveTweens[instance] = nil
+    end
+
+    local duration = Library.ReducedMotion and 0 or math.max(0, info.Time * Library.MotionScale)
+    if duration == 0 then
+        for property, value in pairs(properties) do
+            instance[property] = value
+        end
+        if callback then task.defer(callback) end
+        return nil
+    end
+
+    local tweenInfo = TweenInfo.new(duration, info.EasingStyle, info.EasingDirection, info.RepeatCount, info.Reverses, info.DelayTime)
+    local tween = TweenService:Create(instance, tweenInfo, properties)
+    Library.ActiveTweens[instance] = tween
+    tween:Play()
+    Library:Connect(tween.Completed, function(playbackState)
+        if Library.ActiveTweens[instance] == tween then
+            Library.ActiveTweens[instance] = nil
+        end
+        if callback and playbackState == Enum.PlaybackState.Completed then callback() end
+    end)
+    return tween
+end
+
+function Utility:StopTween(instance)
+    local tween = instance and Library.ActiveTweens[instance]
+    if not tween then return false end
+    Library.ActiveTweens[instance] = nil
+    pcall(function() tween:Cancel() end)
+    return true
+end
+
+-- Geometry and visual-state animations must not cancel one another. A hover
+-- color tween used to stop an in-flight sidebar resize tween, leaving active
+-- tabs and profile cards permanently stuck in their compact geometry.
+function Utility:TweenLayout(instance, info, properties, callback)
+    if not instance or not instance.Parent then return nil end
+    local previous = Library.LayoutTweens[instance]
+    if previous then
+        pcall(function() previous:Cancel() end)
+        Library.LayoutTweens[instance] = nil
+    end
+
+    local duration = Library.ReducedMotion and 0 or math.max(0, info.Time * Library.MotionScale)
+    if duration == 0 then
+        for property, value in pairs(properties) do instance[property] = value end
+        if callback then task.defer(callback) end
+        return nil
+    end
+
+    local tweenInfo = TweenInfo.new(duration, info.EasingStyle, info.EasingDirection, info.RepeatCount, info.Reverses, info.DelayTime)
+    local tween = TweenService:Create(instance, tweenInfo, properties)
+    Library.LayoutTweens[instance] = tween
+    tween:Play()
+    Library:Connect(tween.Completed, function(playbackState)
+        if Library.LayoutTweens[instance] == tween then Library.LayoutTweens[instance] = nil end
+        if callback and playbackState == Enum.PlaybackState.Completed then callback() end
+    end)
+    return tween
+end
+
+function Utility:StopLayoutTween(instance)
+    local tween = instance and Library.LayoutTweens[instance]
+    if not tween then return false end
+    Library.LayoutTweens[instance] = nil
+    pcall(function() tween:Cancel() end)
+    return true
+end
+
+function Utility:TweenVisibility(instance, info, properties, callback)
+    if not instance or not instance.Parent then return nil end
+    local previous = Library.VisibilityTweens[instance]
+    if previous then
+        pcall(function() previous:Cancel() end)
+        Library.VisibilityTweens[instance] = nil
+    end
+    local duration = Library.ReducedMotion and 0 or math.max(0, info.Time * Library.MotionScale)
+    if duration == 0 then
+        for property, value in pairs(properties) do instance[property] = value end
+        if callback then task.defer(callback) end
+        return nil
+    end
+    local tweenInfo = TweenInfo.new(duration, info.EasingStyle, info.EasingDirection, info.RepeatCount, info.Reverses, info.DelayTime)
+    local tween = TweenService:Create(instance, tweenInfo, properties)
+    Library.VisibilityTweens[instance] = tween
+    tween:Play()
+    Library:Connect(tween.Completed, function(playbackState)
+        if Library.VisibilityTweens[instance] == tween then Library.VisibilityTweens[instance] = nil end
+        if callback and playbackState == Enum.PlaybackState.Completed then callback() end
+    end)
+    return tween
+end
+
+function Utility:StopVisibilityTween(instance)
+    local tween = instance and Library.VisibilityTweens[instance]
+    if not tween then return false end
+    Library.VisibilityTweens[instance] = nil
+    pcall(function() tween:Cancel() end)
+    return true
+end
+
+function Utility:MakeDraggable(topbar, object)
+    local dragging, dragInput, dragStart, startPos
+    local dragState = {Moved = false}
+
+    function dragState:ConsumeDrag()
+        local moved = self.Moved
+        self.Moved = false
+        return moved
+    end
+
+    local function keepRecoverable()
+        if not object or not object.Parent then return end
+        local viewport = getViewport()
+        local position = object.AbsolutePosition
+        local size = object.AbsoluteSize
+        local minimumVisible = math.min(52, math.max(28, viewport.X * 0.12))
+        local deltaX, deltaY = 0, 0
+        if position.X + size.X < minimumVisible then
+            deltaX = minimumVisible - (position.X + size.X)
+        elseif position.X > viewport.X - minimumVisible then
+            deltaX = (viewport.X - minimumVisible) - position.X
+        end
+        if position.Y + 40 < 0 then
+            deltaY = -(position.Y + 40)
+        elseif position.Y > viewport.Y - minimumVisible then
+            deltaY = (viewport.Y - minimumVisible) - position.Y
+        end
+        if deltaX ~= 0 or deltaY ~= 0 then
+            local scale = math.max(0.01, Library.DPIScale)
+            object.Position = UDim2.new(
+                object.Position.X.Scale,
+                object.Position.X.Offset + deltaX / scale,
+                object.Position.Y.Scale,
+                object.Position.Y.Offset + deltaY / scale
+            )
+        end
+    end
+
+    Library:Connect(topbar.InputBegan, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragState.Moved = false
+            dragStart = Vector2.new(input.Position.X, input.Position.Y)
+            startPos = object.Position
+            dragInput = input.UserInputType == Enum.UserInputType.Touch and input or nil
+
+            Library:Connect(input.Changed, function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    task.defer(keepRecoverable)
+                end
+            end)
+        end
+    end)
+
+    Library:Connect(topbar.InputChanged, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    Library:Connect(UserInputService.InputChanged, function(input)
+        local isPointerMove = input.UserInputType == Enum.UserInputType.MouseMovement
+            or (input.UserInputType == Enum.UserInputType.Touch and input == dragInput)
+        if dragging and isPointerMove then
+            local pointer = Vector2.new(input.Position.X, input.Position.Y)
+            local delta = (pointer - dragStart) / math.max(0.01, Library.DPIScale)
+            if delta.Magnitude >= 4 then dragState.Moved = true end
+            object.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+    return dragState
+end
+
+function Utility:GetColor(colorKey)
+    if type(colorKey) == "string" then
+        return Library.Theme[colorKey] or Color3.new(1,1,1)
+    end
+    return colorKey
+end
+
+function Utility:RegisterProperty(instance, property, colorKey)
+    if not Library.Registry[instance] then
+        Library.Registry[instance] = {}
+    end
+    Library.Registry[instance][property] = colorKey
+    instance[property] = Utility:GetColor(colorKey)
+end
+
+local function buildGradient(keys)
+    local points = {}
+    local count = math.max(#keys, 2)
+    for index, key in ipairs(keys) do
+        table.insert(points, ColorSequenceKeypoint.new((index - 1) / (count - 1), Utility:GetColor(key)))
+    end
+    if #points == 1 then
+        table.insert(points, ColorSequenceKeypoint.new(1, points[1].Value))
+    end
+    return ColorSequence.new(points)
+end
+
+function Utility:RegisterGradient(instance, ...)
+    local keys = {...}
+    Library.GradientRegistry[instance] = keys
+    instance.Color = buildGradient(keys)
+end
+
+function Utility:RegisterMaterial(instance, frostedTransparency, solidTransparency, property)
+    property = property or "BackgroundTransparency"
+    Library.MaterialRegistry[instance] = {
+        Frosted = math.clamp(tonumber(frostedTransparency) or 0.18, 0, 1),
+        Solid = math.clamp(tonumber(solidTransparency) or instance[property] or 0, 0, 1),
+        Property = property
+    }
+    local state = Library.MaterialRegistry[instance]
+    instance[property] = Library:ResolveMaterialTransparency(state)
+end
+
+--// DYNAMIC THEME UPDATE
+function Library:UpdateColors()
+    for instance, props in pairs(self.Registry) do
+        for prop, colorKey in pairs(props) do
+            pcall(function()
+                instance[prop] = Utility:GetColor(colorKey)
+            end)
+        end
+    end
+    for gradient, keys in pairs(self.GradientRegistry) do
+        pcall(function()
+            gradient.Color = buildGradient(keys)
+        end)
+    end
+end
+
+function Library:SetTheme(newTheme)
+    local nextAccent = newTheme.Accent or self.Theme.Accent
+    local nextAccent2 = newTheme.Accent2 or nextAccent
+    newTheme.Accent3 = newTheme.Accent3 or nextAccent2
+    for k, v in pairs(newTheme) do
+        self.Theme[k] = v
+    end
+    self:UpdateColors()
+    self:SetMaterialIntensity(self.MaterialIntensity)
+    if self.Window and self.Window.RefreshThemeState then self.Window:RefreshThemeState() end
+end
+
+function Library:ApplyThemePreset(name)
+    if name == "Starlight" then name = "Celestial" end -- V6.2 compatibility alias
+    local preset = self.ThemePresets[name]
+    if not preset then
+        return false, "Unknown theme preset: " .. tostring(name)
+    end
+    self:SetTheme(preset)
+    self.ActiveTheme = name
+    return true
+end
+
+function Library:SetReducedMotion(enabled)
+    self.ReducedMotion = enabled == true
+end
+
+function Library:SetMotionScale(scale)
+    self.MotionScale = math.clamp(tonumber(scale) or 1, 0, 2)
+end
+
+function Library:GetThemeLuminance()
+    local color = self.Theme.Main
+    return color.R * 0.2126 + color.G * 0.7152 + color.B * 0.0722
+end
+
+function Library:ResolveMaterialTransparency(state)
+    if not state then return 0 end
+    if self.MaterialMode ~= "Frosted" then return state.Solid end
+    local transparencyBoost = (self.MaterialIntensity / 32) * 0.24
+    if self:GetThemeLuminance() < 0.35 then transparencyBoost = transparencyBoost + 0.08 end
+    return math.clamp(state.Frosted + transparencyBoost, 0, 0.84)
+end
+
+function Library:SetMaterialIntensity(value)
+    self.MaterialIntensity = math.clamp(tonumber(value) or 18, 0, 32)
+    if self.MaterialMode == "Frosted" then
+        for instance, state in pairs(self.MaterialRegistry) do
+            pcall(function()
+                instance[state.Property or "BackgroundTransparency"] = self:ResolveMaterialTransparency(state)
+            end)
+        end
+    end
+    return self.MaterialIntensity
+end
+
+function Library:RefreshMaterialVisibility()
+    local visible = self.MaterialMode == "Frosted" and not self.Unloaded and not self.IsMinimized
+    for decoration in pairs(self.MaterialDecorations) do
+        pcall(function() decoration.Visible = visible end)
+    end
+end
+
+function Library:SetMaterialMode(mode)
+    mode = tostring(mode or "Solid")
+    if mode ~= "Solid" and mode ~= "Frosted" then
+        return false, "Unknown material mode: " .. mode
+    end
+    self.MaterialMode = mode
+    for instance, state in pairs(self.MaterialRegistry) do
+        pcall(function()
+            local property = state.Property or "BackgroundTransparency"
+            Utility:Tween(instance, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                [property] = self:ResolveMaterialTransparency(state)
+            })
+        end)
+    end
+    self:RefreshMaterialVisibility()
+    return true
+end
+
+--// DPI SCALING
+function Library:SetDPIScale(percent)
+    percent = math.clamp(tonumber(percent) or 100, 100, 150)
+    local scale = percent / 100
+    for _, uiScale in ipairs(self.Scales) do
+        uiScale.Scale = scale
+    end
+    self.DPIScale = scale
+    if self.Window and self.Window.ApplyResponsiveLayout then
+        task.defer(function()
+            RunService.RenderStepped:Wait()
+            if self.Window and not self.Unloaded then
+                self.Window:ApplyResponsiveLayout(true)
+                task.defer(function()
+                    if self.Window and not self.Unloaded then self.Window:ApplyResponsiveLayout(false) end
+                end)
+            end
+        end)
+    end
+    return percent
+end
+
+function Library:KeepDPIScale(token)
+    local preview = self.ScalePreview
+    if not preview or (token and preview.Token ~= token) then return false end
+    preview.Kept = true
+    self.ScalePreview = nil
+    return true
+end
+
+function Library:RevertDPIScale(token)
+    local preview = self.ScalePreview
+    if not preview or (token and preview.Token ~= token) then return false end
+    self.ScalePreview = nil
+    self:SetDPIScale(preview.OriginalPercent)
+    self.Flags.__RenLibScale = preview.OriginalPercent
+    local scaleOption = self.Options.__RenLibScale
+    if scaleOption and scaleOption.SetSilent then scaleOption:SetSilent(preview.OriginalPercent) end
+    return true
+end
+
+function Library:PreviewDPIScale(percent, timeout)
+    timeout = math.clamp(tonumber(timeout) or 10, 5, 30)
+    local activePreview = self.ScalePreview
+    local originalPercent = activePreview and activePreview.OriginalPercent or math.floor(self.DPIScale * 100 + 0.5)
+    local token = Utility:RandomString(12)
+    local candidate = self:SetDPIScale(percent)
+    self.Flags.__RenLibScale = candidate
+    self.ScalePreview = {
+        Token = token,
+        OriginalPercent = originalPercent,
+        CandidatePercent = candidate,
+        Kept = false
+    }
+
+    if self.Notify then
+        self:Notify({
+            Title = "Keep this UI size?",
+            Content = tostring(candidate) .. "% preview. It will reset in " .. tostring(timeout) .. " seconds unless you keep it.",
+            Duration = timeout,
+            Actions = {
+                {Name = "Keep", Callback = function()
+                    if self:KeepDPIScale(token) and self.Notify then
+                        self:Notify({Title = "UI size kept", Content = tostring(candidate) .. "%", Duration = 2})
+                    end
+                end},
+                {Name = "Revert", Callback = function()
+                    if self:RevertDPIScale(token) and self.Notify then
+                        self:Notify({Title = "UI size restored", Content = tostring(originalPercent) .. "%", Duration = 2})
+                    end
+                end}
+            }
+        })
+    end
+
+    task.delay(timeout, function()
+        local preview = self.ScalePreview
+        if preview and preview.Token == token and not preview.Kept then
+            self:RevertDPIScale(token)
+            if self.Notify and not self.Unloaded then
+                self:Notify({Title = "UI size restored", Content = "The preview timed out safely.", Duration = 3})
+            end
+        end
+    end)
+    return token
+end
+
+local function hasFileSystem()
+    return type(isfolder) == "function" and type(makefolder) == "function"
+        and type(isfile) == "function" and type(readfile) == "function"
+        and type(writefile) == "function"
+end
+
+local function ensureConfigFolders()
+    if not hasFileSystem() then return false end
+    if not isfolder("RenLib") then makefolder("RenLib") end
+    if not isfolder(CONFIG_FOLDER) then makefolder(CONFIG_FOLDER) end
+    return true
+end
+
+local function cleanConfigName(name)
+    local cleaned = tostring(name or "default"):gsub("[^%w_%-%s]", ""):sub(1, 64)
+    cleaned = cleaned:match("^%s*(.-)%s*$") or ""
+    return cleaned ~= "" and cleaned or "default"
+end
+
+local CONFIG_MANAGER_FLAGS = {
+    __RenLibConfigSelection = true,
+    __RenLibConfigName = true,
+    __RenLibConfigRename = true
+}
+
+local function encodeValue(value)
+    if typeof(value) == "Color3" then
+        return {__type = "Color3", r = value.R, g = value.G, b = value.B}
+    elseif type(value) == "table" then
+        local encoded = {}
+        for key, item in pairs(value) do encoded[key] = encodeValue(item) end
+        return encoded
+    end
+    return value
+end
+
+local function decodeValue(value)
+    if type(value) == "table" and value.__type == "Color3" then
+        return Color3.new(value.r or 1, value.g or 1, value.b or 1)
+    elseif type(value) == "table" then
+        local decoded = {}
+        for key, item in pairs(value) do decoded[key] = decodeValue(item) end
+        return decoded
+    end
+    return value
+end
+
+function Library:SaveConfig(name)
+    if not ensureConfigFolders() then return false, "Filesystem APIs are unavailable" end
+    local payload = {version = self.Version, flags = {}}
+    for flag, value in pairs(self.Flags) do
+        if not CONFIG_MANAGER_FLAGS[flag] then payload.flags[flag] = encodeValue(value) end
+    end
+    local cleaned = cleanConfigName(name)
+    local ok, result = pcall(function()
+        writefile(CONFIG_FOLDER .. "/" .. cleaned .. ".json", HttpService:JSONEncode(payload))
+    end)
+    if ok then self.KnownConfigs[cleaned] = true end
+    return ok, ok and nil or result
+end
+
+function Library:GetConfigList()
+    if not ensureConfigFolders() then return {} end
+    local names, seen = {}, {}
+    for name in pairs(self.KnownConfigs) do
+        seen[name:lower()] = true
+        table.insert(names, name)
+    end
+    if type(listfiles) == "function" then
+        local ok, files = pcall(listfiles, CONFIG_FOLDER)
+        if ok and type(files) == "table" then
+            for _, path in ipairs(files) do
+                local normalized = tostring(path):gsub("\\", "/")
+                local name = normalized:match("/([^/]+)%.json$") or normalized:match("^([^/]+)%.json$")
+                if name and not seen[name:lower()] then
+                    seen[name:lower()] = true
+                    table.insert(names, name)
+                end
+            end
+        end
+    end
+    table.sort(names, function(a, b) return a:lower() < b:lower() end)
+    return names
+end
+
+function Library:LoadConfig(name)
+    if not ensureConfigFolders() then return false, "Filesystem APIs are unavailable" end
+    local path = CONFIG_FOLDER .. "/" .. cleanConfigName(name) .. ".json"
+    if not isfile(path) then return false, "Config does not exist" end
+    local ok, payload = pcall(function() return HttpService:JSONDecode(readfile(path)) end)
+    if not ok or type(payload) ~= "table" then return false, payload end
+    self.KnownConfigs[cleanConfigName(name)] = true
+    for flag, rawValue in pairs(payload.flags or {}) do
+        local value = decodeValue(rawValue)
+        self.Flags[flag] = value
+        local option = self.Options[flag]
+        if option and option.Set then Utility:SafeCall(function() option:Set(value) end) end
+    end
+    return true
+end
+
+function Library:DeleteConfig(name)
+    if not ensureConfigFolders() or type(delfile) ~= "function" then return false, "Delete API is unavailable" end
+    local cleaned = cleanConfigName(name)
+    local path = CONFIG_FOLDER .. "/" .. cleaned .. ".json"
+    local ok, err = pcall(function() if isfile(path) then delfile(path) end end)
+    if not ok then return false, err end
+    self.KnownConfigs[cleaned] = nil
+    if self:GetAutoloadConfigName() == cleaned then
+        local cleared, clearError = self:ClearAutoloadConfig()
+        if not cleared then return false, "Config deleted, but autoload cleanup failed: " .. tostring(clearError) end
+    end
+    return true
+end
+
+function Library:RenameConfig(oldName, newName)
+    if not ensureConfigFolders() or type(delfile) ~= "function" then return false, "Rename APIs are unavailable" end
+    local oldClean, newClean = cleanConfigName(oldName), cleanConfigName(newName)
+    local oldPath = CONFIG_FOLDER .. "/" .. oldClean .. ".json"
+    local newPath = CONFIG_FOLDER .. "/" .. newClean .. ".json"
+    if not isfile(oldPath) then return false, "Config does not exist" end
+    if oldClean ~= newClean and isfile(newPath) then return false, "A config already uses that name" end
+    if oldClean == newClean then return true end
+    local ok, err = pcall(function()
+        writefile(newPath, readfile(oldPath))
+        delfile(oldPath)
+    end)
+    if not ok then return false, err end
+    self.KnownConfigs[oldClean] = nil
+    self.KnownConfigs[newClean] = true
+    if self:GetAutoloadConfigName() == oldClean then
+        local updated, updateError = self:SetAutoloadConfig(newClean)
+        if not updated then return false, "Config renamed, but autoload update failed: " .. tostring(updateError) end
+    end
+    return true
+end
+
+function Library:GetAutoloadConfigName()
+    if not ensureConfigFolders() or not isfile("RenLib/autoload.txt") then return nil end
+    local ok, name = pcall(readfile, "RenLib/autoload.txt")
+    if not ok then return nil end
+    name = tostring(name or ""):match("^%s*(.-)%s*$")
+    if not name or name == "" then return nil end
+    return cleanConfigName(name)
+end
+
+function Library:SetAutoloadConfig(name)
+    if not ensureConfigFolders() then return false, "Filesystem APIs are unavailable" end
+    local cleaned = cleanConfigName(name)
+    if not isfile(CONFIG_FOLDER .. "/" .. cleaned .. ".json") then return false, "Config does not exist" end
+    local ok, err = pcall(writefile, "RenLib/autoload.txt", cleaned)
+    if ok then self.AutoloadConfigName = cleaned end
+    return ok, ok and nil or err
+end
+
+function Library:ClearAutoloadConfig()
+    if not ensureConfigFolders() then return false, "Filesystem APIs are unavailable" end
+    local ok, err = pcall(function()
+        if isfile("RenLib/autoload.txt") then
+            if type(delfile) == "function" then delfile("RenLib/autoload.txt") else writefile("RenLib/autoload.txt", "") end
+        end
+    end)
+    if ok then
+        self.AutoloadConfigName = nil
+        self.AutoloadThemeName = nil
+    end
+    return ok, ok and nil or err
+end
+
+function Library:PrepareAutoloadConfig()
+    self.AutoloadThemeName = nil
+    local name = self:GetAutoloadConfigName()
+    if not name then return false, "No autoload config" end
+    local path = CONFIG_FOLDER .. "/" .. name .. ".json"
+    if not isfile(path) then
+        self:ClearAutoloadConfig()
+        return false, "Autoload config no longer exists"
+    end
+    local ok, payload = pcall(function() return HttpService:JSONDecode(readfile(path)) end)
+    if not ok or type(payload) ~= "table" then return false, payload end
+    self.AutoloadConfigName = name
+    self.KnownConfigs[name] = true
+    self.PendingAutoloadFlags = {}
+    for flag, rawValue in pairs(payload.flags or {}) do
+        local value = decodeValue(rawValue)
+        self.PendingAutoloadFlags[flag] = value
+        self.Flags[flag] = value
+    end
+    local preset = self.PendingAutoloadFlags.__RenLibTheme
+    if type(preset) == "string" and self.ThemePresets[preset] then
+        self.AutoloadThemeName = preset
+        self:ApplyThemePreset(preset)
+    end
+    local material = self.PendingAutoloadFlags.__RenLibMaterial
+    if material == "Solid" or material == "Frosted" then self:SetMaterialMode(material) end
+    if self.PendingAutoloadFlags.__RenLibFrostIntensity ~= nil then
+        self:SetMaterialIntensity(self.PendingAutoloadFlags.__RenLibFrostIntensity)
+    end
+    if self.PendingAutoloadFlags.__RenLibReducedMotion ~= nil then
+        self:SetReducedMotion(self.PendingAutoloadFlags.__RenLibReducedMotion)
+    end
+    if self.PendingAutoloadFlags.__RenLibScale ~= nil then
+        self:SetDPIScale(self.PendingAutoloadFlags.__RenLibScale)
+    end
+    -- Core appearance values are already applied before the window exists;
+    -- their controls will read Library.Flags without replaying preview dialogs.
+    self.PendingAutoloadFlags.__RenLibTheme = nil
+    self.PendingAutoloadFlags.__RenLibMaterial = nil
+    self.PendingAutoloadFlags.__RenLibFrostIntensity = nil
+    self.PendingAutoloadFlags.__RenLibReducedMotion = nil
+    self.PendingAutoloadFlags.__RenLibScale = nil
+    return true
+end
+
+function Library:RegisterOption(flag, controller)
+    self.Options[flag] = controller
+    if self.PendingAutoloadFlags[flag] ~= nil and controller and controller.Set then
+        local value = self.PendingAutoloadFlags[flag]
+        self.PendingAutoloadFlags[flag] = nil
+        task.defer(function()
+            if not self.Unloaded and self.Options[flag] == controller then
+                Utility:SafeCall(function() controller:Set(value) end)
+            end
+        end)
+    end
+    return controller
+end
+
+function Library:RegisterIcon(name, asset)
+    name = tostring(name or "")
+    assert(name ~= "", "[RenLib] RegisterIcon requires a name")
+    local normalized = Utility:NormalizeAssetId(asset)
+    assert(normalized, "[RenLib] RegisterIcon requires a Roblox image asset")
+    self.Icons[name] = normalized
+    return normalized
+end
+
+function Library:GetIcon(name, fallback)
+    if name == nil then return Utility:NormalizeAssetId(fallback) end
+    return self.Icons[tostring(name)] or Utility:NormalizeAssetId(name, fallback)
+end
+
+function Library:RegisterAddon(name, addon)
+    name = tostring(name or "")
+    assert(name ~= "", "[RenLib] RegisterAddon requires a name")
+    assert(type(addon) == "table", "[RenLib] RegisterAddon requires an addon table")
+    if self.Addons[name] then self:DisableAddon(name) end
+    local record = {Name = name, Module = addon, Enabled = false}
+    self.Addons[name] = record
+    table.insert(self.AddonOrder, name)
+    if type(addon.Init) == "function" then
+        local ok = Utility:SafeCall(addon.Init, addon, self)
+        if not ok then
+            self.Addons[name] = nil
+            return nil
+        end
+    end
+    if addon.AutoStart ~= false then self:EnableAddon(name) end
+    return record
+end
+
+function Library:GetAddon(name)
+    local record = self.Addons[tostring(name or "")]
+    return record and record.Module or nil
+end
+
+function Library:EnableAddon(name)
+    local record = self.Addons[tostring(name or "")]
+    if not record or record.Enabled then return record ~= nil end
+    record.Enabled = true
+    if type(record.Module.Start) == "function" then
+        local ok = Utility:SafeCall(record.Module.Start, record.Module, self)
+        if not ok then record.Enabled = false end
+    end
+    return record.Enabled
+end
+
+function Library:DisableAddon(name)
+    local record = self.Addons[tostring(name or "")]
+    if not record or not record.Enabled then return record ~= nil end
+    record.Enabled = false
+    if type(record.Module.Stop) == "function" then
+        Utility:SafeCall(record.Module.Stop, record.Module, self)
+    end
+    return true
+end
+
+function Library:UnregisterAddon(name)
+    name = tostring(name or "")
+    local record = self.Addons[name]
+    if not record then return false end
+    self:DisableAddon(name)
+    if type(record.Module.Unload) == "function" then
+        Utility:SafeCall(record.Module.Unload, record.Module, self)
+    end
+    self.Addons[name] = nil
+    for index, registeredName in ipairs(self.AddonOrder) do
+        if registeredName == name then table.remove(self.AddonOrder, index) break end
+    end
+    return true
+end
+
+function Library:LoadAutoloadConfig()
+    local name = self:GetAutoloadConfigName()
+    if not name then return false, "No autoload config" end
+    return self:LoadConfig(name)
+end
+
+function Library:LaunchInfiniteYield()
+    if type(loadstring) ~= "function" then
+        if self.Notify then self:Notify({Title = "Infinite Yield unavailable", Content = "This environment does not expose loadstring.", Duration = 4}) end
+        return false, "loadstring is unavailable"
+    end
+
+    local ok, source = pcall(function()
+        return game:HttpGet(INFINITE_YIELD_URL)
+    end)
+    if not ok or type(source) ~= "string" or source == "" then
+        if self.Notify then self:Notify({Title = "Infinite Yield failed", Content = tostring(source), Duration = 5}) end
+        return false, source
+    end
+
+    local chunk, compileError = loadstring(source)
+    if not chunk then
+        if self.Notify then self:Notify({Title = "Infinite Yield failed", Content = tostring(compileError), Duration = 5}) end
+        return false, compileError
+    end
+
+    task.spawn(function()
+        local ran, runtimeError = pcall(chunk)
+        if not ran and self.Notify and not self.Unloaded then
+            self:Notify({Title = "Infinite Yield error", Content = tostring(runtimeError), Duration = 5})
+        end
+    end)
+    if self.Notify then self:Notify({Title = "Infinite Yield launched", Content = "Loaded from the official EdgeIY source.", Duration = 3}) end
+    return true
+end
+
+function Library:RelaunchRenHub(beforeRelaunch)
+    if type(loadstring) ~= "function" then
+        if self.Notify then self:Notify({Title = "RenHub unavailable", Content = "This environment does not expose loadstring.", Duration = 4}) end
+        return false, "loadstring is unavailable"
+    end
+    local ok, source = pcall(function() return game:HttpGet(RENHUB_LOADER_URL) end)
+    if not ok or type(source) ~= "string" or source == "" then
+        if self.Notify then self:Notify({Title = "RenHub failed to load", Content = tostring(source), Duration = 5}) end
+        return false, source
+    end
+    local chunk, compileError = loadstring(source)
+    if not chunk then
+        if self.Notify then self:Notify({Title = "RenHub failed to compile", Content = tostring(compileError), Duration = 5}) end
+        return false, compileError
+    end
+    Utility:SafeCall(beforeRelaunch)
+    self:Unload("relaunching RenHub")
+    task.defer(function()
+        local ran, runtimeError = pcall(chunk)
+        if not ran then warn("[RenLib] RenHub relaunch failed: " .. tostring(runtimeError)) end
+    end)
+    return true
+end
+
+-- Compatibility facade for safely migrating scripts that were authored
+-- against Rayfield's tab-level control API. The rendered UI, persistence,
+-- cleanup, input handling, and controllers are all RenLib-owned.
+function Library:CreateRayfieldAdapter()
+    local source = self
+    local adapter = {ConfigName = nil, Window = nil}
+
+    local function safeCallback(callback, ...)
+        if callback then Utility:SafeCall(callback, ...) end
+    end
+
+    local function unwrapSingle(value)
+        if type(value) == "table" then return value[1] end
+        return value
+    end
+
+    local function selectedArray(value, values)
+        local selected = {}
+        if type(value) ~= "table" then
+            if value ~= nil then table.insert(selected, value) end
+            return selected
+        end
+        for _, option in ipairs(values or {}) do
+            if value[option] == true then table.insert(selected, option) end
+        end
+        if #selected == 0 then
+            for key, item in pairs(value) do
+                if type(key) == "number" then table.insert(selected, item) end
+            end
+        end
+        return selected
+    end
+
+    local function proxyController(controller, transformSet)
+        local proxy = {Raw = controller}
+        function proxy:Set(value)
+            if controller and controller.Set then controller:Set(transformSet and transformSet(value) or value) end
+            return self
+        end
+        function proxy:Get()
+            return controller and controller.Get and controller:Get() or nil
+        end
+        return setmetatable(proxy, {__index = controller})
+    end
+
+    function adapter:Notify(options)
+        return source:Notify(options or {})
+    end
+
+    function adapter:Destroy()
+        return source:Unload("compatibility adapter")
+    end
+
+    function adapter:LoadConfiguration()
+        if self.ConfigName then
+            local ok = source:LoadConfig(self.ConfigName)
+            if ok then return true end
+        end
+        return source:LoadAutoloadConfig()
+    end
+
+    function adapter:CreateWindow(options)
+        options = options or {}
+        local saving = options.ConfigurationSaving or {}
+        if saving.Enabled then self.ConfigName = cleanConfigName(saving.FileName or options.Name or "default") end
+        local themeAliases = {
+            Default = "Celestial", AmberGlow = "Ember", Amethyst = "Nebula",
+            Bloom = "Rose", DarkBlue = "Midnight", Green = "Moss Archive",
+            Light = "Prism Frost", Ocean = "Aurora", Serenity = "Celestial"
+        }
+        -- A saved autoload theme is the user's explicit choice and must win
+        -- over a legacy script's hard-coded Rayfield theme.
+        if not source.AutoloadThemeName and type(options.Theme) == "string" then
+            source:ApplyThemePreset(themeAliases[options.Theme] or options.Theme)
+        elseif not source.AutoloadThemeName and type(options.Theme) == "table" then
+            source:SetTheme({
+                Main = options.Theme.Background,
+                Secondary = options.Theme.Topbar or options.Theme.Background,
+                Surface = options.Theme.ElementBackground,
+                SurfaceAlt = options.Theme.SecondaryElementBackground or options.Theme.ElementBackground,
+                Stroke = options.Theme.ElementStroke,
+                Divider = options.Theme.SecondaryElementStroke or options.Theme.ElementStroke,
+                Text = options.Theme.TextColor,
+                SubText = options.Theme.PlaceholderColor,
+                Hover = options.Theme.ElementBackgroundHover,
+                Click = options.Theme.DropdownSelected,
+                Accent = options.Theme.ToggleEnabled or options.Theme.SliderProgress,
+                Accent2 = options.Theme.ToggleEnabledStroke or options.Theme.SliderProgress,
+                Accent3 = options.Theme.TabBackgroundSelected or options.Theme.ToggleEnabled
+            })
+        end
+        local toggleKey = options.ToggleUIKeybind
+        if typeof(toggleKey) == "EnumItem" then
+            source.ToggleKey = toggleKey
+        elseif type(toggleKey) == "string" and Enum.KeyCode[toggleKey] then
+            source.ToggleKey = Enum.KeyCode[toggleKey]
+        end
+        local rawWindow = source:CreateWindow({
+            Name = options.Name or options.LoadingTitle or "RenLib Script",
+            Icon = options.Icon,
+            SidebarMode = "Dynamic",
+            ShowUserProfile = true,
+            ShowInfiniteYield = false,
+            EnableGlobalSearch = true
+        })
+        self.Window = rawWindow
+        local window = {Raw = rawWindow}
+
+        function window:CreateTab(name, icon)
+            local rawTab = rawWindow:CreateTab({Name = tostring(name or "Tab"), Icon = icon})
+            local tab = {Raw = rawTab, CurrentSection = nil, SectionCount = 0}
+
+            local function currentSection()
+                if not tab.CurrentSection then
+                    tab.SectionCount = tab.SectionCount + 1
+                    tab.CurrentSection = rawTab:CreateSection({Name = "Controls", Side = "Left"})
+                end
+                return tab.CurrentSection
+            end
+
+            function tab:CreateSection(sectionOptions)
+                local sectionName = type(sectionOptions) == "table" and sectionOptions.Name or sectionOptions
+                self.SectionCount = self.SectionCount + 1
+                self.CurrentSection = rawTab:CreateSection({
+                    Name = tostring(sectionName or "Section"),
+                    Side = self.SectionCount % 2 == 1 and "Left" or "Right"
+                })
+                return self.CurrentSection
+            end
+
+            function tab:CreateButton(controlOptions)
+                controlOptions = controlOptions or {}
+                return currentSection():CreateButton({
+                    Name = controlOptions.Name,
+                    Description = controlOptions.Description,
+                    Icon = controlOptions.Icon,
+                    Callback = controlOptions.Callback
+                })
+            end
+
+            function tab:CreateToggle(controlOptions)
+                controlOptions = controlOptions or {}
+                return proxyController(currentSection():CreateToggle({
+                    Name = controlOptions.Name,
+                    Default = controlOptions.CurrentValue,
+                    Flag = controlOptions.Flag,
+                    Callback = controlOptions.Callback
+                }))
+            end
+
+            function tab:CreateSlider(controlOptions)
+                controlOptions = controlOptions or {}
+                local range = controlOptions.Range or {0, 100}
+                return proxyController(currentSection():CreateSlider({
+                    Name = controlOptions.Name,
+                    Min = range[1],
+                    Max = range[2],
+                    Step = controlOptions.Increment or 1,
+                    Default = controlOptions.CurrentValue or range[1],
+                    Flag = controlOptions.Flag,
+                    CallbackMode = controlOptions.CallbackMode or "Changed",
+                    Callback = controlOptions.Callback
+                }))
+            end
+
+            function tab:CreateDropdown(controlOptions)
+                controlOptions = controlOptions or {}
+                local values = controlOptions.Options or {}
+                local multi = controlOptions.MultipleOptions == true
+                local default = multi and (controlOptions.CurrentOption or {}) or unwrapSingle(controlOptions.CurrentOption)
+                local callback = controlOptions.Callback
+                local raw = currentSection():CreateDropdown({
+                    Name = controlOptions.Name,
+                    Values = values,
+                    Multi = multi,
+                    Default = default,
+                    Flag = controlOptions.Flag,
+                    Callback = function(value)
+                        safeCallback(callback, multi and selectedArray(value, values) or {value})
+                    end
+                })
+                local proxy = proxyController(raw, function(value) return multi and value or unwrapSingle(value) end)
+                function proxy:Refresh(newValues, newSelection)
+                    values = type(newValues) == "table" and newValues or {}
+                    raw:Refresh(values)
+                    if newSelection ~= nil and newSelection ~= true then self:Set(newSelection) end
+                    return self
+                end
+                return proxy
+            end
+
+            function tab:CreateInput(controlOptions)
+                controlOptions = controlOptions or {}
+                return proxyController(currentSection():CreateInput({
+                    Name = controlOptions.Name,
+                    Default = controlOptions.CurrentValue or "",
+                    Placeholder = controlOptions.PlaceholderText or controlOptions.Placeholder,
+                    Flag = controlOptions.Flag,
+                    Callback = controlOptions.Callback
+                }))
+            end
+
+            function tab:CreateColorPicker(controlOptions)
+                controlOptions = controlOptions or {}
+                return proxyController(currentSection():CreateColorPicker({
+                    Name = controlOptions.Name,
+                    Default = controlOptions.Color or controlOptions.CurrentColor or Color3.new(1, 1, 1),
+                    Flag = controlOptions.Flag,
+                    Callback = controlOptions.Callback
+                }))
+            end
+
+            function tab:CreateLabel(labelOptions)
+                local text = type(labelOptions) == "table" and (labelOptions.Text or labelOptions.Name) or labelOptions
+                local raw = currentSection():CreateLabel(tostring(text or ""))
+                local proxy = {Raw = raw}
+                function proxy:Set(nextText) raw:SetText(tostring(nextText or "")); return self end
+                return setmetatable(proxy, {__index = raw})
+            end
+
+            function tab:CreateParagraph(controlOptions)
+                controlOptions = type(controlOptions) == "table" and controlOptions or {Content = controlOptions}
+                local raw = currentSection():CreateParagraph({Title = controlOptions.Title, Content = controlOptions.Content})
+                local proxy = {Raw = raw}
+                function proxy:Set(value)
+                    if type(value) == "table" then
+                        if value.Title ~= nil then raw:SetTitle(value.Title) end
+                        if value.Content ~= nil then raw:SetContent(value.Content) end
+                    else
+                        raw:SetContent(tostring(value or ""))
+                    end
+                    return self
+                end
+                return setmetatable(proxy, {__index = raw})
+            end
+
+            function tab:CreateKeybind(controlOptions)
+                controlOptions = controlOptions or {}
+                local key = controlOptions.CurrentKeybind
+                if typeof(key) == "EnumItem" then key = key.Name end
+                key = tostring(key or "None")
+                local callback = controlOptions.Callback
+                local raw = currentSection():CreateKeyPicker({
+                    Name = controlOptions.Name,
+                    Default = key,
+                    Flag = controlOptions.Flag,
+                    Mode = "Toggle",
+                    Callback = function() end
+                })
+                source:Connect(UserInputService.InputBegan, function(input, processed)
+                    if not processed and input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode.Name == raw:GetKey() then
+                        safeCallback(callback)
+                    end
+                end)
+                return proxyController(raw, function(value)
+                    return typeof(value) == "EnumItem" and value.Name or tostring(value)
+                end)
+            end
+
+            return tab
+        end
+
+        return window
+    end
+
+    return adapter
+end
+
+--// CORE UI: WINDOW
+function Library:CreateWindow(options)
+    options = options or {}
+    local WindowTitle = options.Name or "RenLib"
+    local EnableSidebarResize = options.EnableSidebarResize == nil and true or options.EnableSidebarResize
+    local EnableGlobalSearch = options.EnableGlobalSearch == nil and true or options.EnableGlobalSearch
+    local SidebarCompactMode = options.SidebarCompactMode or false
+    local SidebarMode = tostring(options.SidebarMode or (SidebarCompactMode and "Compact" or "Dynamic"))
+    if SidebarMode ~= "Dynamic" and SidebarMode ~= "Expanded" and SidebarMode ~= "Compact" then SidebarMode = "Dynamic" end
+    local WindowIcon = Utility:NormalizeAssetId(options.Icon or options.Logo)
+    local SettingsIcon = Utility:NormalizeAssetId(options.SettingsIcon, ICONS.Settings)
+    local ShowUserProfile = options.ShowUserProfile == nil and true or options.ShowUserProfile
+    local RequestedMaterialMode = options.MaterialMode or self.MaterialMode or "Solid"
+
+    local brandLoadStarted = false
+    local function createWindowMark(parent, textSize, zIndex)
+        local mark = Utility:Create("ImageLabel", {
+            Parent = parent,
+            BackgroundTransparency = 1,
+            Position = UDim2.fromScale(0.16, 0.16),
+            Size = UDim2.fromScale(0.68, 0.68),
+            Image = WindowIcon or Library.BrandIcon,
+            ImageColor3 = WindowIcon and Color3.new(1, 1, 1) or Library.Theme[Library.BrandIconTint or "Text"],
+            ScaleType = Enum.ScaleType.Fit,
+            ZIndex = zIndex
+        })
+        if not WindowIcon then
+            Library.BrandMarks[mark] = true
+            if Library.BrandIconTint then Utility:RegisterProperty(mark, "ImageColor3", Library.BrandIconTint) end
+            if not brandLoadStarted then
+                brandLoadStarted = true
+                Utility:LoadBrandIcon()
+            end
+        end
+        return mark
+    end
+
+    if self.ScreenGui then
+        pcall(function() self.ScreenGui:Destroy() end)
+        self.ScreenGui = nil
+    end
+    self.Unloaded = false
+    DeviceMode = getDeviceMode(self.DPIScale)
+    IsMobile = DeviceMode ~= "Desktop"
+    self.DeviceMode = DeviceMode
+    self.IsMobile = IsMobile
+
+    -- Calculate sizes based on device
+    local initialViewport = getViewport()
+    local initialLayoutWidth = initialViewport.X / math.max(self.DPIScale, 0.01)
+    local initialLayoutHeight = initialViewport.Y / math.max(self.DPIScale, 0.01)
+    local WinWidth, WinHeight, SidebarWidth, FontScale
+    if IsMobile then
+        WinWidth = math.min(720, math.max(1, initialLayoutWidth - 12))
+        WinHeight = math.min(680, math.max(1, initialLayoutHeight - 12))
+        SidebarWidth = WinWidth < 340 and 54 or 60
+        FontScale = 0.9
+        EnableSidebarResize = false
+    else
+        WinWidth = math.min(options.Width or 880, math.max(1, initialLayoutWidth - 32))
+        WinHeight = math.min(options.Height or 580, math.max(1, initialLayoutHeight - 32))
+        SidebarWidth = SidebarMode == "Expanded" and 190 or 80
+        FontScale = 1
+    end
+
+    -- Main ScreenGui with UIScale for DPI
+    local ScreenGui = Utility:Create("ScreenGui", {
+        Name = "RenLibV6_" .. Utility:RandomString(8),
+        ResetOnSpawn = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        IgnoreGuiInset = true,
+        DisplayOrder = options.DisplayOrder or 1000
+    })
+    ScreenGui:SetAttribute("RenLibVersion", Library.Version)
+    local uiScale = Utility:Create("UIScale", {Parent = ScreenGui})
+    table.insert(Library.Scales, uiScale)
+
+    if syn and syn.protect_gui then
+        syn.protect_gui(ScreenGui)
+        ScreenGui.Parent = CoreGui
+    elseif gethui then
+        ScreenGui.Parent = gethui()
+    else
+        ScreenGui.Parent = CoreGui
+    end
+    Library.ScreenGui = ScreenGui
+
+    -- Main Container
+    local MainFrame = Utility:Create("Frame", {
+        Name = "Main",
+        Parent = ScreenGui,
+        BackgroundColor3 = Library.Theme.Main,
+        Position = UDim2.new(0.5, -WinWidth / 2, 0.5, -WinHeight / 2),
+        Size = UDim2.new(0, WinWidth, 0, WinHeight),
+        ClipsDescendants = true,
+        ZIndex = 1,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(MainFrame, "BackgroundColor3", "Main")
+    Utility:RegisterMaterial(MainFrame, 0.24, 0)
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = MainFrame})
+    local mainGradient = Utility:Create("UIGradient", {Parent = MainFrame, Rotation = 115})
+    Utility:RegisterGradient(mainGradient, "Main", "Secondary")
+    local glassTint = Utility:Create("ImageLabel", {
+        Name = "GlassTint",
+        Parent = MainFrame,
+        BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 1),
+        Image = "rbxassetid://9968344105",
+        ImageColor3 = Library.Theme.Accent2,
+        ImageTransparency = 0.95,
+        ScaleType = Enum.ScaleType.Tile,
+        TileSize = UDim2.fromOffset(128, 128),
+        Visible = false,
+        ZIndex = 1
+    })
+    Utility:RegisterProperty(glassTint, "ImageColor3", "Accent2")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = glassTint})
+    Library.MaterialDecorations[glassTint] = true
+    local glassNoise = Utility:Create("ImageLabel", {
+        Name = "GlassNoise",
+        Parent = MainFrame,
+        BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 1),
+        Image = "rbxassetid://9968344227",
+        ImageColor3 = Color3.new(1, 1, 1),
+        ImageTransparency = 0.93,
+        ScaleType = Enum.ScaleType.Tile,
+        TileSize = UDim2.fromOffset(128, 128),
+        Visible = false,
+        ZIndex = 1
+    })
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = glassNoise})
+    Library.MaterialDecorations[glassNoise] = true
+    local WindowScale = Utility:Create("UIScale", {Parent = MainFrame, Scale = 1})
+    local mainStroke = Utility:Create("UIStroke", {Parent = MainFrame, Color = Library.Theme.Stroke, Thickness = 1})
+    Utility:RegisterProperty(mainStroke, "Color", "Stroke")
+    -- Sidebar
+    local Sidebar = Utility:Create("Frame", {
+        Name = "Sidebar",
+        Parent = MainFrame,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(0, SidebarWidth, 1, 0),
+        ZIndex = 2,
+        BorderSizePixel = 0
+    })
+    -- The rounded shell and square inner extension are composited once by the
+    -- CanvasGroup. Frosted themes therefore keep one uniform tint instead of
+    -- revealing a darker double-layer seam behind the sidebar.
+    local sidebarSurfaceGroup = Utility:Create("CanvasGroup", {
+        Name = "SidebarSurface",
+        Parent = Sidebar,
+        BackgroundTransparency = 1,
+        GroupTransparency = 0,
+        Size = UDim2.fromScale(1, 1),
+        ZIndex = 1,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterMaterial(sidebarSurfaceGroup, 0.32, 0, "GroupTransparency")
+    local sidebarRoundedSurface = Utility:Create("Frame", {
+        Name = "RoundedSurface",
+        Parent = sidebarSurfaceGroup,
+        BackgroundColor3 = Library.Theme.Secondary,
+        Size = UDim2.fromScale(1, 1),
+        ZIndex = 1,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(sidebarRoundedSurface, "BackgroundColor3", "Secondary")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 14), Parent = sidebarRoundedSurface})
+    local sidebarGradient = Utility:Create("UIGradient", {Parent = sidebarRoundedSurface, Rotation = 90})
+    Utility:RegisterGradient(sidebarGradient, "Secondary", "Main")
+    local sidebarSquareEdge = Utility:Create("Frame", {
+        Name = "SidebarSquareInnerEdge",
+        Parent = sidebarSurfaceGroup,
+        BackgroundColor3 = Library.Theme.Secondary,
+        Position = UDim2.fromOffset(14, 0),
+        Size = UDim2.new(1, -14, 1, 0),
+        BorderSizePixel = 0,
+        ZIndex = 2
+    })
+    Utility:RegisterProperty(sidebarSquareEdge, "BackgroundColor3", "Secondary")
+    local sidebarSquareGradient = Utility:Create("UIGradient", {Parent = sidebarSquareEdge, Rotation = 90})
+    Utility:RegisterGradient(sidebarSquareGradient, "Secondary", "Main")
+    local sidebarDivider = Utility:Create("Frame", {
+        Parent = Sidebar,
+        BackgroundColor3 = Library.Theme.Divider,
+        BorderSizePixel = 0,
+        Position = UDim2.new(1, -1, 0, 0),
+        Size = UDim2.new(0, 1, 1, 0),
+        ZIndex = 3
+    })
+    Utility:RegisterProperty(sidebarDivider, "BackgroundColor3", "Divider")
+
+    local TabContainer = Utility:Create("ScrollingFrame", {
+        Name = "Tabs",
+        Parent = Sidebar,
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, IsMobile and 0 or 8, 0, IsMobile and 70 or 78),
+        Size = UDim2.new(1, IsMobile and 0 or -16, 1, IsMobile and -122 or -142),
+        ScrollBarThickness = 0,
+        ScrollingDirection = Enum.ScrollingDirection.Y,
+        ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
+        Active = true,
+        CanvasSize = UDim2.new(0, 0, 0, 0),
+        ZIndex = 4,
+        BorderSizePixel = 0
+    })
+
+    local TabLayout = Utility:Create("UIListLayout", {
+        Parent = TabContainer,
+        HorizontalAlignment = Enum.HorizontalAlignment.Center,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, IsMobile and 8 or 6)
+    })
+
+    Library:Connect(TabLayout:GetPropertyChangedSignal("AbsoluteContentSize"), function()
+        TabContainer.CanvasSize = UDim2.new(0, 0, 0, TabLayout.AbsoluteContentSize.Y + 20)
+    end)
+
+    -- NAVIGATION HEADER
+    -- One container owns the logo, wordmark, and sidebar toggle. This avoids
+    -- stacked corner treatments and guarantees that compact controls never
+    -- occupy the same pixels.
+    local NavHeader = Utility:Create("Frame", {
+        Name = "NavigationHeader",
+        Parent = Sidebar,
+        BackgroundColor3 = Library.Theme.Surface,
+        BackgroundTransparency = 0.56,
+        Position = UDim2.fromOffset(8, 10),
+        Size = UDim2.new(1, -16, 0, 46),
+        ClipsDescendants = true,
+        ZIndex = 100,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(NavHeader, "BackgroundColor3", "Surface")
+    Utility:RegisterMaterial(NavHeader, 0.18, 0.56)
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = NavHeader})
+    local navHeaderStroke = Utility:Create("UIStroke", {
+        Parent = NavHeader,
+        Color = Library.Theme.Stroke,
+        Transparency = 0.28,
+        Thickness = 1
+    })
+    Utility:RegisterProperty(navHeaderStroke, "Color", "Stroke")
+
+    -- LOGO
+    local logoSize = IsMobile and 28 or (SidebarWidth < 132 and 26 or 36)
+    local LogoContainer = Utility:Create("Frame", {
+        Name = "LogoContainer",
+        Parent = NavHeader,
+        BackgroundTransparency = 1,
+        Position = IsMobile and UDim2.fromOffset(5, 9)
+            or (SidebarWidth < 132 and UDim2.fromOffset(4, 10) or UDim2.fromOffset(7, 5)),
+        Size = UDim2.new(0, logoSize, 0, logoSize),
+        ZIndex = 100,
+        BorderSizePixel = 0
+    })
+    local Logo = createWindowMark(LogoContainer, IsMobile and 14 or 18, 101)
+    Logo.Name = "Logo"
+
+    local BrandLabel = Utility:Create("TextLabel", {
+        Parent = NavHeader,
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(52, 4),
+        Size = UDim2.new(1, -118, 0, 22),
+        Font = Enum.Font.GothamBold,
+        Text = Library.Title,
+        TextColor3 = Library.Theme.Text,
+        TextSize = 15,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Visible = not IsMobile,
+        ZIndex = 101
+    })
+    Utility:RegisterProperty(BrandLabel, "TextColor3", "Text")
+    local BrandSubtitle = Utility:Create("TextLabel", {
+        Parent = NavHeader,
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(52, 24),
+        Size = UDim2.new(1, -118, 0, 16),
+        Font = Enum.Font.Gotham,
+        Text = "Interface Suite",
+        TextColor3 = Library.Theme.SubText,
+        TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Visible = not IsMobile,
+        ZIndex = 101
+    })
+    Utility:RegisterProperty(BrandSubtitle, "TextColor3", "SubText")
+
+    local SidebarModeButton = Utility:Create("TextButton", {
+        Name = "SidebarModeButton",
+        Parent = NavHeader,
+        BackgroundColor3 = Library.Theme.SurfaceAlt,
+        BackgroundTransparency = 0.34,
+        Position = SidebarMode == "Expanded" and UDim2.new(1, -62, 0, 9) or UDim2.new(1, -32, 0, 9),
+        Size = SidebarMode == "Expanded" and UDim2.fromOffset(58, 28) or UDim2.fromOffset(28, 28),
+        Text = "",
+        AutoButtonColor = false,
+        ZIndex = 104,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(SidebarModeButton, "BackgroundColor3", "SurfaceAlt")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = SidebarModeButton})
+    local sidebarModeStroke = Utility:Create("UIStroke", {
+        Parent = SidebarModeButton,
+        Color = Library.Theme.Stroke,
+        Transparency = 0.28,
+        Thickness = 1
+    })
+    Utility:RegisterProperty(sidebarModeStroke, "Color", "Stroke")
+    local SidebarModeIcon = Utility:Create("ImageLabel", {
+        Parent = SidebarModeButton,
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(6, 6),
+        Size = UDim2.fromOffset(16, 16),
+        Image = ICONS.ChevronRight,
+        ImageColor3 = Library.Theme.Text,
+        ScaleType = Enum.ScaleType.Fit,
+        ZIndex = 105
+    })
+    Utility:RegisterProperty(SidebarModeIcon, "ImageColor3", "Text")
+    local SidebarModeLabel = Utility:Create("TextLabel", {
+        Parent = SidebarModeButton,
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(27, 0),
+        Size = UDim2.new(1, -32, 1, 0),
+        Font = Enum.Font.GothamBold,
+        Text = SidebarMode == "Expanded" and "Auto" or "Pin",
+        TextColor3 = Library.Theme.Text,
+        TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Visible = SidebarMode == "Expanded",
+        ZIndex = 105
+    })
+    Utility:RegisterProperty(SidebarModeLabel, "TextColor3", "Text")
+
+    -- SETTINGS BUTTON
+    local settingsBtnSize = IsMobile and 36 or 44
+    local SettingsBtn = Utility:Create("TextButton", {
+        Name = "SettingsBtn",
+        Parent = Sidebar,
+        BackgroundColor3 = Library.Theme.Accent,
+        BackgroundTransparency = 0.64,
+        Position = IsMobile and UDim2.new(0.5, -settingsBtnSize / 2, 1, -(settingsBtnSize + 12)) or UDim2.new(0, 10, 1, -54),
+        Size = IsMobile and UDim2.fromOffset(settingsBtnSize, settingsBtnSize) or UDim2.new(1, -20, 0, 42),
+        AutoButtonColor = false,
+        Text = "",
+        ZIndex = 100,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(SettingsBtn, "BackgroundColor3", "Accent")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = SettingsBtn})
+    local settingsStroke = Utility:Create("UIStroke", {Parent = SettingsBtn, Color = Library.Theme.Stroke, Thickness = 1})
+    Utility:RegisterProperty(settingsStroke, "Color", "Stroke")
+    local settingsGradient = Utility:Create("UIGradient", {Parent = SettingsBtn, Rotation = 18})
+    Utility:RegisterGradient(settingsGradient, "Accent", "Accent2", "Accent3")
+
+    local SettingsEmoji = Utility:Create("ImageLabel", {
+        Parent = SettingsBtn,
+        BackgroundTransparency = 1,
+        Position = IsMobile and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(8, 5),
+        Size = IsMobile and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32),
+        Image = SettingsIcon,
+        ImageColor3 = Library.Theme.SubText,
+        ScaleType = Enum.ScaleType.Fit,
+        ZIndex = 101
+    })
+    Utility:RegisterProperty(SettingsEmoji, "ImageColor3", "SubText")
+
+    local SettingsLabel = Utility:Create("TextLabel", {
+        Parent = SettingsBtn, BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(48, 0), Size = UDim2.new(1, -58, 1, 0),
+        Font = Enum.Font.Gotham, Text = "Settings", TextColor3 = Library.Theme.SubText,
+        TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left,
+        Visible = not IsMobile, ZIndex = 101
+    })
+    Utility:RegisterProperty(SettingsLabel, "TextColor3", "SubText")
+
+    local SettingsIndicator = Utility:Create("Frame", {
+        Parent = SettingsBtn,
+        BackgroundColor3 = Library.Theme.Accent,
+        Position = UDim2.new(0, 0, 0.5, -10),
+        Size = UDim2.new(0, 4, 0, 20),
+        BackgroundTransparency = 1,
+        ZIndex = 102,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(SettingsIndicator, "BackgroundColor3", "Accent")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 2), Parent = SettingsIndicator})
+
+    -- NATIVE OVERVIEW BUTTON
+    -- Overview is pinned with the profile and settings destinations so user
+    -- tabs can scroll independently without hiding the session launcher.
+    local OverviewBtn = Utility:Create("TextButton", {
+        Name = "OverviewBtn",
+        Parent = Sidebar,
+        BackgroundColor3 = Library.Theme.Accent,
+        BackgroundTransparency = 0.64,
+        Position = IsMobile and UDim2.new(0.5, -settingsBtnSize / 2, 1, -(settingsBtnSize + 62)) or UDim2.new(0, 10, 1, -102),
+        Size = IsMobile and UDim2.fromOffset(settingsBtnSize, settingsBtnSize) or UDim2.new(1, -20, 0, 42),
+        AutoButtonColor = false,
+        Text = "",
+        ZIndex = 100,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(OverviewBtn, "BackgroundColor3", "Accent")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = OverviewBtn})
+    local overviewStroke = Utility:Create("UIStroke", {Parent = OverviewBtn, Color = Library.Theme.Stroke, Thickness = 1})
+    Utility:RegisterProperty(overviewStroke, "Color", "Stroke")
+    local overviewGradient = Utility:Create("UIGradient", {Parent = OverviewBtn, Rotation = 18})
+    Utility:RegisterGradient(overviewGradient, "Accent", "Accent2", "Accent3")
+    local OverviewIcon = Utility:Create("ImageLabel", {
+        Parent = OverviewBtn,
+        BackgroundTransparency = 1,
+        Position = IsMobile and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(8, 5),
+        Size = IsMobile and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32),
+        Image = ICONS.Dashboard,
+        ImageColor3 = Library.Theme.SubText,
+        ScaleType = Enum.ScaleType.Fit,
+        ZIndex = 101
+    })
+    Utility:RegisterProperty(OverviewIcon, "ImageColor3", "SubText")
+    local OverviewLabel = Utility:Create("TextLabel", {
+        Parent = OverviewBtn,
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(48, 0),
+        Size = UDim2.new(1, -58, 1, 0),
+        Font = Enum.Font.Gotham,
+        Text = "Overview",
+        TextColor3 = Library.Theme.SubText,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Visible = not IsMobile,
+        ZIndex = 101
+    })
+    Utility:RegisterProperty(OverviewLabel, "TextColor3", "SubText")
+    local OverviewIndicator = Utility:Create("Frame", {
+        Parent = OverviewBtn,
+        BackgroundColor3 = Library.Theme.Accent,
+        Position = UDim2.new(0, 0, 0.5, -10),
+        Size = UDim2.new(0, 4, 0, 20),
+        BackgroundTransparency = 1,
+        ZIndex = 102,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(OverviewIndicator, "BackgroundColor3", "Accent")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 2), Parent = OverviewIndicator})
+
+    -- A single selection surface moves between every navigation destination.
+    -- Keeping it outside the UIListLayout lets it travel cleanly across
+    -- category gaps and down to the pinned Settings destination.
+    local NavigationSelection = Utility:Create("Frame", {
+        Name = "NavigationSelection",
+        Parent = Sidebar,
+        BackgroundColor3 = Library.Theme.Accent,
+        BackgroundTransparency = 0.1,
+        Position = UDim2.fromOffset(8, 78),
+        Size = UDim2.fromOffset(42, 42),
+        Visible = false,
+        -- Keep the moving surface below the TabContainer sibling group. In
+        -- Sibling ZIndex mode, matching the container's ZIndex can place this
+        -- later-created frame over every icon and label inside that group.
+        ZIndex = 3,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(NavigationSelection, "BackgroundColor3", "Accent")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = NavigationSelection})
+    local navigationSelectionStroke = Utility:Create("UIStroke", {
+        Parent = NavigationSelection,
+        Color = Library.Theme.Accent2,
+        Transparency = 0.2,
+        Thickness = 1
+    })
+    Utility:RegisterProperty(navigationSelectionStroke, "Color", "Accent2")
+    local navigationSelectionGradient = Utility:Create("UIGradient", {
+        Parent = NavigationSelection,
+        Rotation = 18
+    })
+    Utility:RegisterGradient(navigationSelectionGradient, "Accent", "Accent2", "Accent3")
+    local NavigationSelectionRail = Utility:Create("Frame", {
+        Parent = NavigationSelection,
+        BackgroundColor3 = Library.Theme.Text,
+        BackgroundTransparency = 0.08,
+        Position = UDim2.new(0, 3, 0.5, -9),
+        Size = UDim2.fromOffset(3, 18),
+        ZIndex = 5,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(NavigationSelectionRail, "BackgroundColor3", "Text")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = NavigationSelectionRail})
+
+    -- USER PROFILE
+    local ProfileCard, ProfileAvatar, ProfileNameLabel, ProfileSubtitleLabel, ProfileStroke
+    local ProfileCompact = IsMobile
+    local SetProfileData = function() end
+    if ShowUserProfile then
+        ProfileCard = Utility:Create("Frame", {
+            Name = "UserProfile",
+            Parent = Sidebar,
+            BackgroundColor3 = Library.Theme.Surface,
+            BackgroundTransparency = ProfileCompact and 1 or 0,
+            Position = ProfileCompact and UDim2.new(0.5, -19, 1, -(settingsBtnSize + 112)) or UDim2.new(0, 10, 1, -158),
+            Size = ProfileCompact and UDim2.fromOffset(38, 38) or UDim2.new(1, -20, 0, 48),
+            ClipsDescendants = true,
+            ZIndex = 98,
+            BorderSizePixel = 0
+        })
+        Utility:RegisterProperty(ProfileCard, "BackgroundColor3", "Surface")
+        Utility:RegisterMaterial(ProfileCard, 0.28, 0)
+        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 9), Parent = ProfileCard})
+        ProfileStroke = Utility:Create("UIStroke", {Parent = ProfileCard, Color = Library.Theme.Stroke, Thickness = 1, Enabled = not ProfileCompact})
+        Utility:RegisterProperty(ProfileStroke, "Color", "Stroke")
+
+        ProfileAvatar = Utility:Create("ImageLabel", {
+            Parent = ProfileCard,
+            BackgroundColor3 = Library.Theme.SurfaceAlt,
+            Position = ProfileCompact and UDim2.fromOffset(2, 2) or UDim2.fromOffset(6, 6),
+            Size = ProfileCompact and UDim2.new(1, -4, 1, -4) or UDim2.fromOffset(36, 36),
+            Image = Utility:NormalizeAssetId(options.ProfileAvatar, ICONS.Profile),
+            ImageColor3 = Color3.new(1, 1, 1),
+            ScaleType = Enum.ScaleType.Crop,
+            ZIndex = 99
+        })
+        Utility:RegisterProperty(ProfileAvatar, "BackgroundColor3", "SurfaceAlt")
+        Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = ProfileAvatar})
+        local avatarStroke = Utility:Create("UIStroke", {Parent = ProfileAvatar, Color = Library.Theme.Accent, Thickness = 1})
+        Utility:RegisterProperty(avatarStroke, "Color", "Accent")
+
+        ProfileNameLabel = Utility:Create("TextLabel", {
+            Parent = ProfileCard,
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(50, 7),
+            Size = UDim2.new(1, -58, 0, 18),
+            Font = Enum.Font.GothamMedium,
+            Text = tostring(options.ProfileTitle or Plr.DisplayName or Plr.Name),
+            TextColor3 = Library.Theme.Text,
+            TextSize = 11,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Visible = not ProfileCompact,
+            ZIndex = 99
+        })
+        Utility:RegisterProperty(ProfileNameLabel, "TextColor3", "Text")
+        ProfileSubtitleLabel = Utility:Create("TextLabel", {
+            Parent = ProfileCard,
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(50, 24),
+            Size = UDim2.new(1, -58, 0, 16),
+            Font = Enum.Font.Gotham,
+            Text = tostring(options.ProfileSubtitle or ("@" .. Plr.Name)),
+            TextColor3 = Library.Theme.SubText,
+            TextSize = 9,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Visible = not ProfileCompact,
+            ZIndex = 99
+        })
+        Utility:RegisterProperty(ProfileSubtitleLabel, "TextColor3", "SubText")
+
+        local ProfileButton = Utility:Create("TextButton", {
+            Parent = ProfileCard,
+            BackgroundTransparency = 1,
+            Size = UDim2.fromScale(1, 1),
+            Text = "",
+            AutoButtonColor = false,
+            ZIndex = 100
+        })
+        Library:Connect(ProfileButton.MouseEnter, function()
+            if not ProfileCompact then Utility:Tween(ProfileCard, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme.Hover}) end
+        end)
+        Library:Connect(ProfileButton.MouseLeave, function()
+            Utility:Tween(ProfileCard, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme.Surface})
+        end)
+        Library:Connect(ProfileButton.MouseButton1Click, function()
+            Utility:SafeCall(options.OnProfileClick, Plr)
+        end)
+
+        SetProfileData = function(data)
+            data = data or {}
+            if data.Title ~= nil then ProfileNameLabel.Text = tostring(data.Title) end
+            if data.Subtitle ~= nil then ProfileSubtitleLabel.Text = tostring(data.Subtitle) end
+            local customAvatar = Utility:NormalizeAssetId(data.Avatar)
+            if customAvatar then ProfileAvatar.Image = customAvatar end
+        end
+
+        if not Utility:NormalizeAssetId(options.ProfileAvatar) then
+            local profileUserId = tonumber(options.ProfileUserId) or Plr.UserId
+            task.spawn(function()
+                local ok, thumbnail = pcall(function()
+                    return Players:GetUserThumbnailAsync(profileUserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+                end)
+                if ok and ProfileAvatar and ProfileAvatar.Parent then ProfileAvatar.Image = thumbnail end
+            end)
+        end
+    end
+
+    local navigationLabelTokens = setmetatable({}, {__mode = "k"})
+    local function applyLayout(instance, properties, animated)
+        if animated then
+            Utility:TweenLayout(instance, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), properties)
+        else
+            Utility:StopLayoutTween(instance)
+            for property, value in pairs(properties) do instance[property] = value end
+        end
+    end
+
+    local function setNavigationLabel(label, visible, animated)
+        if not label then return end
+        local token = (navigationLabelTokens[label] or 0) + 1
+        navigationLabelTokens[label] = token
+        if not animated then
+            Utility:StopVisibilityTween(label)
+            label.Visible = visible
+            label.TextTransparency = visible and 0 or 1
+            return
+        end
+        if visible then
+            label.Visible = true
+            label.TextTransparency = 1
+            Utility:TweenVisibility(label, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 0})
+        else
+            Utility:TweenVisibility(label, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 1}, function()
+                if navigationLabelTokens[label] == token then label.Visible = false end
+            end)
+        end
+    end
+
+    local function getNavigationBottomInset(compact, mobile, hideProfile)
+        if ShowUserProfile and not hideProfile then return compact and 224 or 234 end
+        return 176
+    end
+
+    local function applyProfileLayout(compact, hidden, animated)
+        ProfileCompact = compact
+        if not ProfileCard then return end
+        ProfileCard.Visible = not hidden
+        applyLayout(ProfileCard, {
+            BackgroundTransparency = compact and 1 or Library:ResolveMaterialTransparency(Library.MaterialRegistry[ProfileCard]),
+            Position = compact and UDim2.new(0.5, -19, 1, -(settingsBtnSize + 112)) or UDim2.new(0, 10, 1, -158),
+            Size = compact and UDim2.fromOffset(38, 38) or UDim2.new(1, -20, 0, 48)
+        }, animated)
+        applyLayout(ProfileAvatar, {
+            Position = compact and UDim2.fromOffset(2, 2) or UDim2.fromOffset(6, 6),
+            Size = compact and UDim2.new(1, -4, 1, -4) or UDim2.fromOffset(36, 36)
+        }, animated)
+        setNavigationLabel(ProfileNameLabel, not compact, animated)
+        setNavigationLabel(ProfileSubtitleLabel, not compact, animated)
+        ProfileStroke.Enabled = not compact
+    end
+
+    applyProfileLayout(IsMobile)
+    TabContainer.Size = UDim2.new(1, IsMobile and 0 or -16, 1, -getNavigationBottomInset(IsMobile, IsMobile))
+
+    -- Content Area
+    local Pages = Utility:Create("Frame", {
+        Name = "Pages",
+        Parent = MainFrame,
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, SidebarWidth, 0, 0),
+        Size = UDim2.new(1, -SidebarWidth, 1, 0),
+        ClipsDescendants = true,
+        ZIndex = 1,
+        BorderSizePixel = 0
+    })
+
+    -- TOP BAR
+    local TopBar = Utility:Create("Frame", {
+        Name = "TopBar",
+        Parent = MainFrame,
+        BackgroundColor3 = Library.Theme.Secondary,
+        BackgroundTransparency = 0.08,
+        Position = UDim2.new(0, SidebarWidth, 0, 0),
+        Size = UDim2.new(1, -SidebarWidth, 0, IsMobile and 88 or 60),
+        ZIndex = 100,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(TopBar, "BackgroundColor3", "Secondary")
+    Utility:RegisterMaterial(TopBar, 0.4, 0.08)
+
+    Utility:MakeDraggable(TopBar, MainFrame)
+
+    local TitleLabel = Utility:Create("TextLabel", {
+        Parent = TopBar,
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 20, 0, IsMobile and 13 or 16),
+        Size = UDim2.new(0, 200, 0, 30),
+        Font = Enum.Font.GothamBold,
+        Text = WindowTitle,
+        TextColor3 = Library.Theme.Text,
+        TextSize = IsMobile and 17 or 19,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 101
+    })
+    Utility:RegisterProperty(TitleLabel, "TextColor3", "Text")
+
+    local TopDivider = Utility:Create("Frame", {
+        Parent = MainFrame,
+        BackgroundColor3 = Library.Theme.Divider,
+        Position = UDim2.new(0, SidebarWidth, 0, IsMobile and 87 or 59),
+        Size = UDim2.new(1, -SidebarWidth, 0, 1),
+        BorderSizePixel = 0,
+        ZIndex = 90
+    })
+    Utility:RegisterProperty(TopDivider, "BackgroundColor3", "Divider")
+
+    -- MINIMIZE BUTTON
+    local MinimizeBtn = Utility:Create("TextButton", {
+        Name = "MinimizeBtn",
+        Parent = TopBar,
+        BackgroundColor3 = Library.Theme.Surface,
+        Position = UDim2.new(1, -80, 0, IsMobile and 10 or 15),
+        Size = UDim2.new(0, IsMobile and 26 or 28, 0, IsMobile and 26 or 28),
+        AutoButtonColor = false,
+        Text = "",
+        ZIndex = 101,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(MinimizeBtn, "BackgroundColor3", "Surface")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = MinimizeBtn})
+    local minimizeStroke = Utility:Create("UIStroke", {Parent = MinimizeBtn, Color = Library.Theme.Stroke, Thickness = 1})
+    Utility:RegisterProperty(minimizeStroke, "Color", "Stroke")
+
+    local MinimizeIcon = Utility:Create("ImageLabel", {
+        Parent = MinimizeBtn,
+        BackgroundTransparency = 1,
+        Position = UDim2.fromScale(0.22, 0.22),
+        Size = UDim2.fromScale(0.56, 0.56),
+        Image = ICONS.Minimize,
+        ImageColor3 = Library.Theme.SubText,
+        ScaleType = Enum.ScaleType.Fit,
+        ZIndex = 102
+    })
+    Utility:RegisterProperty(MinimizeIcon, "ImageColor3", "SubText")
+
+    -- CLOSE BUTTON
+    local CloseBtn = Utility:Create("TextButton", {
+        Name = "CloseBtn",
+        Parent = TopBar,
+        BackgroundColor3 = Library.Theme.Surface,
+        Position = UDim2.new(1, -40, 0, IsMobile and 10 or 15),
+        Size = UDim2.new(0, IsMobile and 26 or 28, 0, IsMobile and 26 or 28),
+        AutoButtonColor = false,
+        Text = "",
+        ZIndex = 101,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(CloseBtn, "BackgroundColor3", "Surface")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = CloseBtn})
+    local closeStroke = Utility:Create("UIStroke", {Parent = CloseBtn, Color = Library.Theme.Stroke, Thickness = 1})
+    Utility:RegisterProperty(closeStroke, "Color", "Stroke")
+
+    local CloseIcon = Utility:Create("ImageLabel", {
+        Parent = CloseBtn,
+        BackgroundTransparency = 1,
+        Position = UDim2.fromScale(0.22, 0.22),
+        Size = UDim2.fromScale(0.56, 0.56),
+        Image = ICONS.Close,
+        ImageColor3 = Library.Theme.SubText,
+        ScaleType = Enum.ScaleType.Fit,
+        ZIndex = 102
+    })
+    Utility:RegisterProperty(CloseIcon, "ImageColor3", "SubText")
+
+    -- SEARCH BOX (Global Search)
+    local SearchBox = nil
+    if EnableGlobalSearch then
+        SearchBox = Utility:Create("TextBox", {
+            Parent = TopBar,
+            BackgroundColor3 = Library.Theme.Surface,
+            AnchorPoint = IsMobile and Vector2.new(0, 0) or Vector2.new(0.5, 0),
+            Position = IsMobile and UDim2.new(0, 8, 0, 50) or UDim2.new(0.5, 0, 0, 15),
+            Size = IsMobile and UDim2.new(1, -16, 0, 30) or UDim2.new(0, 250, 0, 30),
+            PlaceholderText = "Search controls...",
+            Text = "",
+            TextColor3 = Library.Theme.Text,
+            Font = Enum.Font.Gotham,
+            TextSize = IsMobile and 12 or 14,
+            ClearTextOnFocus = false,
+            ZIndex = 101,
+            BorderSizePixel = 0
+        })
+        Utility:RegisterProperty(SearchBox, "BackgroundColor3", "Surface")
+        Utility:RegisterProperty(SearchBox, "TextColor3", "Text")
+        Utility:RegisterProperty(SearchBox, "PlaceholderColor3", "SubText")
+        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = SearchBox})
+        Utility:Create("UIPadding", {Parent = SearchBox, PaddingLeft = UDim.new(0, 34), PaddingRight = UDim.new(0, 54)})
+        local SearchIcon = Utility:Create("ImageLabel", {
+            Parent = SearchBox,
+            BackgroundTransparency = 1,
+            Position = UDim2.new(0, -25, 0.5, -8),
+            Size = UDim2.fromOffset(16, 16),
+            Image = ICONS.Search,
+            ImageColor3 = Library.Theme.SubText,
+            ScaleType = Enum.ScaleType.Fit,
+            ZIndex = 102
+        })
+        Utility:RegisterProperty(SearchIcon, "ImageColor3", "SubText")
+        local searchStroke = Utility:Create("UIStroke", {Parent = SearchBox, Color = Library.Theme.Stroke, Thickness = 1})
+        Utility:RegisterProperty(searchStroke, "Color", "Stroke")
+    end
+
+    -- Notification Container
+    local NotifyArea = Utility:Create("Frame", {
+        Name = "Notifications",
+        Parent = ScreenGui,
+        BackgroundTransparency = 1,
+        Position = UDim2.new(1, IsMobile and -220 or -320, 1, -20),
+        Size = UDim2.new(0, IsMobile and 200 or 300, 1, 0),
+        AnchorPoint = Vector2.new(1, 1),
+        ZIndex = 200
+    })
+    Utility:Create("UIListLayout", {
+        Parent = NotifyArea,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, 8),
+        VerticalAlignment = Enum.VerticalAlignment.Bottom
+    })
+
+    -- Minimized Icon
+    local MinimizedIcon = Utility:Create("Frame", {
+        Name = "MinimizedIcon",
+        Parent = ScreenGui,
+        BackgroundColor3 = Library.Theme.Main,
+        Position = UDim2.new(1, -70, 0, 20),
+        Size = UDim2.new(0, 50, 0, 50),
+        Visible = false,
+        ZIndex = 300,
+        BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(MinimizedIcon, "BackgroundColor3", "Main")
+    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 10), Parent = MinimizedIcon})
+    local minIconStroke = Utility:Create("UIStroke", {Parent = MinimizedIcon, Color = Library.Theme.Accent, Thickness = 2})
+    Utility:RegisterProperty(minIconStroke, "Color", "Accent")
+    local MinimizedLogo = createWindowMark(MinimizedIcon, 20, 301)
+    local MinIconBtn = Utility:Create("TextButton", {
+        Parent = MinimizedIcon,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 1, 0),
+        Text = "",
+        ZIndex = 302
+    })
+
+    -- Mobile Toggle Button
+    local MobileToggleBtn
+    do
+        MobileToggleBtn = Utility:Create("Frame", {
+            Name = "MobileToggle",
+            Parent = ScreenGui,
+            BackgroundColor3 = Library.Theme.Main,
+            Position = UDim2.new(0, 10, 0.5, -25),
+            Size = UDim2.new(0, 40, 0, 40),
+            Visible = false,
+            ZIndex = 400,
+            BorderSizePixel = 0
+        })
+        Utility:RegisterProperty(MobileToggleBtn, "BackgroundColor3", "Main")
+        Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = MobileToggleBtn})
+        local mobileStroke = Utility:Create("UIStroke", {Parent = MobileToggleBtn, Color = Library.Theme.Accent, Thickness = 2})
+        Utility:RegisterProperty(mobileStroke, "Color", "Accent")
+        local MobileToggleLogo = createWindowMark(MobileToggleBtn, 16, 401)
+        local MobileToggleTapBtn = Utility:Create("TextButton", {
+            Parent = MobileToggleBtn,
+            BackgroundTransparency = 1,
+            Size = UDim2.new(1, 0, 1, 0),
+            Text = "",
+            ZIndex = 402
+        })
+        local mobileToggleDrag = Utility:MakeDraggable(MobileToggleTapBtn, MobileToggleBtn)
+        Library:Connect(MobileToggleTapBtn.MouseButton1Click, function()
+            if mobileToggleDrag:ConsumeDrag() then return end
+            if Library.IsMinimized then
+                Library.IsMinimized = false
+                Library:RefreshMaterialVisibility()
+                MinimizedIcon.Visible = false
+                MainFrame.Visible = true
+                MobileToggleBtn.Visible = false
+            else
+                MainFrame.Visible = not MainFrame.Visible
+                Library.IsMinimized = not MainFrame.Visible
+                if not MainFrame.Visible then
+                    MobileToggleBtn.Visible = true
+                end
+                Library:RefreshMaterialVisibility()
+            end
+        end)
+    end
+
+    -- Window Object (declared early so resizer can reference it)
+    local Window = {
+        Tabs = {},
+        TabCategories = {},
+        CurrentTabCategory = nil,
+        NextNavOrder = 0,
+        ActiveTab = nil,
+        Gui = ScreenGui,
+        Main = MainFrame,
+        SettingsTab = nil,
+        SearchBox = SearchBox,
+        Sidebar = Sidebar,
+        SidebarMode = SidebarMode,
+        NavigationListeners = {},
+        NavigationRevision = 0,
+        SearchResults = {},
+        SearchQuery = ""
+    }
+
+    function Window:OnTabChanged(callback)
+        if type(callback) == "function" then table.insert(self.NavigationListeners, callback) end
+        return self
+    end
+
+    function Window:SelectTab(tab, selectOptions)
+        selectOptions = selectOptions or {}
+        if tab ~= nil then
+            local known = false
+            for _, candidate in ipairs(self.Tabs) do
+                if candidate == tab then known = true break end
+            end
+            if not known then return false, "Unknown tab" end
+        end
+
+        local previous = self.ActiveTab
+        self.NavigationRevision = self.NavigationRevision + 1
+        self.ActiveTab = tab
+
+        for _, candidate in ipairs(self.Tabs) do
+            local active = candidate == tab
+            candidate.Active = active
+            if candidate.Page then candidate.Page.Visible = active end
+            if candidate.ApplyActiveVisual then candidate:ApplyActiveVisual(active, selectOptions.Animate ~= false) end
+        end
+
+        if tab then
+            TitleLabel.Text = tab.Name
+            if selectOptions.ResetScroll ~= false and tab.Page then tab.Page.CanvasPosition = Vector2.new(0, 0) end
+            task.defer(function()
+                if Window.ActiveTab == tab and not Library.Unloaded then
+                    Window:MoveNavigationSelection(selectOptions.Animate ~= false)
+                end
+            end)
+        else
+            NavigationSelection.Visible = false
+        end
+
+        if previous ~= tab then
+            for _, callback in ipairs(self.NavigationListeners) do
+                Utility:SafeCall(callback, tab, previous, self.NavigationRevision)
+            end
+        end
+        return true
+    end
+
+    local navigationSelectionToken = 0
+    function Window:MoveNavigationSelection(animate)
+        local active = self.ActiveTab
+        local button = active and active.TabBtn
+        if not button or not button.Parent or not Sidebar.Parent then
+            NavigationSelection.Visible = false
+            return
+        end
+        local effectiveScale = math.max(Library.DPIScale * WindowScale.Scale, 0.01)
+        local offset = button.AbsolutePosition - Sidebar.AbsolutePosition
+        local absoluteSize = button.AbsoluteSize
+        if absoluteSize.X < 1 or absoluteSize.Y < 1 then return end
+        local target = {
+            Position = UDim2.fromOffset(offset.X / effectiveScale, offset.Y / effectiveScale),
+            Size = UDim2.fromOffset(absoluteSize.X / effectiveScale, absoluteSize.Y / effectiveScale)
+        }
+        NavigationSelection.Visible = true
+        if animate then
+            Utility:Tween(NavigationSelection, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), target)
+        else
+            Utility:StopTween(NavigationSelection)
+            NavigationSelection.Position = target.Position
+            NavigationSelection.Size = target.Size
+        end
+    end
+
+    function Window:TrackNavigationSelection(duration)
+        navigationSelectionToken = navigationSelectionToken + 1
+        local token = navigationSelectionToken
+        task.spawn(function()
+            local started = os.clock()
+            repeat
+                RunService.RenderStepped:Wait()
+                if token ~= navigationSelectionToken or Library.Unloaded then return end
+                Window:MoveNavigationSelection(false)
+            until os.clock() - started >= (duration or 0.32)
+            Window:MoveNavigationSelection(false)
+        end)
+    end
+
+    Library:Connect(TabContainer:GetPropertyChangedSignal("CanvasPosition"), function()
+        Window:MoveNavigationSelection(false)
+    end)
+
+    function Window:GetLayoutDiagnostics()
+        local issues = {}
+        local function add(code, message)
+            table.insert(issues, {Code = code, Message = message})
+        end
+        local function overlaps(a, b, padding)
+            padding = padding or 0
+            local ap, as = a.AbsolutePosition, a.AbsoluteSize
+            local bp, bs = b.AbsolutePosition, b.AbsoluteSize
+            return ap.X + as.X + padding > bp.X
+                and bp.X + bs.X + padding > ap.X
+                and ap.Y + as.Y + padding > bp.Y
+                and bp.Y + bs.Y + padding > ap.Y
+        end
+        if Library.DPIScale < 1 then
+            add("scale-floor", "UI scale is below the supported 100% minimum")
+        end
+        if MainFrame.ClipsDescendants ~= true then
+            add("shell-clip", "The root shell is not clipping internal chrome to its corner")
+        end
+        if SidebarModeButton.Visible and overlaps(LogoContainer, SidebarModeButton, 2) then
+            add("nav-header-overlap", "The brand mark and sidebar-mode control overlap")
+        end
+        if BrandLabel.Visible and SidebarModeButton.Visible and overlaps(BrandLabel, SidebarModeButton, 2) then
+            add("nav-header-label-overlap", "The sidebar-mode control overlaps the RenLib wordmark")
+        end
+        if SidebarModeButton.Visible and (SidebarModeButton.AbsoluteSize.X < 28 or SidebarModeButton.AbsoluteSize.Y < 28) then
+            add("nav-toggle-hit-area", "The sidebar-mode control is smaller than its safe pointer target")
+        end
+        if self.SidebarVisualExpanded and self.ActiveTab and self.ActiveTab.TabBtn
+            and self.ActiveTab.TabBtn.AbsoluteSize.X < Sidebar.AbsoluteSize.X * 0.6 then
+            add("active-tab-state", "The selected tab is still using compact geometry inside an expanded sidebar")
+        end
+        if self.SidebarVisualExpanded and ProfileCard and ProfileCard.Visible
+            and ProfileCard.AbsoluteSize.X < Sidebar.AbsoluteSize.X * 0.6 then
+            add("profile-state", "The profile card is still using compact geometry inside an expanded sidebar")
+        end
+        if OverviewBtn.Visible and overlaps(OverviewBtn, SettingsBtn, 4) then
+            add("native-navigation-overlap", "Overview and Settings overlap")
+        end
+        if ProfileCard and ProfileCard.Visible and overlaps(ProfileCard, OverviewBtn, 4) then
+            add("profile-overview-overlap", "The profile card overlaps Overview")
+        end
+        local seamDistance = math.abs((Sidebar.AbsolutePosition.X + Sidebar.AbsoluteSize.X) - TopBar.AbsolutePosition.X)
+        if seamDistance > 2 then
+            add("chrome-seam", "The sidebar and top bar no longer share one seam")
+        end
+        return #issues == 0, issues
+    end
+
+    function Window:SetProfile(data)
+        SetProfileData(data)
+    end
+
+    function Window:RefreshThemeState()
+        for _, tab in ipairs(self.Tabs) do
+            local textKey = tab.Active and "Text" or "SubText"
+            if tab.TabLabel then tab.TabLabel.TextColor3 = Library.Theme[textKey] end
+            if tab.TabEmoji then
+                if tab.TabEmoji:IsA("TextLabel") then
+                    tab.TabEmoji.TextColor3 = Library.Theme[textKey]
+                elseif tab.TabEmoji:IsA("ImageLabel") then
+                    tab.TabEmoji.ImageColor3 = Library.Theme[textKey]
+                end
+            end
+            if tab.TabBtn then tab.TabBtn.BackgroundTransparency = tab.Active and 1 or 0.64 end
+            if tab.TabStroke then
+                tab.TabStroke.Color = tab.Active and Library.Theme.Accent or Library.Theme.Stroke
+                tab.TabStroke.Transparency = tab.Active and 0.08 or 0.24
+            end
+        end
+        self:MoveNavigationSelection(false)
+    end
+
+    -- RESIZABLE SIDEBAR (PC only)
+    local sidebarResizer = nil
+    local dividerLine = nil
+    local currentSidebarWidth = math.clamp(tonumber(options.SidebarWidth) or 190, 132, 240)
+    local sidebarHoverExpanded = false
+    local isCompact = IsMobile or SidebarMode ~= "Expanded"
+    if EnableSidebarResize and not IsMobile then
+        dividerLine = Utility:Create("Frame", {
+            Parent = MainFrame,
+            BackgroundColor3 = Library.Theme.Stroke,
+            BackgroundTransparency = 1,
+            Position = UDim2.new(0, SidebarWidth, 0, 0),
+            Size = UDim2.new(0, 1, 1, 0),
+            ZIndex = 5,
+            BorderSizePixel = 0
+        })
+        sidebarResizer = Utility:Create("TextButton", {
+            Parent = dividerLine,
+            BackgroundTransparency = 1,
+            Size = UDim2.new(0, 4, 1, 0),
+            Position = UDim2.new(1, -2, 0, 0),
+            Text = "",
+            ZIndex = 6,
+            AutoButtonColor = false
+        })
+        local dragging = false
+        local startX, startWidth
+        Library:Connect(sidebarResizer.InputBegan, function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 and not isCompact then
+                dragging = true
+                startX = input.Position.X
+                startWidth = currentSidebarWidth
+                Library:Connect(input.Changed, function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        dragging = false
+                    end
+                end)
+            end
+        end)
+        Library:Connect(UserInputService.InputChanged, function(input)
+            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+                local delta = input.Position.X - startX
+                local newWidth = math.clamp(startWidth + delta, 62, 240)
+                currentSidebarWidth = newWidth
+                SidebarMode = "Expanded"
+                Window.SidebarMode = SidebarMode
+                Window:ApplyResponsiveLayout(false)
+            end
+        end)
+    end
+
+    local lastDeviceMode = DeviceMode
+
+    function Window:ApplyResponsiveLayout(recenter, animateNavigation)
+        local viewport = getViewport()
+        local scale = math.max(Library.DPIScale, 0.01)
+        local layoutViewport = Vector2.new(viewport.X / scale, viewport.Y / scale)
+        local mode = getDeviceMode(scale)
+        local mobile = mode ~= "Desktop"
+        local horizontalMargin = mobile and 6 or 16
+        local verticalMargin = mobile and 6 or 16
+        local maximumWidth = math.max(1, layoutViewport.X - horizontalMargin * 2)
+        local maximumHeight = math.max(1, layoutViewport.Y - verticalMargin * 2)
+        local width = math.min(mobile and 720 or (options.Width or 880), maximumWidth)
+        local height = math.min(mobile and 680 or (options.Height or 580), maximumHeight)
+        if self.Maximized then
+            width = maximumWidth
+            height = maximumHeight
+        end
+        local navigationExpanded = SidebarMode == "Expanded" or (SidebarMode == "Dynamic" and sidebarHoverExpanded)
+        local sidebarWidth = mobile and (width < 340 and 54 or 60)
+            or (navigationExpanded and math.clamp(currentSidebarWidth, 132, math.min(240, width * 0.32)) or 80)
+        local shortViewport = mobile and height < 420
+        local hideSearch = mobile and height < 300
+        local hideProfile = height < 380
+        local topBarHeight = mobile and (hideSearch and 48 or (shortViewport and 74 or 88)) or 60
+        Window.ContentTopInset = topBarHeight
+
+        DeviceMode = mode
+        IsMobile = mobile
+        Library.DeviceMode = mode
+        Library.IsMobile = mobile
+        MainFrame.Size = UDim2.fromOffset(width, height)
+        local absolutePosition = MainFrame.AbsolutePosition
+        local absoluteSize = MainFrame.AbsoluteSize
+        local unreachable = absolutePosition.X + absoluteSize.X < 40
+            or absolutePosition.Y + 40 < 0
+            or absolutePosition.X > viewport.X - 40
+            or absolutePosition.Y > viewport.Y - 40
+        if recenter or unreachable then
+            MainFrame.Position = UDim2.new(0.5, -width / 2, 0.5, -height / 2)
+        end
+        applyLayout(Sidebar, {Size = UDim2.new(0, sidebarWidth, 1, 0)}, animateNavigation)
+        applyLayout(Pages, {
+            Position = UDim2.new(0, sidebarWidth, 0, 0),
+            Size = UDim2.new(1, -sidebarWidth, 1, 0)
+        }, animateNavigation)
+        isCompact = mobile or sidebarWidth < 132
+        local visibleContentWidth = math.max(1, (width - sidebarWidth) * scale)
+        local singleColumn = mobile or visibleContentWidth < 640
+        applyLayout(TopBar, {
+            Position = UDim2.new(0, sidebarWidth, 0, 0),
+            Size = UDim2.new(1, -sidebarWidth, 0, topBarHeight)
+        }, animateNavigation)
+        applyLayout(TitleLabel, {
+            Position = UDim2.new(0, 16, 0, mobile and (hideSearch and 9 or 11) or 16),
+            Size = UDim2.new(1, -(mobile and 108 or 430), 0, 30)
+        }, animateNavigation)
+        TitleLabel.TextSize = mobile and 17 or 19
+        applyLayout(TopDivider, {
+            Position = UDim2.new(0, sidebarWidth, 0, topBarHeight - 1),
+            Size = UDim2.new(1, -sidebarWidth, 0, 1)
+        }, animateNavigation)
+        MinimizeBtn.Position = UDim2.new(1, -76, 0, mobile and 8 or 15)
+        CloseBtn.Position = UDim2.new(1, -40, 0, mobile and 8 or 15)
+        local activeLogoSize = mobile and 28 or (isCompact and 26 or 36)
+        local showWordmark = not isCompact and sidebarWidth >= 174
+        applyLayout(LogoContainer, {
+            Size = UDim2.fromOffset(activeLogoSize, activeLogoSize),
+            Position = mobile and UDim2.new(0.5, -activeLogoSize / 2, 0, 9)
+                or (isCompact and UDim2.fromOffset(4, 10) or UDim2.fromOffset(7, 5))
+        }, animateNavigation)
+        setNavigationLabel(BrandLabel, showWordmark, animateNavigation)
+        setNavigationLabel(BrandSubtitle, showWordmark, animateNavigation)
+        SidebarModeButton.Visible = not mobile
+        SidebarModeLabel.Text = SidebarMode == "Expanded" and "Auto" or "Pin"
+        applyLayout(SidebarModeButton, {
+            Position = isCompact and UDim2.new(1, -32, 0, 9) or UDim2.new(1, -62, 0, 9),
+            Size = isCompact and UDim2.fromOffset(28, 28) or UDim2.fromOffset(58, 28)
+        }, animateNavigation)
+        applyLayout(SidebarModeIcon, {
+            Position = isCompact and UDim2.fromOffset(6, 6) or UDim2.fromOffset(7, 6),
+            Size = UDim2.fromOffset(16, 16),
+            Rotation = isCompact and 0 or 180
+        }, animateNavigation)
+        setNavigationLabel(SidebarModeLabel, not isCompact, animateNavigation)
+        applyLayout(TabContainer, {
+            Position = UDim2.new(0, isCompact and 0 or 8, 0, mobile and 70 or 68),
+            Size = UDim2.new(1, isCompact and 0 or -16, 1, -getNavigationBottomInset(isCompact, mobile, hideProfile))
+        }, animateNavigation)
+        applyLayout(SettingsBtn, {
+            Position = isCompact and UDim2.new(0.5, -settingsBtnSize / 2, 1, -(settingsBtnSize + 12)) or UDim2.new(0, 10, 1, -54),
+            Size = isCompact and UDim2.fromOffset(settingsBtnSize, settingsBtnSize) or UDim2.new(1, -20, 0, 42)
+        }, animateNavigation)
+        applyLayout(SettingsEmoji, {
+            Position = isCompact and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(8, 5),
+            Size = isCompact and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32)
+        }, animateNavigation)
+        setNavigationLabel(SettingsLabel, not isCompact, animateNavigation)
+        applyLayout(OverviewBtn, {
+            Position = isCompact and UDim2.new(0.5, -settingsBtnSize / 2, 1, -(settingsBtnSize + 62)) or UDim2.new(0, 10, 1, -102),
+            Size = isCompact and UDim2.fromOffset(settingsBtnSize, settingsBtnSize) or UDim2.new(1, -20, 0, 42)
+        }, animateNavigation)
+        applyLayout(OverviewIcon, {
+            Position = isCompact and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(8, 5),
+            Size = isCompact and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32)
+        }, animateNavigation)
+        setNavigationLabel(OverviewLabel, not isCompact, animateNavigation)
+        applyProfileLayout(isCompact, hideProfile, animateNavigation)
+        NotifyArea.Position = UDim2.new(1, mobile and -12 or -20, 1, -20)
+        NotifyArea.Size = UDim2.new(0, mobile and math.max(180, math.min(300, layoutViewport.X - 24)) or 300, 1, 0)
+        if SearchBox then
+            SearchBox.Visible = not hideSearch
+            SearchBox.AnchorPoint = mobile and Vector2.new(0, 0) or Vector2.new(0.5, 0)
+            SearchBox.Position = mobile and UDim2.new(0, 8, 0, shortViewport and 41 or 50)
+                or UDim2.new(0.5, 0, 0, 15)
+            SearchBox.Size = mobile and UDim2.new(1, -16, 0, shortViewport and 26 or 30) or UDim2.new(0, 270, 0, 30)
+        end
+        if dividerLine then
+            dividerLine.Visible = not mobile and not isCompact
+            dividerLine.Position = UDim2.new(0, sidebarWidth, 0, 0)
+        end
+        for _, tab in ipairs(Window.Tabs) do
+            if tab.ApplyNavigationLayout then tab:ApplyNavigationLayout(mobile, isCompact, animateNavigation) end
+            if tab.ApplyResponsiveLayout then
+                tab:ApplyResponsiveLayout(singleColumn, topBarHeight)
+            end
+        end
+        for _, category in ipairs(Window.TabCategories) do
+            category.Label.Visible = true
+            applyLayout(category.Label, {
+                Size = UDim2.new(1, -8, 0, isCompact and 0 or 20),
+                TextTransparency = isCompact and 1 or 0
+            }, animateNavigation)
+        end
+        if animateNavigation then
+            self:TrackNavigationSelection(0.34)
+        else
+            task.defer(function() if not Library.Unloaded then self:MoveNavigationSelection(false) end end)
+        end
+        self.SidebarVisualExpanded = not isCompact
+        if Library.IsMinimized then
+            MobileToggleBtn.Visible = mobile
+            MinimizedIcon.Visible = not mobile
+        end
+        if mode ~= lastDeviceMode then
+            lastDeviceMode = mode
+            Utility:SafeCall(options.OnDeviceChanged, mode)
+        end
+        task.delay(animateNavigation and 0.34 or 0, function()
+            if not Library.Unloaded then
+                local passed, issues = self:GetLayoutDiagnostics()
+                self.LastLayoutAudit = {Passed = passed, Issues = issues, CheckedAt = os.clock()}
+            end
+        end)
+        return mode
+    end
+
+    function Window:SetSidebarMode(mode)
+        mode = tostring(mode or "Dynamic")
+        if mode ~= "Dynamic" and mode ~= "Expanded" and mode ~= "Compact" then return false end
+        SidebarMode = mode
+        self.SidebarMode = mode
+        sidebarHoverExpanded = false
+        SidebarModeLabel.Text = mode == "Expanded" and "Auto" or "Pin"
+        self:ApplyResponsiveLayout(false, true)
+        return true
+    end
+
+    local sidebarHoverToken = 0
+    local function setSidebarHover(expanded)
+        if SidebarMode ~= "Dynamic" or IsMobile then return end
+        sidebarHoverToken = sidebarHoverToken + 1
+        local token = sidebarHoverToken
+        if expanded then
+            if not sidebarHoverExpanded then
+                sidebarHoverExpanded = true
+                Window:ApplyResponsiveLayout(false, true)
+            end
+        else
+            task.delay(0.35, function()
+                if token == sidebarHoverToken and SidebarMode == "Dynamic" then
+                    sidebarHoverExpanded = false
+                    Window:ApplyResponsiveLayout(false, true)
+                end
+            end)
+        end
+    end
+
+    -- Hover expansion belongs to navigation content, not the mode button.
+    -- The compact button therefore stays under the pointer and can be clicked
+    -- immediately instead of moving away on the first hover.
+    Library:Connect(TabContainer.MouseEnter, function() setSidebarHover(true) end)
+    Library:Connect(TabContainer.MouseLeave, function() setSidebarHover(false) end)
+    Library:Connect(SettingsBtn.MouseEnter, function() setSidebarHover(true) end)
+    Library:Connect(SettingsBtn.MouseLeave, function() setSidebarHover(false) end)
+    Library:Connect(OverviewBtn.MouseEnter, function() setSidebarHover(true) end)
+    Library:Connect(OverviewBtn.MouseLeave, function() setSidebarHover(false) end)
+    if ProfileCard then
+        Library:Connect(ProfileCard.MouseEnter, function() setSidebarHover(true) end)
+        Library:Connect(ProfileCard.MouseLeave, function() setSidebarHover(false) end)
+    end
+    Library:Connect(NavHeader.MouseEnter, function()
+        if sidebarHoverExpanded then sidebarHoverToken = sidebarHoverToken + 1 end
+    end)
+    Library:Connect(NavHeader.MouseLeave, function()
+        if sidebarHoverExpanded then setSidebarHover(false) end
+    end)
+    Library:Connect(SidebarModeButton.MouseEnter, function()
+        Utility:Tween(SidebarModeButton, TweenInfo.new(0.14), {BackgroundTransparency = 0.12})
+        Utility:Tween(sidebarModeStroke, TweenInfo.new(0.14), {Transparency = 0.05})
+    end)
+    Library:Connect(SidebarModeButton.MouseLeave, function()
+        Utility:Tween(SidebarModeButton, TweenInfo.new(0.14), {BackgroundTransparency = 0.34})
+        Utility:Tween(sidebarModeStroke, TweenInfo.new(0.14), {Transparency = 0.28})
+    end)
+    Library:Connect(SidebarModeButton.MouseButton1Click, function()
+        Window:SetSidebarMode(SidebarMode == "Expanded" and "Dynamic" or "Expanded")
+    end)
+
+    function Window:SetTitle(title)
+        WindowTitle = tostring(title)
+        TitleLabel.Text = WindowTitle
+    end
+
+    function Window:SetVisible(visible)
+        if visible then Window:Restore() else Window:Minimize() end
+    end
+
+    function Window:SetSearch(query)
+        if SearchBox then SearchBox.Text = tostring(query or "") end
+    end
+
+    local normalPosition = MainFrame.Position
+    local normalSize = MainFrame.Size
+    function Window:SetMaximized(maximized)
+        if maximized and not self.Maximized then
+            normalPosition = MainFrame.Position
+            normalSize = MainFrame.Size
+        end
+        self.Maximized = maximized == true
+        local viewport = getViewport()
+        local scale = math.max(Library.DPIScale, 0.01)
+        local margin = 8 / scale
+        Utility:Tween(MainFrame, TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+            Position = self.Maximized and UDim2.fromOffset(margin, margin) or normalPosition,
+            Size = self.Maximized and UDim2.fromOffset(viewport.X / scale - margin * 2, viewport.Y / scale - margin * 2) or normalSize
+        })
+    end
+
+    local TooltipFrame = Utility:Create("Frame", {
+        Name = "Tooltip", Parent = ScreenGui, BackgroundColor3 = Library.Theme.Secondary,
+        BackgroundTransparency = 0.04, AutomaticSize = Enum.AutomaticSize.XY,
+        Visible = false, ZIndex = 950, BorderSizePixel = 0
+    })
+    Utility:RegisterProperty(TooltipFrame, "BackgroundColor3", "Secondary")
+    Utility:Create("UICorner", {Parent = TooltipFrame, CornerRadius = UDim.new(0, 6)})
+    local tooltipStroke = Utility:Create("UIStroke", {Parent = TooltipFrame, Color = Library.Theme.Stroke, Thickness = 1})
+    Utility:RegisterProperty(tooltipStroke, "Color", "Stroke")
+    Utility:Create("UIPadding", {
+        Parent = TooltipFrame, PaddingLeft = UDim.new(0, 9), PaddingRight = UDim.new(0, 9),
+        PaddingTop = UDim.new(0, 7), PaddingBottom = UDim.new(0, 7)
+    })
+    local TooltipText = Utility:Create("TextLabel", {
+        Parent = TooltipFrame, BackgroundTransparency = 1, AutomaticSize = Enum.AutomaticSize.Y,
+        Size = UDim2.fromOffset(220, 0), TextWrapped = true, TextColor3 = Library.Theme.Text,
+        Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 951
+    })
+    Utility:RegisterProperty(TooltipText, "TextColor3", "Text")
+    local activeTooltipTarget = nil
+
+    function Window:ShowTooltip(text, position, target)
+        text = tostring(text or "")
+        if text == "" then return end
+        activeTooltipTarget = target
+        TooltipText.Text = text
+        TooltipFrame.Visible = true
+        task.defer(function()
+            if not TooltipFrame.Visible or (target and activeTooltipTarget ~= target) then return end
+            local viewport = getViewport()
+            local size = TooltipFrame.AbsoluteSize
+            local x = math.clamp((position and position.X or 0) + 14, 8, math.max(8, viewport.X - size.X - 8))
+            local y = math.clamp((position and position.Y or 0) + 16, 8, math.max(8, viewport.Y - size.Y - 8))
+            TooltipFrame.Position = UDim2.fromOffset(x, y)
+        end)
+    end
+
+    function Window:HideTooltip(target)
+        if target and activeTooltipTarget ~= target then return end
+        activeTooltipTarget = nil
+        TooltipFrame.Visible = false
+    end
+
+    function Window:AttachTooltip(target, text)
+        if not target or not target:IsA("GuiObject") or text == nil or tostring(text) == "" then return nil end
+        local touching = false
+        Library:Connect(target.MouseEnter, function()
+            local mouse = UserInputService:GetMouseLocation()
+            Window:ShowTooltip(text, mouse, target)
+        end)
+        Library:Connect(target.MouseMoved, function(x, y)
+            if activeTooltipTarget == target then Window:ShowTooltip(text, Vector2.new(x, y), target) end
+        end)
+        Library:Connect(target.MouseLeave, function() Window:HideTooltip(target) end)
+        Library:Connect(target.InputBegan, function(input)
+            if input.UserInputType ~= Enum.UserInputType.Touch then return end
+            touching = true
+            task.delay(0.45, function()
+                if touching and target.Parent and not Library.Unloaded then Window:ShowTooltip(text, input.Position, target) end
+            end)
+        end)
+        Library:Connect(target.InputEnded, function(input)
+            if input.UserInputType == Enum.UserInputType.Touch then touching = false Window:HideTooltip(target) end
+        end)
+        return {Show = function() Window:ShowTooltip(text, target.AbsolutePosition + target.AbsoluteSize, target) end,
+            Hide = function() Window:HideTooltip(target) end,
+            Set = function(_, value) text = tostring(value or "") end}
+    end
+
+    function Window:Dialog(dialogOptions)
+        dialogOptions = dialogOptions or {}
+        local overlay = Utility:Create("TextButton", {
+            Name = "DialogOverlay", Parent = ScreenGui, BackgroundColor3 = Color3.new(0,0,0),
+            BackgroundTransparency = 1, Size = UDim2.fromScale(1,1), Text = "",
+            AutoButtonColor = false, ZIndex = 800
+        })
+        local dialogLayoutWidth = getViewport().X / math.max(Library.DPIScale, 0.01)
+        local card = Utility:Create("Frame", {
+            Parent = overlay, AnchorPoint = Vector2.new(0.5,0.5), Position = UDim2.fromScale(0.5,0.5),
+            Size = UDim2.fromOffset(math.max(1, math.min(IsMobile and 320 or 400, dialogLayoutWidth - 24)), 0),
+            AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Library.Theme.Main,
+            BorderSizePixel = 0, ZIndex = 801
+        })
+        Utility:RegisterProperty(card, "BackgroundColor3", "Main")
+        Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0,10)})
+        local cardStroke = Utility:Create("UIStroke", {Parent = card, Color = Library.Theme.Stroke, Thickness = 1})
+        Utility:RegisterProperty(cardStroke, "Color", "Stroke")
+        Utility:Create("UIPadding", {
+            Parent = card, PaddingTop = UDim.new(0,16), PaddingBottom = UDim.new(0,16),
+            PaddingLeft = UDim.new(0,16), PaddingRight = UDim.new(0,16)
+        })
+        Utility:Create("UIListLayout", {Parent = card, Padding = UDim.new(0,10), SortOrder = Enum.SortOrder.LayoutOrder})
+        local dialogTitle = Utility:Create("TextLabel", {
+            Parent = card, BackgroundTransparency = 1, Size = UDim2.new(1,0,0,24),
+            Text = tostring(dialogOptions.Title or "Confirm"), TextColor3 = Library.Theme.Text,
+            Font = Enum.Font.GothamBold, TextSize = 16, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 802
+        })
+        Utility:RegisterProperty(dialogTitle, "TextColor3", "Text")
+        local dialogContent = Utility:Create("TextLabel", {
+            Parent = card, BackgroundTransparency = 1, Size = UDim2.new(1,0,0,20), AutomaticSize = Enum.AutomaticSize.Y,
+            Text = tostring(dialogOptions.Content or ""), TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham,
+            TextSize = 13, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
+            TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 802
+        })
+        Utility:RegisterProperty(dialogContent, "TextColor3", "SubText")
+        local actionBar = Utility:Create("Frame", {Parent = card, BackgroundTransparency = 1, Size = UDim2.new(1,0,0,34), ZIndex = 802})
+        Utility:Create("UIListLayout", {Parent = actionBar, FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Right, Padding = UDim.new(0,8)})
+        local closed = false
+        local function close()
+            if closed then return end
+            closed = true
+            Utility:Tween(overlay, TweenInfo.new(0.18), {BackgroundTransparency = 1}, function() if overlay.Parent then overlay:Destroy() end end)
+            if Library.ReducedMotion and overlay.Parent then overlay:Destroy() end
+        end
+        local actions = dialogOptions.Actions or {{Name = "Okay"}}
+        for _, action in ipairs(actions) do
+            local actionButton = Utility:Create("TextButton", {
+                Parent = actionBar, BackgroundColor3 = action.Primary and Library.Theme.Accent or Library.Theme.Hover,
+                Size = UDim2.fromOffset(90,32), Text = tostring(action.Name or "Okay"), TextColor3 = Library.Theme.Text,
+                Font = Enum.Font.GothamBold, TextSize = 12, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 803
+            })
+            Utility:Create("UICorner", {Parent = actionButton, CornerRadius = UDim.new(0,6)})
+            Library:Connect(actionButton.MouseButton1Click, function()
+                Utility:SafeCall(action.Callback)
+                if action.Close ~= false then close() end
+            end)
+        end
+        Library:Connect(overlay.MouseButton1Click, function() if dialogOptions.Dismissable ~= false then close() end end)
+        Utility:Tween(overlay, TweenInfo.new(0.18), {BackgroundTransparency = 0.35})
+        return {Close = close, Frame = card}
+    end
+
+    function Window:Prompt(promptOptions)
+        promptOptions = promptOptions or {}
+        local overlay = Utility:Create("TextButton", {
+            Name = "PromptOverlay", Parent = ScreenGui, BackgroundColor3 = Color3.new(0, 0, 0),
+            BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Text = "",
+            AutoButtonColor = false, ZIndex = 820
+        })
+        local layoutWidth = getViewport().X / math.max(Library.DPIScale, 0.01)
+        local card = Utility:Create("Frame", {
+            Parent = overlay, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+            Size = UDim2.fromOffset(math.max(1, math.min(IsMobile and 320 or 420, layoutWidth - 24)), 0),
+            AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Library.Theme.Main,
+            BorderSizePixel = 0, ZIndex = 821
+        })
+        Utility:RegisterProperty(card, "BackgroundColor3", "Main")
+        Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 10)})
+        local stroke = Utility:Create("UIStroke", {Parent = card, Color = Library.Theme.Stroke, Thickness = 1})
+        Utility:RegisterProperty(stroke, "Color", "Stroke")
+        Utility:Create("UIPadding", {
+            Parent = card, PaddingTop = UDim.new(0, 16), PaddingBottom = UDim.new(0, 16),
+            PaddingLeft = UDim.new(0, 16), PaddingRight = UDim.new(0, 16)
+        })
+        Utility:Create("UIListLayout", {Parent = card, Padding = UDim.new(0, 9), SortOrder = Enum.SortOrder.LayoutOrder})
+        local title = Utility:Create("TextLabel", {
+            Parent = card, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 24),
+            Text = tostring(promptOptions.Title or "Enter a value"), TextColor3 = Library.Theme.Text,
+            Font = Enum.Font.GothamBold, TextSize = 16, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 822
+        })
+        Utility:RegisterProperty(title, "TextColor3", "Text")
+        if promptOptions.Content then
+            local content = Utility:Create("TextLabel", {
+                Parent = card, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 18), AutomaticSize = Enum.AutomaticSize.Y,
+                Text = tostring(promptOptions.Content), TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham,
+                TextSize = 12, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 822
+            })
+            Utility:RegisterProperty(content, "TextColor3", "SubText")
+        end
+        local input = Utility:Create("TextBox", {
+            Parent = card, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, 38),
+            Text = tostring(promptOptions.Default or ""), PlaceholderText = tostring(promptOptions.Placeholder or "Type here..."),
+            ClearTextOnFocus = false, TextColor3 = Library.Theme.Text, PlaceholderColor3 = Library.Theme.SubText,
+            Font = Enum.Font.Gotham, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 822, BorderSizePixel = 0
+        })
+        Utility:RegisterProperty(input, "BackgroundColor3", "Surface")
+        Utility:RegisterProperty(input, "TextColor3", "Text")
+        Utility:RegisterProperty(input, "PlaceholderColor3", "SubText")
+        Utility:Create("UICorner", {Parent = input, CornerRadius = UDim.new(0, 6)})
+        Utility:Create("UIPadding", {Parent = input, PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)})
+        local errorLabel = Utility:Create("TextLabel", {
+            Parent = card, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+            Text = "", TextColor3 = Library.Theme.Error, Font = Enum.Font.Gotham, TextSize = 11,
+            TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, Visible = false, ZIndex = 822
+        })
+        Utility:RegisterProperty(errorLabel, "TextColor3", "Error")
+        local actions = Utility:Create("Frame", {Parent = card, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 34), ZIndex = 822})
+        Utility:Create("UIListLayout", {Parent = actions, FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Right, Padding = UDim.new(0, 8)})
+        local closed = false
+        local function close(cancelled)
+            if closed then return end
+            closed = true
+            if cancelled then Utility:SafeCall(promptOptions.OnCancel) end
+            Utility:Tween(overlay, TweenInfo.new(0.18), {BackgroundTransparency = 1}, function()
+                if overlay.Parent then overlay:Destroy() end
+            end)
+            if Library.ReducedMotion and overlay.Parent then overlay:Destroy() end
+        end
+        local function submit()
+            local value = input.Text
+            if type(promptOptions.Validate) == "function" then
+                local ok, valid, message = pcall(promptOptions.Validate, value)
+                if not ok or valid == false then
+                    errorLabel.Text = tostring(ok and message or valid)
+                    errorLabel.Visible = true
+                    return
+                end
+            end
+            Utility:SafeCall(promptOptions.Callback, value)
+            close(false)
+        end
+        local function makeAction(name, primary, callback)
+            local button = Utility:Create("TextButton", {
+                Parent = actions, BackgroundColor3 = primary and Library.Theme.Accent or Library.Theme.Hover,
+                Size = UDim2.fromOffset(96, 32), Text = name, TextColor3 = Library.Theme.Text,
+                Font = Enum.Font.GothamBold, TextSize = 12, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 823
+            })
+            Utility:Create("UICorner", {Parent = button, CornerRadius = UDim.new(0, 6)})
+            Library:Connect(button.MouseButton1Click, callback)
+        end
+        makeAction(tostring(promptOptions.CancelText or "Cancel"), false, function() close(true) end)
+        makeAction(tostring(promptOptions.SubmitText or "Submit"), true, submit)
+        Library:Connect(input.FocusLost, function(enterPressed) if enterPressed then submit() end end)
+        Library:Connect(overlay.MouseButton1Click, function() if promptOptions.Dismissable ~= false then close(true) end end)
+        Utility:Tween(overlay, TweenInfo.new(0.18), {BackgroundTransparency = 0.35})
+        task.defer(function() if input.Parent then input:CaptureFocus() end end)
+        return {Close = function() close(true) end, Submit = submit, Get = function() return input.Text end,
+            Set = function(_, value) input.Text = tostring(value or "") end, Frame = card, Input = input}
+    end
+
+    local function ensureBuiltinKeybinds()
+    if Library.__BuiltinKeybindsRegistered then
+        return
+    end
+
+    Library.__BuiltinKeybindsRegistered = true
+
+    local savedToggleKey = Library.Flags.__RenLibToggleUI
+    if type(savedToggleKey) == "string" and Enum.KeyCode[savedToggleKey] then
+        Library.ToggleKey = Enum.KeyCode[savedToggleKey]
+    end
+
+    local entry
+    entry = {
+        name = "Toggle UI",
+        key = Library.ToggleKey.Name,
+        default = Library.ToggleKey.Name,
+        mode = "Press",
+        flag = "__RenLibToggleUI",
+        Virtual = true,
+    }
+
+    entry.controller = {
+        Set = function(_, key)
+            local keyName = typeof(key) == "EnumItem" and key.Name or tostring(key)
+
+            if Enum.KeyCode[keyName] then
+                Library.ToggleKey = Enum.KeyCode[keyName]
+                Library.Flags.__RenLibToggleUI = keyName
+                entry.key = keyName
+            end
+        end,
+
+        Get = function()
+            return entry.key
+        end,
+
+        GetKey = function()
+            return entry.key
+        end,
+    }
+
+    table.insert(Library.KeybindList, entry)
+end
+
+function Window:ShowKeybindManager()
+    ensureBuiltinKeybinds()
+
+    if self.KeybindManagerOverlay and self.KeybindManagerOverlay.Parent then
+        if self.KeybindManagerRebuild then
+            self.KeybindManagerRebuild()
+        end
+
+        self.KeybindManagerOverlay.Visible = true
+        return self.KeybindManagerOverlay
+    end
+        local overlay = Utility:Create("TextButton", {
+            Name = "KeybindManagerOverlay", Parent = ScreenGui, BackgroundColor3 = Color3.new(0, 0, 0),
+            BackgroundTransparency = 0.35, Size = UDim2.fromScale(1, 1), Text = "",
+            AutoButtonColor = false, ZIndex = 840
+        })
+        self.KeybindManagerOverlay = overlay
+        local card = Utility:Create("Frame", {
+            Parent = overlay, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+            Size = UDim2.fromOffset(math.min(IsMobile and 330 or 460, getViewport().X - 24), math.min(430, getViewport().Y - 24)),
+            BackgroundColor3 = Library.Theme.Main, BorderSizePixel = 0, ZIndex = 841
+        })
+        Utility:RegisterProperty(card, "BackgroundColor3", "Main")
+        Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 10)})
+        local stroke = Utility:Create("UIStroke", {Parent = card, Color = Library.Theme.Stroke, Thickness = 1})
+        Utility:RegisterProperty(stroke, "Color", "Stroke")
+        local title = Utility:Create("TextLabel", {
+            Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(16, 12),
+            Size = UDim2.new(1, -72, 0, 28), Text = "Keybind manager", TextColor3 = Library.Theme.Text,
+            Font = Enum.Font.GothamBold, TextSize = 16, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 842
+        })
+        Utility:RegisterProperty(title, "TextColor3", "Text")
+        local closeButton = Utility:Create("TextButton", {
+            Parent = card, BackgroundColor3 = Library.Theme.Surface, Position = UDim2.new(1, -46, 0, 10),
+            Size = UDim2.fromOffset(34, 30), Text = "×", TextColor3 = Library.Theme.Text,
+            Font = Enum.Font.GothamBold, TextSize = 18, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 843
+        })
+        Utility:RegisterProperty(closeButton, "BackgroundColor3", "Surface")
+        Utility:RegisterProperty(closeButton, "TextColor3", "Text")
+        Utility:Create("UICorner", {Parent = closeButton, CornerRadius = UDim.new(0, 6)})
+        local list = Utility:Create("ScrollingFrame", {
+            Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 52),
+            Size = UDim2.new(1, -24, 1, -104), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            ScrollBarThickness = 2, ScrollBarImageColor3 = Library.Theme.Accent, BorderSizePixel = 0, ZIndex = 842
+        })
+        Utility:RegisterProperty(list, "ScrollBarImageColor3", "Accent")
+        Utility:Create("UIListLayout", {Parent = list, Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder})
+local function rebuild()
+    for _, child in ipairs(list:GetChildren()) do
+        if child:IsA("GuiObject") then
+            child:Destroy()
+        end
+    end
+
+    local rendered = 0
+
+    for _, entry in ipairs(Library.KeybindList) do
+        local isVisibleEntry =
+            entry.Virtual == true
+            or (entry.controller and entry.controller.Holder and entry.controller.Holder.Parent)
+
+        if isVisibleEntry then
+            rendered += 1
+
+            local row = Utility:Create("Frame", {
+                Parent = list,
+                BackgroundColor3 = Library.Theme.Surface,
+                Size = UDim2.new(1, -4, 0, 42),
+                BorderSizePixel = 0,
+                ZIndex = 843
+            })
+
+            Utility:RegisterProperty(row, "BackgroundColor3", "Surface")
+            Utility:Create("UICorner", {Parent = row, CornerRadius = UDim.new(0, 6)})
+
+            local label = Utility:Create("TextLabel", {
+                Parent = row,
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(10, 0),
+                Size = UDim2.new(1, -160, 1, 0),
+                Text = entry.name .. "  ·  " .. entry.mode,
+                TextColor3 = Library.Theme.Text,
+                Font = Enum.Font.Gotham,
+                TextSize = 12,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                ZIndex = 844
+            })
+
+            Utility:RegisterProperty(label, "TextColor3", "Text")
+
+            local keyButton = Utility:Create("TextButton", {
+                Parent = row,
+                BackgroundColor3 = Library.Theme.Secondary,
+                Position = UDim2.new(1, -142, 0.5, -14),
+                Size = UDim2.fromOffset(76, 28),
+                Text = tostring(entry.key),
+                TextColor3 = Library.Theme.Text,
+                Font = Enum.Font.GothamBold,
+                TextSize = 11,
+                AutoButtonColor = false,
+                BorderSizePixel = 0,
+                ZIndex = 844
+            })
+
+            Utility:RegisterProperty(keyButton, "BackgroundColor3", "Secondary")
+            Utility:RegisterProperty(keyButton, "TextColor3", "Text")
+            Utility:Create("UICorner", {Parent = keyButton, CornerRadius = UDim.new(0, 5)})
+
+            local resetButton = Utility:Create("TextButton", {
+                Parent = row,
+                BackgroundTransparency = 1,
+                Position = UDim2.new(1, -60, 0.5, -14),
+                Size = UDim2.fromOffset(52, 28),
+                Text = "Reset",
+                TextColor3 = Library.Theme.SubText,
+                Font = Enum.Font.GothamBold,
+                TextSize = 10,
+                AutoButtonColor = false,
+                ZIndex = 844
+            })
+
+            Utility:RegisterProperty(resetButton, "TextColor3", "SubText")
+
+            Library:Connect(keyButton.MouseButton1Click, function()
+                keyButton.Text = "Press…"
+
+                local connection
+                connection = UserInputService.InputBegan:Connect(function(input, processed)
+                    if processed or input.UserInputType ~= Enum.UserInputType.Keyboard then
+                        return
+                    end
+
+                    connection:Disconnect()
+
+                    if entry.controller and entry.controller.Set then
+                        entry.controller:Set(input.KeyCode.Name)
+                    end
+
+                    entry.key = input.KeyCode.Name
+                    keyButton.Text = input.KeyCode.Name
+                end)
+            end)
+
+            Library:Connect(resetButton.MouseButton1Click, function()
+                if entry.controller and entry.controller.Set then
+                    entry.controller:Set(entry.default)
+                end
+
+                entry.key = entry.default
+                keyButton.Text = tostring(entry.default)
+            end)
+        end
+    end
+
+    if rendered == 0 then
+        local empty = Utility:Create("TextLabel", {
+            Parent = list,
+            BackgroundTransparency = 1,
+            Size = UDim2.new(1, -8, 0, 90),
+            Text = "No keybinds registered yet.\nUse CreateKeyPicker(...) to add shortcuts here.",
+            TextColor3 = Library.Theme.SubText,
+            Font = Enum.Font.Gotham,
+            TextSize = 13,
+            TextWrapped = true,
+            TextXAlignment = Enum.TextXAlignment.Center,
+            TextYAlignment = Enum.TextYAlignment.Center,
+            ZIndex = 843
+        })
+
+        Utility:RegisterProperty(empty, "TextColor3", "SubText")
+    end
+end
+
+self.KeybindManagerRebuild = rebuild
+        local footer = Utility:Create("TextButton", {
+            Parent = card, BackgroundColor3 = Library.Theme.Surface, Position = UDim2.new(0, 12, 1, -42),
+            Size = UDim2.new(1, -24, 0, 30), Text = "Reset all keybinds", TextColor3 = Library.Theme.Text,
+            Font = Enum.Font.GothamBold, TextSize = 11, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 843
+        })
+        Utility:RegisterProperty(footer, "BackgroundColor3", "Surface")
+        Utility:RegisterProperty(footer, "TextColor3", "Text")
+        Utility:Create("UICorner", {Parent = footer, CornerRadius = UDim.new(0, 6)})
+        Library:Connect(footer.MouseButton1Click, function()
+            for _, entry in ipairs(Library.KeybindList) do
+                if entry.controller then entry.controller:Set(entry.default) end
+            end
+            rebuild()
+        end)
+        local function hide() overlay.Visible = false end
+        Library:Connect(closeButton.MouseButton1Click, hide)
+        Library:Connect(overlay.MouseButton1Click, hide)
+        rebuild()
+        return overlay
+    end
+
+    Library.KeybindManager = {Show = function() return Window:ShowKeybindManager() end,
+        Hide = function() if Window.KeybindManagerOverlay then Window.KeybindManagerOverlay.Visible = false end end}
+
+    Window:ApplyResponsiveLayout(true)
+    Library:SetMaterialIntensity(options.MaterialIntensity or Library.MaterialIntensity)
+    Library:SetMaterialMode(RequestedMaterialMode)
+    if Camera then
+        Library:Connect(Camera:GetPropertyChangedSignal("ViewportSize"), function()
+            Window:ApplyResponsiveLayout(false)
+        end)
+    end
+
+    -- MINIMIZE/RESTORE/CLOSE
+    local visibilityToken = 0
+    function Window:Minimize()
+        if Library.IsMinimized then return end
+        visibilityToken = visibilityToken + 1
+        local token = visibilityToken
+        Library.IsMinimized = true
+        Library:RefreshMaterialVisibility()
+        if IsMobile then
+            if MobileToggleBtn then
+                MobileToggleBtn.Visible = true
+            end
+        else
+            MinimizedIcon.Visible = true
+        end
+        Utility:Tween(WindowScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.96})
+        Utility:Tween(MainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}, function()
+            if token == visibilityToken and Library.IsMinimized then MainFrame.Visible = false end
+        end)
+        if Library.ReducedMotion then MainFrame.Visible = false end
+    end
+
+    function Window:Restore()
+        visibilityToken = visibilityToken + 1
+        Library.IsMinimized = false
+        Library:RefreshMaterialVisibility()
+        MinimizedIcon.Visible = false
+        MainFrame.Visible = true
+        MainFrame.BackgroundTransparency = 1
+        WindowScale.Scale = 0.96
+        Utility:Tween(WindowScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1})
+        local mainMaterial = Library.MaterialRegistry[MainFrame]
+        local restoredTransparency = mainMaterial and (Library.MaterialMode == "Frosted" and mainMaterial.Frosted or mainMaterial.Solid) or 0
+        Utility:Tween(MainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = restoredTransparency})
+        if IsMobile and MobileToggleBtn then
+            MobileToggleBtn.Visible = false
+        end
+    end
+
+    function Window:Toggle()
+        if Library.IsMinimized then
+            Window:Restore()
+        else
+            Window:Minimize()
+        end
+    end
+
+    function Window:Close()
+        Library:Unload()
+    end
+
+    Library:Connect(MinimizeBtn.MouseButton1Click, function() Window:Minimize() end)
+    Library:Connect(MinimizeBtn.MouseEnter, function()
+        Utility:Tween(MinimizeBtn, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Hover})
+    end)
+    Library:Connect(MinimizeBtn.MouseLeave, function()
+        Utility:Tween(MinimizeBtn, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Surface})
+    end)
+    local minimizedIconDrag = Utility:MakeDraggable(MinIconBtn, MinimizedIcon)
+    Library:Connect(MinIconBtn.MouseButton1Click, function()
+        if minimizedIconDrag:ConsumeDrag() then return end
+        Window:Restore()
+    end)
+    Library:Connect(CloseBtn.MouseButton1Click, function() Window:Close() end)
+    Library:Connect(CloseBtn.MouseEnter, function()
+        Utility:Tween(CloseBtn, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Error})
+    end)
+    Library:Connect(CloseBtn.MouseLeave, function()
+        Utility:Tween(CloseBtn, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Surface})
+    end)
+
+-- GLOBAL SEARCH: indexes controls and highlights matches without changing the
+-- structural visibility of tabs, pages, sections, or controls. Navigation is
+-- still owned exclusively by Window:SelectTab.
+if SearchBox then
+    local highlights = setmetatable({}, {__mode = "k"})
+    local SearchStatus = Utility:Create("TextLabel", {
+        Name = "SearchStatus", Parent = SearchBox, AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(42, 18),
+        BackgroundTransparency = 1, Text = "", TextColor3 = Library.Theme.SubText,
+        Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Right,
+        ZIndex = SearchBox.ZIndex + 1
+    })
+    Utility:RegisterProperty(SearchStatus, "TextColor3", "SubText")
+
+    local function clearHighlights()
+        for holder, stroke in pairs(highlights) do
+            if stroke and stroke.Parent then stroke:Destroy() end
+            highlights[holder] = nil
+        end
+    end
+
+    local function highlight(holder)
+        if not holder or not holder:IsA("GuiObject") or highlights[holder] then return end
+        local stroke = Utility:Create("UIStroke", {
+            Name = "RenSearchHighlight", Parent = holder, Color = Library.Theme.Accent,
+            Thickness = 2, Transparency = 0.05, ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        })
+        Utility:RegisterProperty(stroke, "Color", "Accent")
+        highlights[holder] = stroke
+    end
+
+    function Window:FocusSearchResult(index)
+        local count = #self.SearchResults
+        if count == 0 then return false end
+        index = ((tonumber(index) or self.SearchIndex or 0) - 1) % count + 1
+        self.SearchIndex = index
+        local result = self.SearchResults[index]
+        self:SelectTab(result.Tab, {ResetScroll = false, Animate = true})
+        SearchStatus.Text = tostring(index) .. "/" .. tostring(count)
+        task.defer(function()
+            local holder, page = result.Holder, result.Tab.Page
+            if not holder or not holder.Parent or not page or not page.Parent then return end
+            local localY = holder.AbsolutePosition.Y - page.AbsolutePosition.Y + page.CanvasPosition.Y
+            page.CanvasPosition = Vector2.new(0, math.max(0, localY - 12))
+            local stroke = highlights[holder]
+            if stroke then
+                stroke.Transparency = 0
+                Utility:Tween(stroke, TweenInfo.new(0.45), {Transparency = 0.18})
+            end
+        end)
+        return true
+    end
+
+    function Window:RefreshSearch(query)
+        query = tostring(query or ""):lower():match("^%s*(.-)%s*$") or ""
+        self.SearchQuery = query
+        self.SearchIndex = 0
+        self.SearchResults = {}
+        clearHighlights()
+
+        if query == "" then
+            SearchStatus.Text = ""
+            return self.SearchResults
+        end
+
+        local seen = {}
+        for _, tab in ipairs(self.Tabs) do
+            for _, section in ipairs(tab.Sections or {}) do
+                for _, element in ipairs(section.Elements or {}) do
+                    local holder = element.Holder
+                    local haystack = table.concat({tab.Name or "", section.Name or "", element.Text or element.Name or ""}, " "):lower()
+                    if holder and holder.Parent and haystack:find(query, 1, true) and not seen[holder] then
+                        seen[holder] = true
+                        table.insert(self.SearchResults, {Tab = tab, Section = section, Element = element, Holder = holder})
+                        highlight(holder)
+                        if element.NestedParentHolder then highlight(element.NestedParentHolder) end
+                    end
+                end
+            end
+        end
+
+        SearchStatus.Text = #self.SearchResults == 0 and "0" or tostring(#self.SearchResults)
+        return self.SearchResults
+    end
+
+    function Window:ClearSearch()
+        SearchBox.Text = ""
+        self:RefreshSearch("")
+        return self
+    end
+
+    Library:Connect(SearchBox:GetPropertyChangedSignal("Text"), function()
+        Window:RefreshSearch(SearchBox.Text)
+    end)
+    Library:Connect(SearchBox.FocusLost, function(enterPressed)
+        if enterPressed and Window.SearchQuery ~= "" then
+            Window:FocusSearchResult((Window.SearchIndex or 0) + 1)
+        end
+    end)
+end
+
+    -- NOTIFICATIONS
+    function Library:Notify(notifyOpts)
+        notifyOpts = notifyOpts or {}
+        local Title = notifyOpts.Title or "Notification"
+        local Content = notifyOpts.Content or ""
+        local Duration = notifyOpts.Duration or 3
+        local Emoji = notifyOpts.Emoji or EMOJIS.Info
+        local Progress = notifyOpts.Progress
+        local Actions = notifyOpts.Actions or {}
+
+        local notifHeight = (IsMobile and 58 or 66) + (#Actions > 0 and 34 or 0)
+        local NotifyFrame = Utility:Create("Frame", {
+            Name = "Notify",
+            Parent = NotifyArea,
+            BackgroundColor3 = Library.Theme.Main,
+            Size = UDim2.new(1, 0, 0, notifHeight),
+            Position = UDim2.new(2, 0, 0, 0),
+            ClipsDescendants = true,
+            ZIndex = 201,
+            BorderSizePixel = 0
+        })
+        Utility:RegisterProperty(NotifyFrame, "BackgroundColor3", "Main")
+        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = NotifyFrame})
+        local stroke = Utility:Create("UIStroke", {Parent = NotifyFrame, Color = Library.Theme.Stroke, Thickness = 1})
+        Utility:RegisterProperty(stroke, "Color", "Stroke")
+
+        local titleText = Utility:Create("TextLabel", {
+            Parent = NotifyFrame,
+            BackgroundTransparency = 1,
+            Position = UDim2.new(0, 10, 0, 10),
+            Size = UDim2.new(0, IsMobile and 28 or 36, 0, IsMobile and 28 or 36),
+            Font = Enum.Font.GothamBold,
+            Text = Emoji,
+            TextColor3 = Library.Theme.Accent,
+            TextSize = IsMobile and 18 or 24,
+            TextXAlignment = Enum.TextXAlignment.Center,
+            TextYAlignment = Enum.TextYAlignment.Center,
+            ZIndex = 202
+        })
+        Utility:Create("TextLabel", {
+            Parent = NotifyFrame,
+            BackgroundTransparency = 1,
+            Position = UDim2.new(0, IsMobile and 44 or 58, 0, IsMobile and 8 or 12),
+            Size = UDim2.new(1, IsMobile and -76 or -92, 0, 16),
+            Font = Enum.Font.GothamBold,
+            Text = Title,
+            TextColor3 = Library.Theme.Text,
+            TextSize = IsMobile and 12 or 14,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 202
+        })
+        local contentText = Utility:Create("TextLabel", {
+            Parent = NotifyFrame,
+            BackgroundTransparency = 1,
+            Position = UDim2.new(0, IsMobile and 44 or 58, 0, IsMobile and 24 or 30),
+            Size = UDim2.new(1, IsMobile and -76 or -92, 0, #Actions > 0 and 26 or 28),
+            Font = Enum.Font.Gotham,
+            Text = Content,
+            TextColor3 = Library.Theme.SubText,
+            TextSize = IsMobile and 11 or 13,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextWrapped = true,
+            ZIndex = 202
+        })
+
+        local closeButton = Utility:Create("TextButton", {
+            Parent = NotifyFrame, BackgroundTransparency = 1,
+            Position = UDim2.new(1, -30, 0, 6), Size = UDim2.fromOffset(24, 24),
+            Text = "×", TextColor3 = Library.Theme.SubText, Font = Enum.Font.GothamBold,
+            TextSize = 18, AutoButtonColor = false, ZIndex = 204
+        })
+        Utility:RegisterProperty(closeButton, "TextColor3", "SubText")
+
+        -- Progress bar
+        local progressBar = nil
+        if Progress ~= nil then
+            progressBar = Utility:Create("Frame", {
+                Parent = NotifyFrame,
+                BackgroundColor3 = Library.Theme.Accent,
+                Position = UDim2.new(0, 0, 1, -4),
+                Size = UDim2.new(Progress, 0, 0, 4),
+                ZIndex = 203,
+                BorderSizePixel = 0
+            })
+            Utility:RegisterProperty(progressBar, "BackgroundColor3", "Accent")
+        end
+
+
+        local Closed = false
+        local function Close()
+            if Closed then return end
+            Closed = true
+            Utility:Tween(NotifyFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                Position = UDim2.new(1, 300, 0, 0),
+                BackgroundTransparency = 1
+            }, function()
+                if NotifyFrame.Parent then NotifyFrame:Destroy() end
+            end)
+            if Library.ReducedMotion and NotifyFrame.Parent then NotifyFrame:Destroy() end
+        end
+
+        Library:Connect(closeButton.MouseButton1Click, Close)
+
+        if #Actions > 0 then
+            local actionBar = Utility:Create("Frame", {
+                Parent = NotifyFrame, BackgroundTransparency = 1,
+                Position = UDim2.new(0, IsMobile and 44 or 58, 1, -38),
+                Size = UDim2.new(1, IsMobile and -52 or -68, 0, 28), ZIndex = 203
+            })
+            Utility:Create("UIListLayout", {
+                Parent = actionBar, FillDirection = Enum.FillDirection.Horizontal,
+                HorizontalAlignment = Enum.HorizontalAlignment.Right, Padding = UDim.new(0, 6)
+            })
+            for _, action in ipairs(Actions) do
+                local actionButton = Utility:Create("TextButton", {
+                    Parent = actionBar, BackgroundColor3 = Library.Theme.Hover,
+                    Size = UDim2.fromOffset(math.max(64, TextService:GetTextSize(tostring(action.Name or "Action"), 11, Enum.Font.GothamBold, Vector2.new(160, 24)).X + 20), 26),
+                    Text = tostring(action.Name or "Action"), TextColor3 = Library.Theme.Text,
+                    Font = Enum.Font.GothamBold, TextSize = 11, AutoButtonColor = false,
+                    BorderSizePixel = 0, ZIndex = 204
+                })
+                Utility:RegisterProperty(actionButton, "BackgroundColor3", "Hover")
+                Utility:RegisterProperty(actionButton, "TextColor3", "Text")
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 5), Parent = actionButton})
+                Library:Connect(actionButton.MouseButton1Click, function()
+                    Utility:SafeCall(action.Callback)
+                    if action.Close ~= false then Close() end
+                end)
+            end
+        end
+
+        NotifyFrame.Position = UDim2.new(1, 300, 0, 0)
+        Utility:Tween(NotifyFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0, 0, 0, 0)
+        })
+
+        if Duration and Duration > 0 then
+            if not progressBar then
+                progressBar = Utility:Create("Frame", {
+                    Parent = NotifyFrame, BackgroundColor3 = Library.Theme.Accent,
+                    Position = UDim2.new(0, 0, 1, -3), Size = UDim2.new(1, 0, 0, 3),
+                    BorderSizePixel = 0, ZIndex = 203
+                })
+                Utility:RegisterProperty(progressBar, "BackgroundColor3", "Accent")
+                Utility:Tween(progressBar, TweenInfo.new(Duration, Enum.EasingStyle.Linear), {Size = UDim2.new(0, 0, 0, 3)})
+            end
+            task.delay(Duration, Close)
+        end
+        return {
+            Close = Close,
+            SetProgress = function(self, amount)
+                if progressBar then progressBar.Size = UDim2.new(math.clamp(amount, 0, 1), 0, 0, 4) end
+            end,
+            SetContent = function(self, text) contentText.Text = tostring(text) end,
+            SetTitle = function(self, text) titleText.Text = tostring(text) end
+        }
+    end
+
+    --// TABS
+    function Window:CreateTabCategory(name)
+        self.NextNavOrder = self.NextNavOrder + 1
+        local category = Utility:Create("TextLabel", {
+            Name = "Category_" .. tostring(name), Parent = TabContainer,
+            BackgroundTransparency = 1, Size = UDim2.new(1, -8, 0, isCompact and 0 or 20),
+            Text = string.upper(tostring(name or "")), TextColor3 = Library.Theme.SubText,
+            Font = Enum.Font.GothamBold, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
+            TextTransparency = isCompact and 1 or 0,
+            ZIndex = 5, Visible = true, LayoutOrder = self.NextNavOrder
+        })
+        Utility:RegisterProperty(category, "TextColor3", "SubText")
+        local categoryEntry = {Label = category, Tabs = {}}
+        table.insert(self.TabCategories, categoryEntry)
+        self.CurrentTabCategory = categoryEntry
+        return category
+    end
+
+    function Window:CreateTab(options)
+        options = options or {}
+        local Name = options.Name or "Tab"
+        local Emoji = options.Emoji
+        local IsSettings = options.IsSettings or false
+        local IsOverview = options.IsOverview or false
+        local Icon = Utility:NormalizeAssetId(options.Icon)
+        self.NextNavOrder = self.NextNavOrder + 1
+        if not Icon and Emoji == nil and not IsSettings and not IsOverview then Icon = ICONS.Home end
+
+        local Tab = {
+            Name = Name,
+            Active = false,
+            Sections = {},
+            HeaderHeight = 0,
+            ResponsiveCallbacks = {},
+            IsSettings = IsSettings,
+            IsOverview = IsOverview,
+            Page = nil,
+            TabBtn = nil,
+            TabLabel = nil
+        }
+        if not IsSettings and not IsOverview and self.CurrentTabCategory then
+            table.insert(self.CurrentTabCategory.Tabs, Tab)
+        end
+
+        local TabBtn, TabEmoji, Indicator, TabGradient
+        local tabBtnSize = IsMobile and 38 or 42
+
+        if not IsSettings and not IsOverview then
+            TabBtn = Utility:Create("TextButton", {
+                Name = Name,
+                Parent = TabContainer,
+                BackgroundColor3 = Library.Theme.Accent,
+                BackgroundTransparency = 0.64,
+                Size = (IsMobile or isCompact) and UDim2.fromOffset(tabBtnSize, tabBtnSize) or UDim2.new(1, 0, 0, tabBtnSize),
+                AutoButtonColor = false,
+                Text = "",
+                ZIndex = 5,
+                LayoutOrder = self.NextNavOrder,
+                BorderSizePixel = 0
+            })
+            Utility:RegisterProperty(TabBtn, "BackgroundColor3", "Accent")
+            Utility:Create("UICorner", {CornerRadius = UDim.new(0, 8), Parent = TabBtn})
+            local tabStroke = Utility:Create("UIStroke", {Parent = TabBtn, Color = Library.Theme.Stroke, Thickness = 1})
+            Utility:RegisterProperty(tabStroke, "Color", "Stroke")
+            TabGradient = Utility:Create("UIGradient", {Parent = TabBtn, Rotation = 18})
+            Utility:RegisterGradient(TabGradient, "Accent", "Accent2", "Accent3")
+
+            if Icon then
+                TabEmoji = Utility:Create("ImageLabel", {
+                    Parent = TabBtn,
+                    BackgroundTransparency = 1,
+                    Position = (IsMobile or isCompact) and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(6, 5),
+                    Size = (IsMobile or isCompact) and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32),
+                    Image = Icon,
+                    ImageColor3 = Library.Theme.SubText,
+                    ScaleType = Enum.ScaleType.Fit,
+                    ZIndex = 6
+                })
+                Utility:RegisterProperty(TabEmoji, "ImageColor3", "SubText")
+            else
+                TabEmoji = Utility:Create("TextLabel", {
+                    Parent = TabBtn,
+                    BackgroundTransparency = 1,
+                    Position = (IsMobile or isCompact) and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(6, 5),
+                    Size = (IsMobile or isCompact) and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32),
+                    Font = Enum.Font.GothamBold,
+                    Text = Emoji or "",
+                    TextColor3 = Library.Theme.SubText,
+                    TextSize = IsMobile and 16 or 20,
+                    TextXAlignment = Enum.TextXAlignment.Center,
+                    TextYAlignment = Enum.TextYAlignment.Center,
+                    ZIndex = 6
+                })
+                Utility:RegisterProperty(TabEmoji, "TextColor3", "SubText")
+            end
+
+            Indicator = Utility:Create("Frame", {
+                Parent = TabBtn,
+                BackgroundColor3 = Library.Theme.Accent,
+                Position = UDim2.new(0, 3, 0.5, -9),
+                Size = UDim2.new(0, 3, 0, 18),
+                BackgroundTransparency = 1,
+                ZIndex = 7,
+                BorderSizePixel = 0
+            })
+            Utility:RegisterProperty(Indicator, "BackgroundColor3", "Accent")
+            Utility:Create("UICorner", {CornerRadius = UDim.new(0, 2), Parent = Indicator})
+
+            local TabLabel = Utility:Create("TextLabel", {
+                Parent = TabBtn,
+                BackgroundTransparency = 1,
+                Position = UDim2.new(0, 48, 0, 0),
+                Size = UDim2.new(1, -58, 1, 0),
+                Font = Enum.Font.Gotham,
+                Text = Name,
+                TextColor3 = Library.Theme.SubText,
+                TextSize = 12,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                Visible = not (IsMobile or isCompact),
+                ZIndex = 6
+            })
+            Utility:RegisterProperty(TabLabel, "TextColor3", "SubText")
+
+            Tab.TabBtn = TabBtn
+            Tab.TabEmoji = TabEmoji
+            Tab.Indicator = Indicator
+            Tab.TabLabel = TabLabel
+            Tab.TabGradient = TabGradient
+            Tab.TabStroke = tabStroke
+        elseif IsOverview then
+            TabBtn = OverviewBtn
+            TabEmoji = OverviewIcon
+            Indicator = OverviewIndicator
+            Tab.TabBtn = OverviewBtn
+            Tab.TabLabel = OverviewLabel
+            Tab.TabEmoji = TabEmoji
+            Tab.Indicator = Indicator
+            Tab.TabStroke = overviewStroke
+        else
+            TabEmoji = SettingsEmoji
+            Indicator = SettingsIndicator
+            Tab.TabBtn = SettingsBtn
+            Tab.TabLabel = SettingsLabel
+            Tab.TabEmoji = TabEmoji
+            Tab.Indicator = Indicator
+            Tab.TabStroke = settingsStroke
+        end
+
+        function Tab:ApplyNavigationLayout(mobile, compact, animated)
+            if self.IsSettings or self.IsOverview or not self.TabBtn then return end
+            local iconOnly = mobile or compact
+            applyLayout(self.TabBtn, {
+                Size = iconOnly and UDim2.fromOffset(tabBtnSize, tabBtnSize) or UDim2.new(1, 0, 0, tabBtnSize)
+            }, animated)
+            if self.TabEmoji then
+                applyLayout(self.TabEmoji, {
+                    Position = iconOnly and UDim2.fromScale(0.18, 0.18) or UDim2.fromOffset(6, 5),
+                    Size = iconOnly and UDim2.fromScale(0.64, 0.64) or UDim2.fromOffset(32, 32)
+                }, animated)
+            end
+            setNavigationLabel(self.TabLabel, not iconOnly, animated)
+        end
+
+        local useSingleColumn = IsMobile
+        local Page = Utility:Create("ScrollingFrame", {
+            Name = Name,
+            Parent = Pages,
+            BackgroundTransparency = 1,
+            Position = UDim2.new(0, IsMobile and 10 or 20, 0, IsMobile and 92 or 70),
+            Size = UDim2.new(1, IsMobile and -20 or -40, 1, IsMobile and -102 or -90),
+            ScrollBarThickness = 2,
+            ScrollBarImageColor3 = Library.Theme.Accent,
+            ScrollingDirection = Enum.ScrollingDirection.Y,
+            ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
+            VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
+            Active = true,
+            CanvasSize = UDim2.new(0, 0, 0, 0),
+            Visible = false,
+            ZIndex = 2,
+            BorderSizePixel = 0
+        })
+        Utility:RegisterProperty(Page, "ScrollBarImageColor3", "Accent")
+        Tab.Page = Page
+
+        local LeftColumn = Utility:Create("Frame", {
+            Name = "Left",
+            Parent = Page,
+            BackgroundTransparency = 1,
+            Size = useSingleColumn and UDim2.new(1, 0, 1, 0) or UDim2.new(0.5, -6, 1, 0),
+            Position = UDim2.new(0, 0, 0, 0),
+            ZIndex = 2,
+            BorderSizePixel = 0
+        })
+        local RightColumn = Utility:Create("Frame", {
+            Name = "Right",
+            Parent = Page,
+            BackgroundTransparency = 1,
+            Size = UDim2.new(0.5, -6, 1, 0),
+            Position = UDim2.new(0.5, 6, 0, 0),
+            Visible = not useSingleColumn,
+            ZIndex = 2,
+            BorderSizePixel = 0
+        })
+        local LeftLayout = Utility:Create("UIListLayout", {
+            Parent = LeftColumn,
+            SortOrder = Enum.SortOrder.LayoutOrder,
+            Padding = UDim.new(0, useSingleColumn and 10 or 12)
+        })
+        local RightLayout = Utility:Create("UIListLayout", {
+            Parent = RightColumn,
+            SortOrder = Enum.SortOrder.LayoutOrder,
+            Padding = UDim.new(0, 12)
+        })
+
+        local function UpdateCanvas()
+            local LeftH = LeftLayout.AbsoluteContentSize.Y
+            local RightH = useSingleColumn and 0 or RightLayout.AbsoluteContentSize.Y
+            Page.CanvasSize = UDim2.new(0, 0, 0, Tab.HeaderHeight + math.max(LeftH, RightH) + 20)
+        end
+        Library:Connect(LeftLayout:GetPropertyChangedSignal("AbsoluteContentSize"), UpdateCanvas)
+        Library:Connect(RightLayout:GetPropertyChangedSignal("AbsoluteContentSize"), UpdateCanvas)
+
+        function Tab:ApplyResponsiveLayout(mobile, topInset)
+            useSingleColumn = mobile
+            local pageTop = mobile and ((topInset or 88) + 4) or 70
+            Page.Position = UDim2.new(0, mobile and 8 or 20, 0, pageTop)
+            Page.Size = UDim2.new(1, mobile and -16 or -40, 1, -(pageTop + 10))
+            Page.ScrollBarThickness = mobile and 3 or 2
+            LeftColumn.Size = mobile and UDim2.new(1, 0, 1, 0) or UDim2.new(0.5, -6, 1, 0)
+            LeftColumn.Position = UDim2.new(0, 0, 0, Tab.HeaderHeight)
+            RightColumn.Size = UDim2.new(0.5, -6, 1, 0)
+            RightColumn.Position = UDim2.new(0.5, 6, 0, Tab.HeaderHeight)
+            RightColumn.Visible = not mobile
+            LeftLayout.Padding = UDim.new(0, mobile and 10 or 12)
+            for _, section in ipairs(Tab.Sections) do
+                if mobile then
+                    section.SectionFrame.Parent = LeftColumn
+                elseif section.RequestedSide == "Right" then
+                    section.SectionFrame.Parent = RightColumn
+                elseif section.RequestedSide == "Auto" and LeftLayout.AbsoluteContentSize.Y > RightLayout.AbsoluteContentSize.Y then
+                    section.SectionFrame.Parent = RightColumn
+                else
+                    section.SectionFrame.Parent = LeftColumn
+                end
+            end
+            UpdateCanvas()
+            task.defer(UpdateCanvas)
+            for _, callback in ipairs(Tab.ResponsiveCallbacks) do
+                Utility:SafeCall(callback, mobile, Page.AbsoluteSize)
+            end
+        end
+
+        function Tab:OnResponsive(callback)
+            table.insert(self.ResponsiveCallbacks, callback)
+            return self
+        end
+
+        function Tab:SetHeader(frame, height)
+            frame.Parent = Page
+            frame.LayoutOrder = -1000
+            self.HeaderHeight = math.max(0, tonumber(height) or 0)
+            LeftColumn.Position = UDim2.new(0, 0, 0, self.HeaderHeight)
+            RightColumn.Position = UDim2.new(0.5, 6, 0, self.HeaderHeight)
+            UpdateCanvas()
+            return frame
+        end
+
+        function Tab:ApplyActiveVisual(active, animated)
+            local tweenInfo = TweenInfo.new(animated == false and 0 or 0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+            if Tab.TabBtn then
+                Utility:Tween(Tab.TabBtn, tweenInfo, {BackgroundTransparency = active and 1 or 0.64})
+            end
+            if Tab.TabStroke then
+                Utility:Tween(Tab.TabStroke, tweenInfo, {
+                    Color = active and Library.Theme.Accent or Library.Theme.Stroke,
+                    Transparency = active and 0.08 or 0.24
+                })
+            end
+            if Tab.TabLabel then
+                Utility:Tween(Tab.TabLabel, tweenInfo, {TextColor3 = active and Library.Theme.Text or Library.Theme.SubText})
+            end
+            if TabEmoji then
+                if TabEmoji:IsA("TextLabel") then
+                    Utility:Tween(TabEmoji, tweenInfo, {TextColor3 = active and Library.Theme.Text or Library.Theme.SubText})
+                elseif TabEmoji:IsA("ImageLabel") then
+                    Utility:Tween(TabEmoji, tweenInfo, {ImageColor3 = active and Library.Theme.Text or Library.Theme.SubText})
+                end
+            end
+            if Indicator then Indicator.BackgroundTransparency = 1 end
+        end
+
+        function Tab:Activate(selectOptions)
+            selectOptions = selectOptions or {}
+            if selectOptions.ResetScroll == nil then selectOptions.ResetScroll = true end
+            return Window:SelectTab(Tab, selectOptions)
+        end
+
+        function Tab:Deactivate()
+            if Window.ActiveTab == Tab then return Window:SelectTab(nil) end
+            return true
+        end
+
+        if TabBtn then
+            Library:Connect(TabBtn.MouseButton1Click, function() Tab:Activate() end)
+            Library:Connect(TabBtn.MouseEnter, function()
+                if not Tab.Active then Utility:Tween(TabBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0.4}) end
+            end)
+            Library:Connect(TabBtn.MouseLeave, function()
+                if not Tab.Active then Utility:Tween(TabBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0.64}) end
+            end)
+        end
+
+        table.insert(Window.Tabs, Tab)
+        Tab:ApplyResponsiveLayout(IsMobile, Window.ContentTopInset)
+        if not IsSettings and not IsOverview and not Window.ActiveTab then
+            Tab:Activate()
+        end
+
+        --// SECTIONS
+        function Tab:CreateSection(options)
+            options = options or {}
+            local SectionName = options.Name or "Section"
+            local Side = options.Side or "Auto"
+            local SectionIcon = Utility:NormalizeAssetId(options.Icon)
+
+            local ParentCol = LeftColumn
+            if not useSingleColumn then
+                if Side == "Right" then
+                    ParentCol = RightColumn
+                elseif Side == "Auto" then
+                    if LeftLayout.AbsoluteContentSize.Y > RightLayout.AbsoluteContentSize.Y then
+                        ParentCol = RightColumn
+                    end
+                end
+            end
+
+            local Section = { Name = SectionName, RequestedSide = Side, Elements = {}, SectionFrame = nil, ContentContainer = nil }
+            table.insert(Tab.Sections, Section)
+
+            local SectionFrame = Utility:Create("Frame", {
+                Name = SectionName,
+                Parent = ParentCol,
+                BackgroundColor3 = Library.Theme.Surface,
+                Size = UDim2.new(1, 0, 0, 50),
+                -- Allow expanded controls to render above the section frame.
+                ClipsDescendants = false,
+                ZIndex = 3,
+                BorderSizePixel = 0
+            })
+            Utility:RegisterProperty(SectionFrame, "BackgroundColor3", "Surface")
+            Utility:RegisterMaterial(SectionFrame, 0.24, 0)
+            Utility:Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = SectionFrame})
+            local sectionStroke = Utility:Create("UIStroke", {
+                Parent = SectionFrame,
+                Color = Library.Theme.Stroke,
+                Thickness = 1
+            })
+            Utility:RegisterProperty(sectionStroke, "Color", "Stroke")
+            local sectionGradient = Utility:Create("UIGradient", {Parent = SectionFrame, Rotation = 105})
+            Utility:RegisterGradient(sectionGradient, "SurfaceAlt", "Surface")
+            local sectionAccent = Utility:Create("Frame", {
+                Parent = SectionFrame,
+                BackgroundColor3 = Library.Theme.Accent,
+                Position = UDim2.fromOffset(12, 12),
+                Size = UDim2.fromOffset(3, 16),
+                BorderSizePixel = 0,
+                ZIndex = 5
+            })
+            Utility:RegisterProperty(sectionAccent, "BackgroundColor3", "Accent")
+            Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = sectionAccent})
+            if SectionIcon then
+                sectionAccent.Visible = false
+                local sectionIcon = Utility:Create("ImageLabel", {
+                    Parent = SectionFrame, BackgroundTransparency = 1,
+                    Position = UDim2.fromOffset(10, 9), Size = UDim2.fromOffset(20, 20),
+                    Image = SectionIcon, ImageColor3 = Library.Theme.Accent,
+                    ScaleType = Enum.ScaleType.Fit, ZIndex = 5
+                })
+                Utility:RegisterProperty(sectionIcon, "ImageColor3", "Accent")
+            end
+            Section.SectionFrame = SectionFrame
+
+            local Head = Utility:Create("TextLabel", {
+                Parent = SectionFrame,
+                BackgroundTransparency = 1,
+                Position = UDim2.new(0, SectionIcon and 38 or 22, 0, 10),
+                Size = UDim2.new(1, SectionIcon and -50 or -34, 0, 20),
+                Font = Enum.Font.GothamBold,
+                Text = SectionName,
+                TextColor3 = Library.Theme.Text,
+                TextSize = IsMobile and 12 or 13,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                ZIndex = 4
+            })
+            Utility:RegisterProperty(Head, "TextColor3", "Text")
+
+            local ContentContainer = Utility:Create("Frame", {
+                Parent = SectionFrame,
+                BackgroundColor3 = Library.Theme.Main,
+                BackgroundTransparency = 0.12,
+                Position = UDim2.new(0, 8, 0, IsMobile and 34 or 36),
+                Size = UDim2.new(1, -16, 0, 0),
+                ZIndex = 4,
+                BorderSizePixel = 0
+            })
+            Utility:RegisterProperty(ContentContainer, "BackgroundColor3", "Main")
+            Utility:RegisterMaterial(ContentContainer, 0.4, 0.12)
+            Utility:Create("UICorner", {CornerRadius = UDim.new(0, 9), Parent = ContentContainer})
+            local contentStroke = Utility:Create("UIStroke", {Parent = ContentContainer, Color = Library.Theme.Divider, Thickness = 1, Transparency = 0.2})
+            Utility:RegisterProperty(contentStroke, "Color", "Divider")
+            Utility:Create("UIPadding", {
+                Parent = ContentContainer,
+                PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8),
+                PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8)
+            })
+            Section.ContentContainer = ContentContainer
+
+            local ContentLayout = Utility:Create("UIListLayout", {
+                Parent = ContentContainer,
+                SortOrder = Enum.SortOrder.LayoutOrder,
+                Padding = UDim.new(0, IsMobile and 6 or 8)
+            })
+
+            local function RefreshLayout()
+                ContentContainer.Size = UDim2.new(1, -16, 0, ContentLayout.AbsoluteContentSize.Y + 16)
+                SectionFrame.Size = UDim2.new(1, 0, 0, ContentLayout.AbsoluteContentSize.Y + (IsMobile and 58 or 60))
+            end
+
+            Library:Connect(ContentLayout:GetPropertyChangedSignal("AbsoluteContentSize"), function()
+                ContentContainer.Size = UDim2.new(1, -16, 0, ContentLayout.AbsoluteContentSize.Y + 16)
+                Utility:Tween(SectionFrame, TweenInfo.new(0.2), {
+                    Size = UDim2.new(1, 0, 0, ContentLayout.AbsoluteContentSize.Y + (IsMobile and 58 or 60))
+                })
+            end)
+
+            local function addElement(element)
+                table.insert(Section.Elements, element)
+                -- Only re-parent if the holder isn't already in ContentContainer
+                if element.Holder and element.Holder.Parent ~= ContentContainer then
+                    element.Holder.Parent = ContentContainer
+                end
+                if Window.SearchQuery ~= "" and Window.RefreshSearch then
+                    task.defer(function()
+                        if not Library.Unloaded then Window:RefreshSearch(Window.SearchQuery) end
+                    end)
+                end
+            end
+
+            local function finishController(controller, holder, name, tooltip)
+                controller = controller or {}
+                controller.Holder = holder
+                controller.Name = name
+                controller.Locked = false
+                if holder:IsA("GuiObject") and holder.BackgroundTransparency < 0.98 and not Library.MaterialRegistry[holder] then
+                    Utility:RegisterMaterial(holder, math.min(0.48, holder.BackgroundTransparency + 0.3), holder.BackgroundTransparency)
+                end
+                local nestedHost, nestedLayout
+                local nestedBaseHeight = holder.Size.Y.Offset
+                local nestedVisible = true
+
+                local function refreshNested()
+                    if not nestedHost then return end
+                    local nestedHeight = nestedVisible and (nestedLayout.AbsoluteContentSize.Y + 16) or 0
+                    nestedHost.Visible = nestedVisible
+                    nestedHost.Size = UDim2.new(1, -16, 0, nestedHeight)
+                    holder.Size = UDim2.new(holder.Size.X.Scale, holder.Size.X.Offset, 0, nestedBaseHeight + (nestedHeight > 0 and nestedHeight + 8 or 0))
+                    RefreshLayout()
+                end
+
+                function controller:AddNested(childController)
+                    if not childController or not childController.Holder then return self end
+                    if not nestedHost then
+                        holder.ClipsDescendants = true
+                        nestedHost = Utility:Create("Frame", {
+                            Name = "NestedControls", Parent = holder, BackgroundColor3 = Library.Theme.Main,
+                            BackgroundTransparency = 0.22, Position = UDim2.new(0, 8, 0, nestedBaseHeight),
+                            Size = UDim2.new(1, -16, 0, 0), BorderSizePixel = 0,
+                            ClipsDescendants = true, ZIndex = holder.ZIndex + 2
+                        })
+                        Utility:RegisterProperty(nestedHost, "BackgroundColor3", "Main")
+                        Utility:RegisterMaterial(nestedHost, 0.48, 0.22)
+                        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 7), Parent = nestedHost})
+                        local nestedStroke = Utility:Create("UIStroke", {Parent = nestedHost, Color = Library.Theme.Divider, Thickness = 1, Transparency = 0.15})
+                        Utility:RegisterProperty(nestedStroke, "Color", "Divider")
+                        Utility:Create("UIPadding", {
+                            Parent = nestedHost, PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8),
+                            PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8)
+                        })
+                        nestedLayout = Utility:Create("UIListLayout", {
+                            Parent = nestedHost, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6)
+                        })
+                        Library:Connect(nestedLayout:GetPropertyChangedSignal("AbsoluteContentSize"), refreshNested)
+                    end
+                    childController.Holder.Parent = nestedHost
+                    childController.NestedParent = self
+                    for _, sectionElement in ipairs(Section.Elements) do
+                        if sectionElement.Holder == childController.Holder then
+                            sectionElement.NestedParentHolder = holder
+                            break
+                        end
+                    end
+                    childController.Holder.LayoutOrder = #nestedHost:GetChildren()
+                    Library:Connect(childController.Holder:GetPropertyChangedSignal("Size"), refreshNested)
+                    task.defer(refreshNested)
+                    return self
+                end
+
+                function controller:SetNestedVisible(visible)
+                    nestedVisible = visible == true
+                    refreshNested()
+                    return self
+                end
+                local blocker
+                local loadingOverlay
+                local loadingToken = 0
+                function controller:SetVisible(visible)
+                    holder.Visible = visible == true
+                    RefreshLayout()
+                end
+                function controller:Destroy()
+                    holder:Destroy()
+                    RefreshLayout()
+                end
+                function controller:SetLocked(locked)
+                    self.Locked = locked == true
+                    if self.Locked and not blocker then
+                        blocker = Utility:Create("TextButton", {
+                            Name = "RenLibLock",
+                            Parent = holder,
+                            BackgroundColor3 = Library.Theme.Main,
+                            BackgroundTransparency = 0.35,
+                            Size = UDim2.fromScale(1, 1),
+                            Text = EMOJIS.Lock,
+                            TextColor3 = Library.Theme.SubText,
+                            TextSize = 14,
+                            AutoButtonColor = false,
+                            ZIndex = 100
+                        })
+                        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = blocker})
+                    elseif blocker then
+                        blocker:Destroy()
+                        blocker = nil
+                    end
+                end
+                function controller:SetLoading(loading, message)
+                    loadingToken = loadingToken + 1
+                    local token = loadingToken
+                    if loading == true then
+                        if not loadingOverlay then
+                            loadingOverlay = Utility:Create("Frame", {
+                                Name = "RenLibLoading", Parent = holder, BackgroundColor3 = Library.Theme.Main,
+                                BackgroundTransparency = 0.18, Size = UDim2.fromScale(1, 1),
+                                BorderSizePixel = 0, ZIndex = 110
+                            })
+                            Utility:RegisterProperty(loadingOverlay, "BackgroundColor3", "Main")
+                            Utility:Create("UICorner", {Parent = loadingOverlay, CornerRadius = UDim.new(0, 6)})
+                            local loadingText = Utility:Create("TextLabel", {
+                                Name = "Status", Parent = loadingOverlay, BackgroundTransparency = 1,
+                                Size = UDim2.fromScale(1, 1), Text = tostring(message or "Loading…"),
+                                TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold,
+                                TextSize = 12, ZIndex = 111
+                            })
+                            Utility:RegisterProperty(loadingText, "TextColor3", "Text")
+                        else
+                            loadingOverlay.Status.Text = tostring(message or "Loading…")
+                            loadingOverlay.Status.TextTransparency = 0
+                            loadingOverlay.Visible = true
+                        end
+                        task.spawn(function()
+                            local dim = false
+                            while token == loadingToken and loadingOverlay and loadingOverlay.Parent and not Library.Unloaded do
+                                dim = not dim
+                                Utility:Tween(loadingOverlay.Status, TweenInfo.new(0.45), {TextTransparency = dim and 0.45 or 0})
+                                task.wait(0.5)
+                            end
+                        end)
+                    elseif loadingOverlay then
+                        loadingOverlay.Visible = false
+                    end
+                    return self
+                end
+                function controller:SetTooltip(text)
+                    self.Tooltip = tostring(text or "")
+                    if self._TooltipAttached then
+                        self._TooltipAttached:Set(self.Tooltip)
+                    elseif self.Tooltip ~= "" then
+                        self._TooltipAttached = Window:AttachTooltip(holder, self.Tooltip)
+                    end
+                    return self
+                end
+                function controller:Lock() self:SetLocked(true) end
+                function controller:Unlock() self:SetLocked(false) end
+                if tooltip ~= nil then controller:SetTooltip(tooltip) end
+                return controller
+            end
+
+            -- TEXT INPUT
+            function Section:CreateInput(options)
+                options = options or {}
+                local name = options.Name or "Input"
+                local flag = options.Flag or name
+                local value = tostring(Library.Flags[flag] ~= nil and Library.Flags[flag] or options.Default or "")
+                local listeners = {}
+                local multiline = options.MultiLine == true
+                local container = Utility:Create("Frame", {
+                    Name = name,
+                    Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Surface,
+                    Size = UDim2.new(1, 0, 0, multiline and 82 or 44),
+                    BorderSizePixel = 0,
+                    ZIndex = 5
+                })
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = container})
+                local inputStroke = Utility:Create("UIStroke", {Parent = container, Color = Library.Theme.Stroke, Thickness = 1})
+                Utility:RegisterProperty(inputStroke, "Color", "Stroke")
+                local box = Utility:Create("TextBox", {
+                    Parent = container,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 12, 0, multiline and 8 or 0),
+                    Size = UDim2.new(1, -24, 1, multiline and -16 or 0),
+                    ClearTextOnFocus = false,
+                    MultiLine = multiline,
+                    PlaceholderText = options.Placeholder or name,
+                    Text = value,
+                    TextColor3 = Library.Theme.Text,
+                    PlaceholderColor3 = Library.Theme.SubText,
+                    Font = Enum.Font.Gotham,
+                    TextSize = IsMobile and 12 or 13,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextYAlignment = multiline and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center,
+                    TextWrapped = multiline,
+                    ZIndex = 6
+                })
+                Utility:RegisterProperty(box, "TextColor3", "Text")
+                Utility:RegisterProperty(box, "PlaceholderColor3", "SubText")
+
+                local function setValue(nextValue, fire)
+                    value = tostring(nextValue or "")
+                    if options.Numeric then
+                        value = value:gsub("[^%d%.%-]", "")
+                    end
+                    box.Text = value
+                    Library.Flags[flag] = options.Numeric and tonumber(value) or value
+                    if fire ~= false then
+                        Utility:SafeCall(options.Callback, Library.Flags[flag])
+                        for _, listener in ipairs(listeners) do Utility:SafeCall(listener, Library.Flags[flag]) end
+                    end
+                end
+                Library.Flags[flag] = options.Numeric and tonumber(value) or value
+                Library:Connect(box.Focused, function()
+                    Utility:Tween(inputStroke, TweenInfo.new(0.18), {Color = Library.Theme.Accent})
+                end)
+                Library:Connect(box.FocusLost, function(enterPressed)
+                    setValue(box.Text, true)
+                    Utility:Tween(inputStroke, TweenInfo.new(0.18), {Color = Library.Theme.Stroke})
+                    if options.Finished then Utility:SafeCall(options.Finished, Library.Flags[flag], enterPressed) end
+                end)
+                local controller = finishController({
+                    Type = "Input",
+                    Set = function(self, nextValue) setValue(nextValue, true) end,
+                    Get = function() return Library.Flags[flag] end,
+                    OnChanged = function(self, fn) table.insert(listeners, fn) end
+                }, container, name, options.Tooltip)
+                Library:RegisterOption(flag, controller)
+                addElement({Holder = container, Text = name})
+                return controller
+            end
+
+            function Section:CreateParagraph(options)
+                if type(options) == "string" then options = {Content = options} end
+                options = options or {}
+                local title = options.Title or ""
+                local content = options.Content or options.Text or ""
+                local container = Utility:Create("Frame", {
+                    Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Surface,
+                    Size = UDim2.new(1, 0, 0, 56),
+                    BorderSizePixel = 0,
+                    ZIndex = 5
+                })
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = container})
+                local titleLabel = Utility:Create("TextLabel", {
+                    Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 8),
+                    Size = UDim2.new(1, -24, 0, title == "" and 0 or 18), Font = Enum.Font.GothamBold,
+                    Text = title, TextColor3 = Library.Theme.Text, TextSize = 13,
+                    TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+                })
+                local contentLabel = Utility:Create("TextLabel", {
+                    Parent = container, BackgroundTransparency = 1,
+                    Position = UDim2.fromOffset(12, title == "" and 8 or 29), Size = UDim2.new(1, -24, 0, 20),
+                    Font = Enum.Font.Gotham, Text = content, TextColor3 = Library.Theme.SubText,
+                    TextSize = 12, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
+                    TextYAlignment = Enum.TextYAlignment.Top, AutomaticSize = Enum.AutomaticSize.Y, ZIndex = 6
+                })
+                Utility:RegisterProperty(titleLabel, "TextColor3", "Text")
+                Utility:RegisterProperty(contentLabel, "TextColor3", "SubText")
+                local function resize()
+                    container.Size = UDim2.new(1, 0, 0, (title == "" and 16 or 37) + math.max(20, contentLabel.TextBounds.Y))
+                    RefreshLayout()
+                end
+                Library:Connect(contentLabel:GetPropertyChangedSignal("TextBounds"), resize)
+                local controller = finishController({
+                    SetTitle = function(self, text) title = tostring(text); titleLabel.Text = title; resize() end,
+                    SetContent = function(self, text) contentLabel.Text = tostring(text); resize() end
+                }, container, title, options.Tooltip)
+                addElement({Holder = container, Text = title .. " " .. content})
+                task.defer(resize)
+                return controller
+            end
+
+            function Section:CreateMetric(options)
+                options = options or {}
+                local name = tostring(options.Name or "Metric")
+                local value = tostring(options.Value or "--")
+                local detail = tostring(options.Detail or "")
+                local container = Utility:Create("Frame", {
+                    Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Surface,
+                    Size = UDim2.new(1, 0, 0, detail ~= "" and 54 or 42),
+                    BorderSizePixel = 0,
+                    ZIndex = 5
+                })
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 7), Parent = container})
+                local accent = Utility:Create("Frame", {
+                    Parent = container, BackgroundColor3 = Library.Theme.Accent,
+                    Position = UDim2.new(0, 0, 0, 8), Size = UDim2.new(0, 3, 1, -16),
+                    BorderSizePixel = 0, ZIndex = 6
+                })
+                Utility:RegisterProperty(accent, "BackgroundColor3", "Accent")
+                Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = accent})
+                local nameLabel = Utility:Create("TextLabel", {
+                    Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 5),
+                    Size = UDim2.new(0.62, -12, 0, 20), Text = name, TextColor3 = Library.Theme.Text,
+                    Font = Enum.Font.GothamMedium, TextSize = IsMobile and 11 or 12,
+                    TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+                })
+                Utility:RegisterProperty(nameLabel, "TextColor3", "Text")
+                local valueLabel = Utility:Create("TextLabel", {
+                    Parent = container, BackgroundTransparency = 1, Position = UDim2.new(0.62, 0, 0, 5),
+                    Size = UDim2.new(0.38, -12, 0, 20), Text = value, TextColor3 = Library.Theme.Accent,
+                    Font = Enum.Font.GothamBold, TextSize = IsMobile and 12 or 14,
+                    TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 6
+                })
+                Utility:RegisterProperty(valueLabel, "TextColor3", "Accent")
+                local detailLabel
+                if detail ~= "" then
+                    detailLabel = Utility:Create("TextLabel", {
+                        Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 27),
+                        Size = UDim2.new(1, -24, 0, 17), Text = detail, TextColor3 = Library.Theme.SubText,
+                        Font = Enum.Font.Gotham, TextSize = 10, TextTruncate = Enum.TextTruncate.AtEnd,
+                        TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+                    })
+                    Utility:RegisterProperty(detailLabel, "TextColor3", "SubText")
+                end
+                local controller = finishController({
+                    Type = "Metric",
+                    SetValue = function(self, nextValue) valueLabel.Text = tostring(nextValue) end,
+                    SetDetail = function(self, nextDetail) if detailLabel then detailLabel.Text = tostring(nextDetail) end end
+                }, container, name, options.Tooltip)
+                addElement({Holder = container, Text = name .. " " .. value .. " " .. detail})
+                return controller
+            end
+
+            function Section:CreateDivider(text)
+                local container = Utility:Create("Frame", {
+                    Parent = ContentContainer, BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, text and 24 or 12), ZIndex = 5
+                })
+                local line = Utility:Create("Frame", {
+                    Parent = container, BackgroundColor3 = Library.Theme.Divider,
+                    Position = UDim2.new(0, 0, 0.5, 0), Size = UDim2.new(1, 0, 0, 1), BorderSizePixel = 0, ZIndex = 5
+                })
+                Utility:RegisterProperty(line, "BackgroundColor3", "Divider")
+                if text then
+                    local label = Utility:Create("TextLabel", {
+                        Parent = container, BackgroundColor3 = Library.Theme.Secondary,
+                        Position = UDim2.new(0.5, -50, 0.5, -10), Size = UDim2.fromOffset(100, 20),
+                        Text = tostring(text), TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham,
+                        TextSize = 11, ZIndex = 6
+                    })
+                    Utility:RegisterProperty(label, "BackgroundColor3", "Secondary")
+                    Utility:RegisterProperty(label, "TextColor3", "SubText")
+                end
+                addElement({Holder = container, Text = text or ""})
+                return finishController({}, container, text or "Divider")
+            end
+
+            -- BUTTON
+            function Section:CreateButton(options)
+                options = options or {}
+                local Name = options.Name or "Button"
+                local Callback = options.Callback or function() end
+                local Description = tostring(options.Description or "")
+                local ButtonIconAsset = Utility:NormalizeAssetId(options.Icon)
+
+                local btnHeight = Description ~= "" and (IsMobile and 56 or 54) or (IsMobile and 44 or 42)
+                local ButtonContainer = Utility:Create("Frame", {
+                    Name = Name,
+                    Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Surface,
+                    Size = UDim2.new(1, 0, 0, btnHeight),
+                    ClipsDescendants = true,
+                    ZIndex = 5,
+                    BorderSizePixel = 0
+                })
+                Utility:RegisterProperty(ButtonContainer, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = ButtonContainer})
+                local Stroke = Utility:Create("UIStroke", {
+                    Parent = ButtonContainer,
+                    Color = Library.Theme.Stroke,
+                    Thickness = 1
+                })
+                Utility:RegisterProperty(Stroke, "Color", "Stroke")
+
+                local Btn = Utility:Create("TextButton", {
+                    Parent = ButtonContainer,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 1, 0),
+                    Text = "",
+                    AutoButtonColor = false,
+                    ZIndex = 9,
+                    BorderSizePixel = 0
+                })
+
+                local textInset = ButtonIconAsset and 44 or 12
+                if ButtonIconAsset then
+                    local ButtonIcon = Utility:Create("ImageLabel", {
+                        Parent = ButtonContainer,
+                        BackgroundTransparency = 1,
+                        Position = UDim2.new(0, 12, 0.5, -10),
+                        Size = UDim2.fromOffset(20, 20),
+                        Image = ButtonIconAsset,
+                        ImageColor3 = Library.Theme.SubText,
+                        ScaleType = Enum.ScaleType.Fit,
+                        ZIndex = 7
+                    })
+                    Utility:RegisterProperty(ButtonIcon, "ImageColor3", "SubText")
+                end
+                local ButtonTitle = Utility:Create("TextLabel", {
+                    Parent = ButtonContainer,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, textInset, 0, Description ~= "" and 7 or 0),
+                    Size = UDim2.new(1, -(textInset + 32), 0, Description ~= "" and 20 or btnHeight),
+                    Font = Enum.Font.GothamMedium,
+                    Text = Name,
+                    TextColor3 = Library.Theme.Text,
+                    TextSize = IsMobile and 12 or 13,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    ZIndex = 7
+                })
+                Utility:RegisterProperty(ButtonTitle, "TextColor3", "Text")
+                local ButtonDescription
+                if Description ~= "" then
+                    ButtonDescription = Utility:Create("TextLabel", {
+                        Parent = ButtonContainer,
+                        BackgroundTransparency = 1,
+                        Position = UDim2.new(0, textInset, 0, 27),
+                        Size = UDim2.new(1, -(textInset + 32), 0, 17),
+                        Font = Enum.Font.Gotham,
+                        Text = Description,
+                        TextColor3 = Library.Theme.SubText,
+                        TextSize = IsMobile and 10 or 11,
+                        TextTruncate = Enum.TextTruncate.AtEnd,
+                        TextXAlignment = Enum.TextXAlignment.Left,
+                        ZIndex = 7
+                    })
+                    Utility:RegisterProperty(ButtonDescription, "TextColor3", "SubText")
+                end
+                local ButtonArrow = Utility:Create("ImageLabel", {
+                    Parent = ButtonContainer,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(1, -24, 0.5, -8),
+                    Size = UDim2.fromOffset(16, 16),
+                    Image = ICONS.ChevronRight,
+                    ImageColor3 = Library.Theme.SubText,
+                    ScaleType = Enum.ScaleType.Fit,
+                    ZIndex = 7
+                })
+                Utility:RegisterProperty(ButtonArrow, "ImageColor3", "SubText")
+
+                Library:Connect(Btn.MouseEnter, function()
+                    Utility:Tween(Stroke, TweenInfo.new(0.2), {Color = Library.Theme.Accent})
+                    Utility:Tween(ButtonContainer, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.Hover})
+                end)
+                Library:Connect(Btn.MouseLeave, function()
+                    Utility:Tween(Stroke, TweenInfo.new(0.2), {Color = Library.Theme.Stroke})
+                    Utility:Tween(ButtonContainer, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.Surface})
+                end)
+                Library:Connect(Btn.MouseButton1Click, function()
+                    if IsMobile then
+                        Utility:Tween(Stroke, TweenInfo.new(0.1), {Color = Library.Theme.Accent})
+                        Utility:Tween(ButtonContainer, TweenInfo.new(0.1), {BackgroundColor3 = Library.Theme.Hover})
+                        task.delay(0.15, function()
+                            Utility:Tween(Stroke, TweenInfo.new(0.2), {Color = Library.Theme.Stroke})
+                            Utility:Tween(ButtonContainer, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.Surface})
+                        end)
+                    end
+                    Utility:SafeCall(Callback)
+                end)
+                addElement({Holder = ButtonContainer, Text = Name .. " " .. Description})
+                return finishController({
+                    SetText = function(self, text) ButtonTitle.Text = tostring(text) end,
+                    SetDescription = function(self, text)
+                        if ButtonDescription then ButtonDescription.Text = tostring(text) end
+                    end
+                }, ButtonContainer, Name, options.Tooltip)
+            end
+
+            -- TOGGLE
+            function Section:CreateToggle(options)
+                options = options or {}
+                local Name = options.Name or "Toggle"
+                local Default = options.Default or false
+                local Callback = options.Callback or function() end
+                local Flag = options.Flag or Name
+
+                local CurrentValue = Default
+                if Library.Flags[Flag] ~= nil then
+                    CurrentValue = Library.Flags[Flag]
+                end
+                Library.Flags[Flag] = CurrentValue
+
+                local toggleHeight = IsMobile and 40 or 40
+                local ToggleContainer = Utility:Create("Frame", {
+                    Name = Name,
+                    Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Surface,
+                    Size = UDim2.new(1, 0, 0, toggleHeight),
+                    ClipsDescendants = true,
+                    ZIndex = 5,
+                    BorderSizePixel = 0
+                })
+                Utility:RegisterProperty(ToggleContainer, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = ToggleContainer})
+                local stroke = Utility:Create("UIStroke", {Parent = ToggleContainer, Color = Library.Theme.Stroke, Thickness = 1})
+                Utility:RegisterProperty(stroke, "Color", "Stroke")
+
+                local ToggleBtn = Utility:Create("TextButton", {
+                    Parent = ToggleContainer,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 1, 0),
+                    Font = Enum.Font.Gotham,
+                    Text = Name,
+                    TextColor3 = Library.Theme.Text,
+                    TextSize = IsMobile and 12 or 13,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    AutoButtonColor = false,
+                    ZIndex = 6,
+                    BorderSizePixel = 0
+                })
+                Utility:RegisterProperty(ToggleBtn, "TextColor3", "Text")
+                Utility:Create("UIPadding", {Parent = ToggleBtn, PaddingLeft = UDim.new(0, 12)})
+
+                local switchWidth = IsMobile and 30 or 35
+                local switchHeight = IsMobile and 17 or 20
+                local dotSize = IsMobile and 13 or 16
+
+                local SwitchBg = Utility:Create("Frame", {
+                    Parent = ToggleBtn,
+                    BackgroundColor3 = CurrentValue and Library.Theme.Accent or Library.Theme.SurfaceAlt,
+                    Position = UDim2.new(1, -(switchWidth + 10), 0.5, -math.floor(switchHeight / 2)),
+                    Size = UDim2.new(0, switchWidth, 0, switchHeight),
+                    BorderSizePixel = 0,
+                    ZIndex = 6
+                })
+                Utility:RegisterProperty(SwitchBg, "BackgroundColor3", CurrentValue and "Accent" or "SurfaceAlt")
+                Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = SwitchBg})
+                local SwitchDot = Utility:Create("Frame", {
+                    Parent = SwitchBg,
+                    BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+                    Position = CurrentValue and UDim2.new(1, -(dotSize + 2), 0.5, -math.floor(dotSize / 2)) or UDim2.new(0, 2, 0.5, -math.floor(dotSize / 2)),
+                    Size = UDim2.new(0, dotSize, 0, dotSize),
+                    ZIndex = 7,
+                    BorderSizePixel = 0
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = SwitchDot})
+
+                local changeListeners = {}
+
+                local function Update()
+                    Library.Flags[Flag] = CurrentValue
+                    Utility:SafeCall(Callback, CurrentValue)
+                    if CurrentValue then
+                        Library.Registry[SwitchBg]["BackgroundColor3"] = "Accent"
+                        Utility:Tween(SwitchBg, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.Accent})
+                        Utility:Tween(SwitchDot, TweenInfo.new(0.2), {Position = UDim2.new(1, -(dotSize + 2), 0.5, -math.floor(dotSize / 2))})
+                    else
+                        Library.Registry[SwitchBg]["BackgroundColor3"] = "SurfaceAlt"
+                        Utility:Tween(SwitchBg, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.SurfaceAlt})
+                        Utility:Tween(SwitchDot, TweenInfo.new(0.2), {Position = UDim2.new(0, 2, 0.5, -math.floor(dotSize / 2))})
+                    end
+                    for _, listener in ipairs(changeListeners) do
+                        pcall(listener, CurrentValue)
+                    end
+                end
+
+                Library:Connect(ToggleBtn.MouseButton1Click, function()
+                    CurrentValue = not CurrentValue
+                    Update()
+                end)
+                Library:Connect(ToggleBtn.MouseEnter, function()
+                    Utility:Tween(ToggleContainer, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.Hover})
+                end)
+                Library:Connect(ToggleBtn.MouseLeave, function()
+                    Utility:Tween(ToggleContainer, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.Surface})
+                end)
+
+                addElement({Holder = ToggleContainer, Text = Name})
+
+                local toggleObj = {
+                    Type = "Toggle",
+                    Set = function(self, val)
+                        CurrentValue = val
+                        Update()
+                    end,
+                    Get = function() return CurrentValue end,
+                    OnChanged = function(self, fn)
+                        table.insert(changeListeners, fn)
+                    end
+                }
+                finishController(toggleObj, ToggleContainer, Name, options.Tooltip)
+                Library:RegisterOption(Flag, toggleObj)
+                return toggleObj
+            end
+
+            -- SLIDER
+            function Section:CreateSlider(options)
+                options = options or {}
+                local Name = options.Name or "Slider"
+                local Min = options.Min or 0
+                local Max = options.Max or 100
+                local Default = options.Default or Min
+                local Callback = options.Callback or function() end
+                local Flag = options.Flag or Name
+                local Step = math.max(tonumber(options.Step) or 1, 0.000001)
+                local CallbackMode = options.CallbackMode or (options.CallbackOnRelease and "Release" or "Changed")
+
+                local Value = Default
+                if Library.Flags[Flag] ~= nil then Value = Library.Flags[Flag] end
+                Library.Flags[Flag] = Value
+
+                local sliderHeight = IsMobile and 44 or 50
+                local SliderContainer = Utility:Create("Frame", {
+                    Name = Name,
+                    Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Surface,
+                    Size = UDim2.new(1, 0, 0, sliderHeight),
+                    ClipsDescendants = true,
+                    ZIndex = 5,
+                    BorderSizePixel = 0
+                })
+                Utility:RegisterProperty(SliderContainer, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = SliderContainer})
+                local stroke = Utility:Create("UIStroke", {Parent = SliderContainer, Color = Library.Theme.Stroke, Thickness = 1})
+                Utility:RegisterProperty(stroke, "Color", "Stroke")
+
+                Utility:Create("TextLabel", {
+                    Parent = SliderContainer,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 12, 0, IsMobile and 6 or 8),
+                    Size = UDim2.new(1, -24, 0, 20),
+                    Font = Enum.Font.Gotham,
+                    Text = Name,
+                    TextColor3 = Library.Theme.Text,
+                    TextSize = IsMobile and 12 or 13,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    ZIndex = 6
+                })
+                local ValueLabel = Utility:Create("TextLabel", {
+                    Parent = SliderContainer,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 12, 0, IsMobile and 6 or 8),
+                    Size = UDim2.new(1, -24, 0, 20),
+                    Font = Enum.Font.GothamBold,
+                    Text = tostring(Value),
+                    TextColor3 = Library.Theme.SubText,
+                    TextSize = IsMobile and 12 or 13,
+                    TextXAlignment = Enum.TextXAlignment.Right,
+                    ZIndex = 6
+                })
+                local trackHeight = IsMobile and 10 or 6
+                local Track = Utility:Create("TextButton", {
+                    Parent = SliderContainer,
+                    BackgroundColor3 = Library.Theme.SurfaceAlt,
+                    Position = UDim2.new(0, 12, 0, IsMobile and 28 or 34),
+                    Size = UDim2.new(1, -24, 0, trackHeight),
+                    AutoButtonColor = false,
+                    Text = "",
+                    ZIndex = 6,
+                    BorderSizePixel = 0
+                })
+                Utility:RegisterProperty(Track, "BackgroundColor3", "SurfaceAlt")
+                Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = Track})
+                local Fill = Utility:Create("Frame", {
+                    Parent = Track,
+                    BackgroundColor3 = Library.Theme.Accent,
+                    Size = UDim2.new((Value - Min) / (Max - Min), 0, 1, 0),
+                    BorderSizePixel = 0,
+                    ZIndex = 7
+                })
+                Utility:RegisterProperty(Fill, "BackgroundColor3", "Accent")
+                local fillGradient = Utility:Create("UIGradient", {Parent = Fill})
+                Utility:RegisterGradient(fillGradient, "Accent", "Accent2", "Accent3")
+                Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = Fill})
+                local Dragging = false
+                local DragInput = nil
+                local pendingCallback = false
+
+                local function EmitValue()
+                    pendingCallback = false
+                    Utility:SafeCall(Callback, Value)
+                end
+
+                local function UpdateSlider(input)
+                    local SizeX = math.clamp((input.Position.X - Track.AbsolutePosition.X) / math.max(1, Track.AbsoluteSize.X), 0, 1)
+                    local NewValue = Min + ((Max - Min) * SizeX)
+                    NewValue = math.clamp(Min + math.floor(((NewValue - Min) / Step) + 0.5) * Step, Min, Max)
+                    Value = NewValue
+                    ValueLabel.Text = tostring(Value)
+                    Library.Flags[Flag] = Value
+                    pendingCallback = true
+                    if CallbackMode ~= "Release" then EmitValue() end
+                    Utility:Tween(Fill, TweenInfo.new(0.05), {Size = UDim2.new((Value - Min) / math.max(0.000001, Max - Min), 0, 1, 0)})
+                end
+
+                Library:Connect(Track.InputBegan, function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                        Dragging = true
+                        DragInput = input.UserInputType == Enum.UserInputType.Touch and input or nil
+                        UpdateSlider(input)
+                    end
+                end)
+                Library:Connect(UserInputService.InputChanged, function(input)
+                    local pointerMove = input.UserInputType == Enum.UserInputType.MouseMovement
+                        or (input.UserInputType == Enum.UserInputType.Touch and input == DragInput)
+                    if Dragging and pointerMove then
+                        UpdateSlider(input)
+                    end
+                end)
+                Library:Connect(UserInputService.InputEnded, function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                        local wasDragging = Dragging
+                        Dragging = false
+                        if wasDragging and pendingCallback then task.defer(EmitValue) end
+                        if wasDragging and options.Finished then task.defer(function() Utility:SafeCall(options.Finished, Value) end) end
+                    end
+                end)
+
+                addElement({Holder = SliderContainer, Text = Name})
+                local function SetValue(val, fire)
+                    Value = math.clamp(tonumber(val) or Min, Min, Max)
+                    ValueLabel.Text = tostring(Value)
+                    Library.Flags[Flag] = Value
+                    Utility:Tween(Fill, TweenInfo.new(0.1), {Size = UDim2.new((Value - Min) / math.max(0.000001, Max - Min), 0, 1, 0)})
+                    pendingCallback = false
+                    if fire ~= false then EmitValue() end
+                end
+                local sliderObj = {
+                    Type = "Slider",
+                    Set = function(self, val)
+                        SetValue(val, true)
+                    end,
+                    SetSilent = function(self, val) SetValue(val, false) end,
+                    Get = function() return Value end
+                }
+                finishController(sliderObj, SliderContainer, Name, options.Tooltip)
+                Library:RegisterOption(Flag, sliderObj)
+                return sliderObj
+            end
+
+            -- DROPDOWN
+            function Section:CreateDropdown(options)
+                options = options or {}
+                local Name = options.Name or "Dropdown"
+                local Values = options.Values or {}
+                local Multi = options.Multi or false
+                local Default = options.Default or (Multi and {} or Values[1])
+                local Callback = options.Callback or function() end
+                local Flag = options.Flag or Name
+
+                local function normalizeMulti(value)
+                    if not Multi then return value end
+                    local normalized = {}
+                    if type(value) == "table" then
+                        for key, selected in pairs(value) do
+                            if type(key) == "number" then
+                                normalized[selected] = true
+                            elseif selected == true then
+                                normalized[key] = true
+                            end
+                        end
+                    end
+                    return normalized
+                end
+
+                local CurrentValue = normalizeMulti(Default)
+                if Library.Flags[Flag] ~= nil then CurrentValue = Library.Flags[Flag] end
+                CurrentValue = normalizeMulti(CurrentValue)
+                Library.Flags[Flag] = CurrentValue
+
+                local headerHeight = IsMobile and 38 or 44
+                local Expanded = false
+                local listHeight = 0
+
+                local changeListeners = {}
+
+                local DropdownContainer = Utility:Create("Frame", {
+                    Name = Name,
+                    Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Surface,
+                    Size = UDim2.new(1, 0, 0, headerHeight),
+                    ClipsDescendants = true,
+                    ZIndex = 5,
+                    BorderSizePixel = 0
+                })
+                Utility:RegisterProperty(DropdownContainer, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = DropdownContainer})
+                local stroke = Utility:Create("UIStroke", {Parent = DropdownContainer, Color = Library.Theme.Stroke, Thickness = 1})
+                Utility:RegisterProperty(stroke, "Color", "Stroke")
+
+                -- Header clip frame to prevent button overflow
+                local HeaderClip = Utility:Create("Frame", {
+                    Parent = DropdownContainer,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, headerHeight),
+                    ClipsDescendants = true,
+                    ZIndex = 5
+                })
+
+                local Header = Utility:Create("TextButton", {
+                    Parent = HeaderClip,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, headerHeight),
+                    AutoButtonColor = false,
+                    Text = "",
+                    ZIndex = 6,
+                    BorderSizePixel = 0
+                })
+                Utility:Create("TextLabel", {
+                    Parent = Header,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 12, 0, IsMobile and 10 or 12),
+                    Size = UDim2.new(0.5, 0, 0, 20),
+                    Font = Enum.Font.Gotham,
+                    Text = Name,
+                    TextColor3 = Library.Theme.Text,
+                    TextSize = IsMobile and 12 or 13,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    ZIndex = 7
+                })
+                local Status = Utility:Create("TextLabel", {
+                    Parent = Header,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0.5, 0, 0, IsMobile and 10 or 12),
+                    Size = UDim2.new(0.5, -30, 0, 20),
+                    Font = Enum.Font.GothamBold,
+                    Text = (Multi and "..." or tostring(CurrentValue)),
+                    TextColor3 = Library.Theme.SubText,
+                    TextSize = IsMobile and 12 or 13,
+                    TextXAlignment = Enum.TextXAlignment.Right,
+                    ZIndex = 7
+                })
+                local Arrow = Utility:Create("ImageLabel", {
+                    Parent = Header,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(1, -28, 0.5, -8),
+                    Size = UDim2.fromOffset(16, 16),
+                    Image = ICONS.ChevronDown,
+                    ImageColor3 = Library.Theme.SubText,
+                    ScaleType = Enum.ScaleType.Fit,
+                    ZIndex = 7
+                })
+                Utility:RegisterProperty(Arrow, "ImageColor3", "SubText")
+
+                -- List rendered outside HeaderClip so it can overflow
+                local ListFrame = Utility:Create("ScrollingFrame", {
+                    Parent = DropdownContainer,
+                    BackgroundColor3 = Library.Theme.Surface,
+                    Position = UDim2.new(0, 8, 0, headerHeight),
+                    Size = UDim2.new(1, -16, 0, 0),
+                    CanvasSize = UDim2.new(0, 0, 0, 0),
+                    ScrollBarThickness = 2,
+                    ScrollBarImageColor3 = Library.Theme.Accent,
+                    ZIndex = 20,
+                    BorderSizePixel = 0,
+                    Visible = false
+                })
+                Utility:RegisterProperty(ListFrame, "BackgroundColor3", "Surface")
+                Utility:RegisterMaterial(ListFrame, 0.24, 0)
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = ListFrame})
+                local listStroke = Utility:Create("UIStroke", {Parent = ListFrame, Color = Library.Theme.Stroke, Thickness = 1})
+                Utility:RegisterProperty(listStroke, "Color", "Stroke")
+
+                local itemHeight = IsMobile and 30 or 26
+
+                local function SetExpanded(open)
+                    Expanded = open == true
+                    if Expanded then ListFrame.Visible = true end
+                    Utility:Tween(Arrow, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Rotation = Expanded and 180 or 0})
+                    Utility:Tween(DropdownContainer, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                        Size = UDim2.new(1, 0, 0, Expanded and (headerHeight + listHeight + 8) or headerHeight)
+                    }, function()
+                        if not Expanded then ListFrame.Visible = false end
+                    end)
+                    if Library.ReducedMotion and not Expanded then ListFrame.Visible = false end
+                end
+
+                local function UpdateStatus()
+                    if Multi then
+                        local selected = {}
+                        for _, optionValue in ipairs(Values) do
+                            if CurrentValue[optionValue] then table.insert(selected, tostring(optionValue)) end
+                        end
+                        if #selected == 0 then
+                            Status.Text = "None selected"
+                        elseif #selected <= 2 then
+                            Status.Text = table.concat(selected, ", ")
+                        else
+                            Status.Text = selected[1] .. ", " .. selected[2] .. " +" .. tostring(#selected - 2)
+                        end
+                    else
+                        Status.Text = CurrentValue ~= nil and tostring(CurrentValue) or "No options"
+                    end
+                end
+
+                local function Refresh()
+                    UpdateStatus()
+                    Library.Flags[Flag] = CurrentValue
+                    Utility:SafeCall(Callback, CurrentValue)
+                    for _, listener in ipairs(changeListeners) do
+                        pcall(listener, CurrentValue)
+                    end
+                end
+
+                local function BuildList()
+                    ListFrame:ClearAllChildren()
+                    Utility:Create("UICorner", {CornerRadius = UDim.new(0, 7), Parent = ListFrame})
+                    local rebuiltStroke = Utility:Create("UIStroke", {Parent = ListFrame, Color = Library.Theme.Stroke, Thickness = 1})
+                    Utility:RegisterProperty(rebuiltStroke, "Color", "Stroke")
+                    Utility:Create("UIListLayout", {Parent = ListFrame, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4)})
+                    Utility:Create("UIPadding", {Parent = ListFrame, PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 4)})
+                    for _, val in pairs(Values) do
+                        local Item = Utility:Create("TextButton", {
+                            Parent = ListFrame,
+                            BackgroundColor3 = Library.Theme.SurfaceAlt,
+                            BackgroundTransparency = 1,
+                            Size = UDim2.new(1, 0, 0, itemHeight),
+                            AutoButtonColor = false,
+                            Text = "",
+                            ZIndex = 21,
+                            BorderSizePixel = 0
+                        })
+                        Utility:RegisterProperty(Item, "BackgroundColor3", "SurfaceAlt")
+                        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = Item})
+                        local IsSelected = Multi and CurrentValue[val] or (not Multi and CurrentValue == val)
+                        local itemText = Utility:Create("TextLabel", {
+                            Parent = Item, BackgroundTransparency = 1, Position = UDim2.fromOffset(9, 0),
+                            Size = UDim2.new(1, -38, 1, 0), Text = tostring(val),
+                            TextColor3 = IsSelected and Library.Theme.Text or Library.Theme.SubText,
+                            Font = Enum.Font.Gotham, TextSize = IsMobile and 12 or 13,
+                            TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 22
+                        })
+                        Utility:RegisterProperty(itemText, "TextColor3", IsSelected and "Text" or "SubText")
+                        local checkIcon = Utility:Create("ImageLabel", {
+                            Parent = Item, BackgroundTransparency = 1, Position = UDim2.new(1, -25, 0.5, -7),
+                            Size = UDim2.fromOffset(14, 14), Image = ICONS.Check,
+                            ImageColor3 = Library.Theme.Accent, ImageTransparency = IsSelected and 0 or 1,
+                            ScaleType = Enum.ScaleType.Fit, ZIndex = 22
+                        })
+                        Utility:RegisterProperty(checkIcon, "ImageColor3", "Accent")
+                        if IsSelected then
+                            Item.BackgroundTransparency = 0.08
+                        end
+                        Library:Connect(Item.MouseButton1Click, function()
+                            if Multi then
+                                CurrentValue[val] = not CurrentValue[val]
+                                BuildList()
+                            else
+                                CurrentValue = val
+                                SetExpanded(false)
+                                BuildList()
+                            end
+                            Refresh()
+                        end)
+                    end
+                    listHeight = math.min(#Values * (itemHeight + 4) + 10, IsMobile and 132 or 156)
+                    ListFrame.CanvasSize = UDim2.new(0, 0, 0, #Values * (itemHeight + 4) + 10)
+                    ListFrame.Size = UDim2.new(1, -16, 0, listHeight)
+                    if Expanded then DropdownContainer.Size = UDim2.new(1, 0, 0, headerHeight + listHeight + 8) end
+                end
+
+                Library:Connect(Header.MouseButton1Click, function()
+                    SetExpanded(not Expanded)
+                end)
+                BuildList()
+                UpdateStatus()
+                addElement({Holder = DropdownContainer, Text = Name})
+
+                local dropObj = {
+                    Type = "Dropdown",
+                    Set = function(self, val)
+                        CurrentValue = normalizeMulti(val)
+                        Refresh()
+                        BuildList()
+                    end,
+                    Refresh = function(self, newVals, preserveSelection)
+                        Values = type(newVals) == "table" and newVals or {}
+                        if not Multi then
+                            local stillExists = false
+                            for _, optionValue in ipairs(Values) do
+                                if optionValue == CurrentValue then stillExists = true break end
+                            end
+                            if not stillExists and preserveSelection ~= true then CurrentValue = Values[1] end
+                        end
+                        Refresh()
+                        BuildList()
+                    end,
+                    Get = function() return CurrentValue end,
+                    GetList = function()
+                        local selected = {}
+                        if Multi then
+                            for _, value in ipairs(Values) do if CurrentValue[value] then table.insert(selected, value) end end
+                        elseif CurrentValue ~= nil then
+                            table.insert(selected, CurrentValue)
+                        end
+                        return selected
+                    end,
+                    Clear = function(self)
+                        if Multi then CurrentValue = {} else CurrentValue = nil end
+                        Refresh(); BuildList()
+                    end,
+                    SelectAll = function(self)
+                        if Multi then
+                            CurrentValue = {}
+                            for _, value in ipairs(Values) do CurrentValue[value] = true end
+                            Refresh(); BuildList()
+                        end
+                    end,
+                    OnChanged = function(self, fn)
+                        table.insert(changeListeners, fn)
+                    end,
+                    SetExpanded = function(self, open) SetExpanded(open) end
+                }
+                finishController(dropObj, DropdownContainer, Name, options.Tooltip)
+                Library:RegisterOption(Flag, dropObj)
+                return dropObj
+            end
+
+            function Section:CreateMultiDropdown(options)
+                options = options or {}
+                options.Multi = true
+                return self:CreateDropdown(options)
+            end
+
+            -- LABEL
+            function Section:CreateLabel(Text)
+                local Container = Utility:Create("Frame", {
+                    Name = "Label",
+                    Parent = ContentContainer,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 20),
+                    ZIndex = 5,
+                    BorderSizePixel = 0
+                })
+                local Lab = Utility:Create("TextLabel", {
+                    Parent = Container,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 1, 0),
+                    Font = Enum.Font.Gotham,
+                    Text = Text,
+                    TextColor3 = Library.Theme.Text,
+                    TextSize = IsMobile and 12 or 13,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextWrapped = true,
+                    ZIndex = 6
+                })
+                Utility:RegisterProperty(Lab, "TextColor3", "Text")
+                Library:Connect(Lab:GetPropertyChangedSignal("TextBounds"), function()
+                    Container.Size = UDim2.new(1, 0, 0, Lab.TextBounds.Y + 4)
+                end)
+                addElement({Holder = Container, Text = Text})
+                return finishController({
+                    SetText = function(self, t)
+                        Lab.Text = t
+                    end
+                }, Container, Text)
+            end
+
+            -- DEPENDENCY BOX
+            function Section:CreateDependencyBox(dependencies)
+                local depContainer = Utility:Create("Frame", {
+                    Parent = ContentContainer,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 0),
+                    ClipsDescendants = true,
+                    Visible = false,
+                    ZIndex = 5,
+                    BorderSizePixel = 0
+                })
+                local layout = Utility:Create("UIListLayout", {
+                    Parent = depContainer,
+                    SortOrder = Enum.SortOrder.LayoutOrder,
+                    Padding = UDim.new(0, IsMobile and 6 or 8)
+                })
+
+                local function updateVisibility()
+                    local allMatch = true
+                    for _, dep in ipairs(dependencies) do
+                        local element, expected = dep[1], dep[2]
+                        local val = element.Get and element.Get() or nil
+                        if val == nil then
+                            allMatch = false; break
+                        end
+                        if element.Type == "Toggle" then
+                            if val ~= expected then allMatch = false; break end
+                        elseif element.Type == "Dropdown" then
+                            if type(val) == "table" then
+                                if not val[expected] then allMatch = false; break end
+                            elseif val ~= expected then
+                                allMatch = false; break
+                            end
+                        end
+                    end
+                    depContainer.Visible = allMatch
+                    -- Manually update canvas size
+                    if allMatch then
+                        depContainer.Size = UDim2.new(1, 0, 0, layout.AbsoluteContentSize.Y)
+                    else
+                        depContainer.Size = UDim2.new(1, 0, 0, 0)
+                    end
+                    RefreshLayout()
+                end
+
+                for _, dep in ipairs(dependencies) do
+                    local element = dep[1]
+                    if element.OnChanged then
+                        element:OnChanged(updateVisibility)
+                    end
+                end
+                updateVisibility()
+                addElement({Holder = depContainer})
+                return depContainer
+            end
+
+            -- WARNING BOX
+            function Section:CreateWarningBox(options)
+                options = options or {}
+                local title = options.Title or "Warning"
+                local text = options.Text or ""
+                local color = options.Color or "Warn"
+                local closable = options.Closable or false
+
+                local bgColor = Library.Theme[color] or Library.Theme.Warn
+                local container = Utility:Create("Frame", {
+                    Parent = ContentContainer,
+                    BackgroundColor3 = bgColor,
+                    Size = UDim2.new(1, 0, 0, 40),
+                    ClipsDescendants = false,
+                    ZIndex = 5,
+                    BorderSizePixel = 0
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = container})
+
+                local titleLabel = Utility:Create("TextLabel", {
+                    Parent = container,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 10, 0, 8),
+                    Size = UDim2.new(1, closable and -30 or -20, 0, 20),
+                    Font = Enum.Font.GothamBold,
+                    Text = title,
+                    TextColor3 = Library.Theme.Text,
+                    TextSize = 14,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    ZIndex = 6
+                })
+
+                local textLabel = Utility:Create("TextLabel", {
+                    Parent = container,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 10, 0, 30),
+                    Size = UDim2.new(1, -20, 0, 20),
+                    Font = Enum.Font.Gotham,
+                    Text = text,
+                    TextColor3 = Library.Theme.SubText,
+                    TextSize = 12,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextWrapped = true,
+                    ZIndex = 6
+                })
+
+                Library:Connect(textLabel:GetPropertyChangedSignal("TextBounds"), function()
+                    local textH = textLabel.TextBounds.Y + 4
+                    textLabel.Size = UDim2.new(1, -20, 0, textH)
+                    local totalHeight = 30 + textH + 10
+                    container.Size = UDim2.new(1, 0, 0, totalHeight)
+                    RefreshLayout()
+                end)
+
+                if closable then
+                    local closeBtn = Utility:Create("TextButton", {
+                        Parent = container,
+                        BackgroundTransparency = 1,
+                        Position = UDim2.new(1, -24, 0, 4),
+                        Size = UDim2.new(0, 20, 0, 20),
+                        Text = "✖",
+                        TextColor3 = Library.Theme.Text,
+                        Font = Enum.Font.Gotham,
+                        TextSize = 14,
+                        ZIndex = 7
+                    })
+                    Library:Connect(closeBtn.MouseButton1Click, function()
+                        container:Destroy()
+                        RefreshLayout()
+                    end)
+                end
+                addElement({Holder = container})
+                return container
+            end
+
+            -- IMAGE
+            function Section:CreateImage(options)
+                options = options or {}
+                local image = options.Image or ""
+                local width = options.Width or 200
+                local height = options.Height or 200
+                local scaleType = options.ScaleType or Enum.ScaleType.Fit
+
+                local container = Utility:Create("Frame", {
+                    Parent = ContentContainer,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(0, width, 0, height),
+                    ZIndex = 5,
+                    BorderSizePixel = 0
+                })
+                local img = Utility:Create("ImageLabel", {
+                    Parent = container,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 1, 0),
+                    Image = image,
+                    ScaleType = scaleType,
+                    ZIndex = 6
+                })
+                addElement({Holder = container})
+                return finishController({
+                    SetImage = function(self, newImage) img.Image = newImage end,
+                    SetSize = function(self, w, h) container.Size = UDim2.new(0, w, 0, h) end
+                }, container, "Image", options.Tooltip)
+            end
+
+            -- KEYBIND PICKER
+            function Section:CreateKeyPicker(options)
+                options = options or {}
+                local name = options.Name or "Keybind"
+                local defaultKey = options.Default or "None"
+                if typeof(defaultKey) == "EnumItem" then defaultKey = defaultKey.Name else defaultKey = tostring(defaultKey) end
+                local mode = options.Mode or "Toggle"
+                local callback = options.Callback or function() end
+                local flag = options.Flag or name
+
+                local currentKey = Library.Flags[flag] or defaultKey
+                if typeof(currentKey) == "EnumItem" then currentKey = currentKey.Name else currentKey = tostring(currentKey) end
+                local toggled = false
+                local listening = false
+                local keyHeld = false
+                local keybindEntry = {name = name, key = currentKey, default = defaultKey, mode = mode, callback = callback, flag = flag}
+                table.insert(Library.KeybindList, keybindEntry)
+                Library.KeybindDefaults[flag] = defaultKey
+
+                local container = Utility:Create("Frame", {
+                    Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Surface,
+                    Size = UDim2.new(1, 0, 0, IsMobile and 32 or 36),
+                    ClipsDescendants = true,
+                    ZIndex = 5,
+                    BorderSizePixel = 0
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = container})
+                local stroke = Utility:Create("UIStroke", {Parent = container, Color = Library.Theme.Stroke, Thickness = 1})
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:RegisterProperty(stroke, "Color", "Stroke")
+
+                local label = Utility:Create("TextLabel", {
+                    Parent = container,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 12, 0.5, -10),
+                    Size = UDim2.new(0.6, 0, 0, 20),
+                    Font = Enum.Font.Gotham,
+                    Text = name,
+                    TextColor3 = Library.Theme.Text,
+                    TextSize = IsMobile and 12 or 13,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    ZIndex = 6
+                })
+                Utility:RegisterProperty(label, "TextColor3", "Text")
+
+                local keyBtn = Utility:Create("TextButton", {
+                    Parent = container,
+                    BackgroundColor3 = Library.Theme.Secondary,
+                    Position = UDim2.new(0.7, 0, 0.5, -12),
+                    Size = UDim2.new(0.25, 0, 0, 24),
+                    Text = currentKey,
+                    TextColor3 = Library.Theme.Text,
+                    Font = Enum.Font.GothamBold,
+                    TextSize = 12,
+                    AutoButtonColor = false,
+                    ZIndex = 6
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = keyBtn})
+                Utility:RegisterProperty(keyBtn, "BackgroundColor3", "Secondary")
+                Utility:RegisterProperty(keyBtn, "TextColor3", "Text")
+
+                local stateIndicator = Utility:Create("Frame", {
+                    Parent = container,
+                    BackgroundColor3 = Library.Theme.Accent,
+                    Position = UDim2.new(0.96, 0, 0.5, -4),
+                    Size = UDim2.new(0, 8, 0, 8),
+                    Visible = false,
+                    ZIndex = 7
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = stateIndicator})
+                Utility:RegisterProperty(stateIndicator, "BackgroundColor3", "Accent")
+
+                local listenBtn = Utility:Create("TextButton", {
+                    Parent = container,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0.96, 0, 0, 0),
+                    Size = UDim2.new(0, 20, 1, 0),
+                    Text = "✎",
+                    TextColor3 = Library.Theme.SubText,
+                    Font = Enum.Font.Gotham,
+                    TextSize = 14,
+                    ZIndex = 7
+                })
+                Utility:RegisterProperty(listenBtn, "TextColor3", "SubText")
+
+                Library:Connect(listenBtn.MouseButton1Click, function()
+                    if listening then return end
+                    listening = true
+                    keyBtn.Text = "..."
+                    local conn
+                    conn = Library:Connect(UserInputService.InputBegan, function(input, gpe)
+                        if gpe then return end
+                        if input.UserInputType == Enum.UserInputType.Keyboard then
+                            currentKey = input.KeyCode.Name
+                            Library.Flags[flag] = currentKey
+                            keyBtn.Text = currentKey
+                            listening = false
+                            conn:Disconnect()
+                            keybindEntry.key = currentKey
+                        end
+                    end)
+                end)
+
+                if mode == "Hold" then
+                    local holding = false
+                    local holdConn
+                    Library:Connect(keyBtn.InputBegan, function(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                            if listening then return end
+                            holding = true
+                            stateIndicator.Visible = true
+                            Utility:SafeCall(callback, currentKey, true)
+                            holdConn = Library:Connect(RunService.Heartbeat, function()
+                                if holding then
+                                    Utility:SafeCall(callback, currentKey, true)
+                                end
+                            end)
+                        end
+                    end)
+                    Library:Connect(keyBtn.InputEnded, function(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                            if holding then
+                                holding = false
+                                stateIndicator.Visible = false
+                                if holdConn then holdConn:Disconnect() end
+                                Utility:SafeCall(callback, currentKey, false)
+                            end
+                        end
+                    end)
+                elseif mode == "Toggle" then
+                    Library:Connect(keyBtn.MouseButton1Click, function()
+                        if listening then return end
+                        toggled = not toggled
+                        stateIndicator.Visible = toggled
+                        Utility:SafeCall(callback, currentKey, toggled)
+                    end)
+                end
+
+                Library:Connect(UserInputService.InputBegan, function(input, processed)
+                    if processed or listening or input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+                    if input.KeyCode.Name ~= currentKey then return end
+                    if mode == "Hold" then
+                        if keyHeld then return end
+                        keyHeld = true
+                        stateIndicator.Visible = true
+                        Utility:SafeCall(callback, currentKey, true)
+                    elseif mode == "Toggle" then
+                        toggled = not toggled
+                        stateIndicator.Visible = toggled
+                        Utility:SafeCall(callback, currentKey, toggled)
+                    else
+                        Utility:SafeCall(callback, currentKey, true)
+                    end
+                end)
+                Library:Connect(UserInputService.InputEnded, function(input)
+                    if mode ~= "Hold" or input.UserInputType ~= Enum.UserInputType.Keyboard or input.KeyCode.Name ~= currentKey then return end
+                    keyHeld = false
+                    stateIndicator.Visible = false
+                    Utility:SafeCall(callback, currentKey, false)
+                end)
+
+                addElement({Holder = container, Text = name})
+                local controller = finishController({
+                    Type = "KeyPicker",
+                    Set = function(self, key)
+                        currentKey = typeof(key) == "EnumItem" and key.Name or tostring(key)
+                        keyBtn.Text = currentKey
+                        Library.Flags[flag] = currentKey
+                        keybindEntry.key = currentKey
+                    end,
+                    Get = function() return currentKey end,
+                    GetKey = function() return currentKey end,
+                    GetState = function() return toggled end
+                }, container, name, options.Tooltip)
+                Library.Flags[flag] = currentKey
+                Library:RegisterOption(flag, controller)
+                keybindEntry.controller = controller
+                return controller
+            end
+
+            -- COLOR PICKER (touch-friendly HSV editor)
+            function Section:CreateColorPicker(options)
+                options = options or {}
+                local name = options.Name or "Color"
+                local defaultColor = options.Default or Color3.new(1,1,1)
+                local callback = options.Callback or function() end
+                local flag = options.Flag or name
+                local currentColor = Library.Flags[flag] or defaultColor
+                local hue, saturation, value = Color3.toHSV(currentColor)
+                local expanded = false
+                local listeners = {}
+                local headerHeight = IsMobile and 40 or 38
+
+                local container = Utility:Create("Frame", {
+                    Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Surface,
+                    Size = UDim2.new(1, 0, 0, headerHeight),
+                    ClipsDescendants = true,
+                    ZIndex = 5,
+                    BorderSizePixel = 0
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 6), Parent = container})
+                local stroke = Utility:Create("UIStroke", {Parent = container, Color = Library.Theme.Stroke, Thickness = 1})
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:RegisterProperty(stroke, "Color", "Stroke")
+
+                local headerButton = Utility:Create("TextButton", {
+                    Parent = container,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, headerHeight),
+                    Text = "",
+                    AutoButtonColor = false,
+                    ZIndex = 7
+                })
+
+                local label = Utility:Create("TextLabel", {
+                    Parent = headerButton,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 12, 0, 0),
+                    Size = UDim2.new(1, -92, 0, headerHeight),
+                    Font = Enum.Font.Gotham,
+                    Text = name,
+                    TextColor3 = Library.Theme.Text,
+                    TextSize = IsMobile and 12 or 13,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    ZIndex = 6
+                })
+                Utility:RegisterProperty(label, "TextColor3", "Text")
+
+                local headerSwatch = Utility:Create("Frame", {
+                    Parent = headerButton,
+                    BackgroundColor3 = currentColor,
+                    Position = UDim2.new(1, -58, 0.5, -10),
+                    Size = UDim2.fromOffset(20, 20),
+                    BorderSizePixel = 0,
+                    ZIndex = 8
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = headerSwatch})
+                local colorStroke = Utility:Create("UIStroke", {Parent = headerSwatch, Color = Library.Theme.Stroke, Thickness = 1})
+                Utility:RegisterProperty(colorStroke, "Color", "Stroke")
+
+                local headerArrow = Utility:Create("ImageLabel", {
+                    Parent = headerButton,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(1, -28, 0.5, -8),
+                    Size = UDim2.fromOffset(16, 16),
+                    Image = ICONS.ChevronDown,
+                    ImageColor3 = Library.Theme.SubText,
+                    ScaleType = Enum.ScaleType.Fit,
+                    ZIndex = 8
+                })
+                Utility:RegisterProperty(headerArrow, "ImageColor3", "SubText")
+
+                local editor = Utility:Create("Frame", {
+                    Parent = container, BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 12, 0, headerHeight + 4),
+                    Size = UDim2.new(1, -24, 0, 132), ZIndex = 6
+                })
+
+                local hueGradient = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, Color3.fromHSV(0, 1, 1)),
+                    ColorSequenceKeypoint.new(0.17, Color3.fromHSV(0.17, 1, 1)),
+                    ColorSequenceKeypoint.new(0.33, Color3.fromHSV(0.33, 1, 1)),
+                    ColorSequenceKeypoint.new(0.5, Color3.fromHSV(0.5, 1, 1)),
+                    ColorSequenceKeypoint.new(0.67, Color3.fromHSV(0.67, 1, 1)),
+                    ColorSequenceKeypoint.new(0.83, Color3.fromHSV(0.83, 1, 1)),
+                    ColorSequenceKeypoint.new(1, Color3.fromHSV(1, 1, 1))
+                })
+
+                local function createColorTrack(title, y, gradient)
+                    local trackLabel = Utility:Create("TextLabel", {
+                        Parent = editor, BackgroundTransparency = 1, Position = UDim2.fromOffset(0, y),
+                        Size = UDim2.fromOffset(18, 22), Text = title, TextColor3 = Library.Theme.SubText,
+                        Font = Enum.Font.GothamBold, TextSize = 10, ZIndex = 7
+                    })
+                    Utility:RegisterProperty(trackLabel, "TextColor3", "SubText")
+                    local track = Utility:Create("TextButton", {
+                        Parent = editor, BackgroundColor3 = Color3.new(1, 1, 1),
+                        Position = UDim2.new(0, 24, 0, y + 5), Size = UDim2.new(1, -24, 0, 12),
+                        Text = "", AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 7
+                    })
+                    Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = track})
+                    local uiGradient = Utility:Create("UIGradient", {Parent = track, Color = gradient})
+                    local marker = Utility:Create("Frame", {
+                        Parent = track, BackgroundColor3 = Color3.new(1, 1, 1),
+                        AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 0, 0.5, 0),
+                        Size = UDim2.fromOffset(4, 18), BorderSizePixel = 0, ZIndex = 8
+                    })
+                    Utility:Create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = marker})
+                    Utility:Create("UIStroke", {Parent = marker, Color = Color3.new(0, 0, 0), Transparency = 0.35, Thickness = 1})
+                    return track, marker, uiGradient
+                end
+
+                local hueTrack, hueMarker = createColorTrack("H", 0, hueGradient)
+                local satTrack, satMarker, satGradient = createColorTrack("S", 30, ColorSequence.new(Color3.new(1,1,1), Color3.fromHSV(hue,1,1)))
+                local valTrack, valMarker, valGradient = createColorTrack("V", 60, ColorSequence.new(Color3.new(0,0,0), Color3.fromHSV(hue,saturation,1)))
+
+                local colorDisplay = Utility:Create("TextButton", {
+                    Parent = editor,
+                    BackgroundColor3 = currentColor,
+                    Position = UDim2.new(0, 24, 0, 94),
+                    Size = UDim2.new(1, -24, 0, 30),
+                    Text = "",
+                    TextColor3 = Color3.new(1, 1, 1),
+                    Font = Enum.Font.GothamBold,
+                    TextSize = 11,
+                    AutoButtonColor = false,
+                    ZIndex = 7
+                })
+                Utility:Create("UICorner", {CornerRadius = UDim.new(0, 7), Parent = colorDisplay})
+                local previewStroke = Utility:Create("UIStroke", {Parent = colorDisplay, Color = Library.Theme.Stroke, Thickness = 1})
+                Utility:RegisterProperty(previewStroke, "Color", "Stroke")
+
+                local function refreshColor(fire)
+                    currentColor = Color3.fromHSV(hue, saturation, value)
+                    Library.Flags[flag] = currentColor
+                    headerSwatch.BackgroundColor3 = currentColor
+                    colorDisplay.BackgroundColor3 = currentColor
+                    colorDisplay.Text = string.format("#%02X%02X%02X", math.floor(currentColor.R * 255 + 0.5), math.floor(currentColor.G * 255 + 0.5), math.floor(currentColor.B * 255 + 0.5))
+                    local luminance = currentColor.R * 0.299 + currentColor.G * 0.587 + currentColor.B * 0.114
+                    colorDisplay.TextColor3 = luminance > 0.62 and Color3.fromRGB(18, 18, 24) or Color3.new(1, 1, 1)
+                    hueMarker.Position = UDim2.new(hue, 0, 0.5, 0)
+                    satMarker.Position = UDim2.new(saturation, 0, 0.5, 0)
+                    valMarker.Position = UDim2.new(value, 0, 0.5, 0)
+                    satGradient.Color = ColorSequence.new(Color3.new(1,1,1), Color3.fromHSV(hue,1,1))
+                    valGradient.Color = ColorSequence.new(Color3.new(0,0,0), Color3.fromHSV(hue,saturation,1))
+                    if fire ~= false then
+                        Utility:SafeCall(callback, currentColor)
+                        for _, listener in ipairs(listeners) do Utility:SafeCall(listener, currentColor) end
+                    end
+                end
+
+                local function bindTrack(track, setter)
+                    local dragging = false
+                    local dragInput = nil
+                    local function update(input)
+                        setter(math.clamp((input.Position.X - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X), 0, 1))
+                        refreshColor(true)
+                    end
+                    Library:Connect(track.InputBegan, function(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                            dragging = true
+                            dragInput = input.UserInputType == Enum.UserInputType.Touch and input or nil
+                            update(input)
+                        end
+                    end)
+                    Library:Connect(UserInputService.InputChanged, function(input)
+                        local pointerMove = input.UserInputType == Enum.UserInputType.MouseMovement
+                            or (input.UserInputType == Enum.UserInputType.Touch and input == dragInput)
+                        if dragging and pointerMove then update(input) end
+                    end)
+                    Library:Connect(UserInputService.InputEnded, function(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
+                    end)
+                end
+                bindTrack(hueTrack, function(x) hue = x end)
+                bindTrack(satTrack, function(x) saturation = x end)
+                bindTrack(valTrack, function(x) value = x end)
+
+                local function setExpanded(open)
+                    expanded = open == true
+                    Utility:Tween(headerArrow, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Rotation = expanded and 180 or 0})
+                    Utility:Tween(container, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                        Size = UDim2.new(1, 0, 0, expanded and (headerHeight + 142) or headerHeight)
+                    })
+                    task.delay(Library.ReducedMotion and 0 or 0.23, RefreshLayout)
+                end
+                Library:Connect(headerButton.MouseButton1Click, function()
+                    setExpanded(not expanded)
+                end)
+                Library:Connect(colorDisplay.MouseButton1Click, function()
+                    if type(setclipboard) == "function" then
+                        setclipboard(colorDisplay.Text)
+                        Library:Notify({Title = "Color copied", Content = colorDisplay.Text, Duration = 2})
+                    end
+                end)
+                refreshColor(false)
+                addElement({Holder = container, Text = name})
+                local controller = finishController({
+                    Type = "ColorPicker",
+                    Set = function(self, color) hue, saturation, value = Color3.toHSV(color); refreshColor(true) end,
+                    SetColor = function(self, color) self:Set(color) end,
+                    Get = function() return currentColor end,
+                    OnChanged = function(self, fn) table.insert(listeners, fn) end,
+                    SetExpanded = function(self, open) if expanded ~= (open == true) then setExpanded(open) end end
+                }, container, name, options.Tooltip)
+                Library:RegisterOption(flag, controller)
+                return controller
+            end
+
+            function Section:CreateGroup(options)
+                if type(options) == "string" then options = {Name = options} end
+                options = options or {}
+                local name = tostring(options.Name or "Group")
+                local expanded = options.Expanded ~= false
+                local headerHeight = IsMobile and 38 or 42
+                local container = Utility:Create("Frame", {
+                    Name = "Group_" .. name, Parent = ContentContainer, BackgroundColor3 = Library.Theme.Secondary,
+                    Size = UDim2.new(1, 0, 0, headerHeight), ClipsDescendants = true,
+                    BorderSizePixel = 0, ZIndex = 5
+                })
+                Utility:RegisterProperty(container, "BackgroundColor3", "Secondary")
+                Utility:RegisterMaterial(container, 0.42, 0.08)
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 8)})
+                local groupStroke = Utility:Create("UIStroke", {Parent = container, Color = Library.Theme.Divider, Thickness = 1})
+                Utility:RegisterProperty(groupStroke, "Color", "Divider")
+                local header = Utility:Create("TextButton", {
+                    Parent = container, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, headerHeight),
+                    Text = "", AutoButtonColor = false, ZIndex = 6
+                })
+                local title = Utility:Create("TextLabel", {
+                    Parent = header, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 0),
+                    Size = UDim2.new(1, -48, 1, 0), Text = name, TextColor3 = Library.Theme.Text,
+                    Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7
+                })
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local chevron = Utility:Create("ImageLabel", {
+                    Parent = header, BackgroundTransparency = 1, Position = UDim2.new(1, -28, 0.5, -7),
+                    Size = UDim2.fromOffset(14, 14), Image = ICONS.ChevronDown,
+                    ImageColor3 = Library.Theme.SubText, Rotation = expanded and 0 or -90, ZIndex = 7
+                })
+                Utility:RegisterProperty(chevron, "ImageColor3", "SubText")
+                local body = Utility:Create("Frame", {
+                    Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(0, headerHeight),
+                    Size = UDim2.new(1, 0, 0, 0), Visible = expanded, ZIndex = 6
+                })
+                Utility:Create("UIPadding", {
+                    Parent = body, PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8),
+                    PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 8)
+                })
+                local bodyLayout = Utility:Create("UIListLayout", {Parent = body, Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder})
+                local function refresh()
+                    local bodyHeight = expanded and bodyLayout.AbsoluteContentSize.Y + 12 or 0
+                    body.Visible = expanded
+                    body.Size = UDim2.new(1, 0, 0, bodyHeight)
+                    Utility:Tween(container, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                        Size = UDim2.new(1, 0, 0, headerHeight + bodyHeight)
+                    })
+                    Utility:Tween(chevron, TweenInfo.new(0.2), {Rotation = expanded and 0 or -90})
+                    RefreshLayout()
+                end
+                Library:Connect(bodyLayout:GetPropertyChangedSignal("AbsoluteContentSize"), refresh)
+                addElement({Holder = container, Text = name})
+                local group = finishController({Type = "Group"}, container, name, options.Tooltip)
+                function group:SetExpanded(value) expanded = value == true refresh() return self end
+                function group:Toggle() return self:SetExpanded(not expanded) end
+                function group:IsExpanded() return expanded end
+                function group:SetTitle(value) name = tostring(value); title.Text = name; self.Name = name return self end
+                local function attach(method, value)
+                    local controller = Section[method](Section, value)
+                    if controller and controller.Holder then
+                        controller.Holder.Parent = body
+                        for _, element in ipairs(Section.Elements) do
+                            if element.Holder == controller.Holder then element.NestedParentHolder = container break end
+                        end
+                        Library:Connect(controller.Holder:GetPropertyChangedSignal("Size"), refresh)
+                        task.defer(refresh)
+                    end
+                    return controller
+                end
+                function group:CreateButton(value) return attach("CreateButton", value) end
+                function group:CreateToggle(value) return attach("CreateToggle", value) end
+                function group:CreateSlider(value) return attach("CreateSlider", value) end
+                function group:CreateDropdown(value) return attach("CreateDropdown", value) end
+                function group:CreateMultiDropdown(value) return attach("CreateMultiDropdown", value) end
+                function group:CreateInput(value) return attach("CreateInput", value) end
+                function group:CreateParagraph(value) return attach("CreateParagraph", value) end
+                function group:CreateMetric(value) return attach("CreateMetric", value) end
+                function group:CreateKeyPicker(value) return attach("CreateKeyPicker", value) end
+                function group:CreateColorPicker(value) return attach("CreateColorPicker", value) end
+                function group:CreateImage(value) return attach("CreateImage", value) end
+                function group:CreateLabel(value) return attach("CreateLabel", value) end
+                function group:CreateDivider(value) return attach("CreateDivider", value) end
+                function group:CreateGroup(value) return attach("CreateGroup", value) end
+                function group:CreateList(value) return attach("CreateList", value) end
+                function group:CreateTable(value) return attach("CreateTable", value) end
+                function group:CreatePlayerList(value) return attach("CreatePlayerList", value) end
+                function group:CreateLogConsole(value) return attach("CreateLogConsole", value) end
+                function group:CreateSkeleton(value) return attach("CreateSkeleton", value) end
+                Library:Connect(header.MouseButton1Click, function() group:Toggle() end)
+                task.defer(refresh)
+                return group
+            end
+
+            function Section:CreateList(options)
+                options = options or {}
+                local name = tostring(options.Name or "List")
+                local items = type(options.Items) == "table" and options.Items or {}
+                local selected = options.Default
+                local container = Utility:Create("Frame", {
+                    Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface,
+                    Size = UDim2.new(1, 0, 0, tonumber(options.Height) or 176),
+                    BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5
+                })
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 7)})
+                local stroke = Utility:Create("UIStroke", {Parent = container, Color = Library.Theme.Stroke, Thickness = 1})
+                Utility:RegisterProperty(stroke, "Color", "Stroke")
+                local title = Utility:Create("TextLabel", {
+                    Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 5),
+                    Size = UDim2.new(1, -20, 0, 24), Text = name, TextColor3 = Library.Theme.Text,
+                    Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+                })
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local list = Utility:Create("ScrollingFrame", {
+                    Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(7, 32),
+                    Size = UDim2.new(1, -14, 1, -39), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                    ScrollBarThickness = 2, ScrollBarImageColor3 = Library.Theme.Accent, BorderSizePixel = 0, ZIndex = 6
+                })
+                Utility:RegisterProperty(list, "ScrollBarImageColor3", "Accent")
+                Utility:Create("UIListLayout", {Parent = list, Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder})
+                local controller
+                local function parts(item)
+                    if type(item) == "table" then return tostring(item.Label or item.Name or item.Value or "Item"), item.Value ~= nil and item.Value or item, item.Description end
+                    return tostring(item), item, nil
+                end
+                local function render()
+                    for _, child in ipairs(list:GetChildren()) do if child:IsA("GuiObject") then child:Destroy() end end
+                    for index, item in ipairs(items) do
+                        local labelText, value, description = parts(item)
+                        local row = Utility:Create("TextButton", {
+                            Parent = list, BackgroundColor3 = Library.Theme.Secondary,
+                            BackgroundTransparency = value == selected and 0 or 0.24,
+                            Size = UDim2.new(1, -4, 0, description and 44 or 34), Text = "",
+                            AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = index, ZIndex = 7
+                        })
+                        Utility:RegisterProperty(row, "BackgroundColor3", value == selected and "Accent" or "Secondary")
+                        Utility:Create("UICorner", {Parent = row, CornerRadius = UDim.new(0, 5)})
+                        local label = Utility:Create("TextLabel", {
+                            Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(9, description and 4 or 0),
+                            Size = UDim2.new(1, -18, 0, description and 20 or 34), Text = labelText,
+                            TextColor3 = Library.Theme.Text, Font = Enum.Font.Gotham, TextSize = 12,
+                            TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8
+                        })
+                        Utility:RegisterProperty(label, "TextColor3", "Text")
+                        if description then
+                            local detail = Utility:Create("TextLabel", {
+                                Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(9, 22),
+                                Size = UDim2.new(1, -18, 0, 16), Text = tostring(description), TextColor3 = Library.Theme.SubText,
+                                Font = Enum.Font.Gotham, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8
+                            })
+                            Utility:RegisterProperty(detail, "TextColor3", "SubText")
+                        end
+                        Library:Connect(row.MouseButton1Click, function()
+                            selected = value
+                            render()
+                            Utility:SafeCall(options.Callback, value, item, index)
+                        end)
+                    end
+                end
+                addElement({Holder = container, Text = name})
+                controller = finishController({Type = "List"}, container, name, options.Tooltip)
+                function controller:SetItems(nextItems) items = type(nextItems) == "table" and nextItems or {} render() return self end
+                function controller:GetItems() return items end
+                function controller:Add(item) table.insert(items, item) render() return self end
+                function controller:Remove(value)
+                    for index, item in ipairs(items) do local _, itemValue = parts(item) if itemValue == value then table.remove(items, index) break end end
+                    if selected == value then selected = nil end render() return self
+                end
+                function controller:Clear() table.clear(items) selected = nil render() return self end
+                function controller:Select(value) selected = value render() return self end
+                function controller:GetSelected() return selected end
+                render()
+                return controller
+            end
+
+            function Section:CreateTable(options)
+                options = options or {}
+                local name = tostring(options.Name or "Table")
+                local columns = type(options.Columns) == "table" and options.Columns or {{Key = "value", Name = "Value"}}
+                local rows = type(options.Rows) == "table" and options.Rows or {}
+                local container = Utility:Create("Frame", {
+                    Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface,
+                    Size = UDim2.new(1, 0, 0, tonumber(options.Height) or 196), BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5
+                })
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 7)})
+                local title = Utility:Create("TextLabel", {
+                    Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 4), Size = UDim2.new(1, -20, 0, 24),
+                    Text = name, TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 12,
+                    TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+                })
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local header = Utility:Create("Frame", {Parent = container, BackgroundColor3 = Library.Theme.Secondary, Position = UDim2.fromOffset(7, 30), Size = UDim2.new(1, -14, 0, 28), BorderSizePixel = 0, ZIndex = 6})
+                Utility:RegisterProperty(header, "BackgroundColor3", "Secondary")
+                Utility:Create("UICorner", {Parent = header, CornerRadius = UDim.new(0, 5)})
+                local list = Utility:Create("ScrollingFrame", {
+                    Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(7, 63), Size = UDim2.new(1, -14, 1, -70),
+                    CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 2,
+                    ScrollBarImageColor3 = Library.Theme.Accent, BorderSizePixel = 0, ZIndex = 6
+                })
+                Utility:RegisterProperty(list, "ScrollBarImageColor3", "Accent")
+                Utility:Create("UIListLayout", {Parent = list, Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder})
+                local function cell(parent, text, index, count, bold)
+                    local label = Utility:Create("TextLabel", {
+                        Parent = parent, BackgroundTransparency = 1, Position = UDim2.new((index - 1) / count, 7, 0, 0),
+                        Size = UDim2.new(1 / count, -12, 1, 0), Text = tostring(text or ""), TextColor3 = bold and Library.Theme.Text or Library.Theme.SubText,
+                        Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham, TextSize = bold and 10 or 11,
+                        TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = parent.ZIndex + 1
+                    })
+                    Utility:RegisterProperty(label, "TextColor3", bold and "Text" or "SubText")
+                end
+                local function render()
+                    for _, child in ipairs(header:GetChildren()) do if child:IsA("TextLabel") then child:Destroy() end end
+                    for index, column in ipairs(columns) do cell(header, column.Name or column.Label or column.Key or index, index, #columns, true) end
+                    for _, child in ipairs(list:GetChildren()) do if child:IsA("GuiObject") then child:Destroy() end end
+                    for rowIndex, rowData in ipairs(rows) do
+                        local row = Utility:Create("Frame", {Parent = list, BackgroundColor3 = Library.Theme.Secondary, BackgroundTransparency = 0.3, Size = UDim2.new(1, -4, 0, 30), BorderSizePixel = 0, LayoutOrder = rowIndex, ZIndex = 7})
+                        Utility:RegisterProperty(row, "BackgroundColor3", "Secondary")
+                        Utility:Create("UICorner", {Parent = row, CornerRadius = UDim.new(0, 4)})
+                        for columnIndex, column in ipairs(columns) do
+                            local key = column.Key or column.Field or columnIndex
+                            cell(row, type(rowData) == "table" and rowData[key] or rowData, columnIndex, #columns, false)
+                        end
+                    end
+                end
+                addElement({Holder = container, Text = name})
+                local controller = finishController({Type = "Table"}, container, name, options.Tooltip)
+                function controller:SetRows(nextRows) rows = type(nextRows) == "table" and nextRows or {} render() return self end
+                function controller:SetColumns(nextColumns) columns = type(nextColumns) == "table" and nextColumns or columns render() return self end
+                function controller:AddRow(row) table.insert(rows, row) render() return self end
+                function controller:Clear() table.clear(rows) render() return self end
+                function controller:GetRows() return rows end
+                render()
+                return controller
+            end
+
+            function Section:CreatePlayerList(options)
+                options = options or {}
+                local listOptions = {}
+                for key, value in pairs(options) do listOptions[key] = value end
+                listOptions.Name = options.Name or "Players"
+                local userCallback = options.Callback
+                listOptions.Callback = function(player) Utility:SafeCall(userCallback, player) end
+                local controller = self:CreateList(listOptions)
+                controller.Type = "PlayerList"
+                local function refreshPlayers()
+                    local values = {}
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        table.insert(values, {Label = player.DisplayName, Description = "@" .. player.Name, Value = player})
+                    end
+                    table.sort(values, function(a, b) return a.Label:lower() < b.Label:lower() end)
+                    controller:SetItems(values)
+                end
+                Library:Connect(Players.PlayerAdded, function() task.defer(refreshPlayers) end)
+                Library:Connect(Players.PlayerRemoving, function() task.defer(refreshPlayers) end)
+                refreshPlayers()
+                return controller
+            end
+
+            function Section:CreateLogConsole(options)
+                options = options or {}
+                local name = tostring(options.Name or "Console")
+                local maxLines = math.max(10, tonumber(options.MaxLines) or 150)
+                local entries = {}
+                local container = Utility:Create("Frame", {
+                    Parent = ContentContainer, BackgroundColor3 = Library.Theme.Main,
+                    Size = UDim2.new(1, 0, 0, tonumber(options.Height) or 190), BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5
+                })
+                Utility:RegisterProperty(container, "BackgroundColor3", "Main")
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 7)})
+                local title = Utility:Create("TextLabel", {Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 4), Size = UDim2.new(1, -78, 0, 24), Text = name, TextColor3 = Library.Theme.Text, Font = Enum.Font.Code, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6})
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local clearButton = Utility:Create("TextButton", {Parent = container, BackgroundTransparency = 1, Position = UDim2.new(1, -64, 0, 4), Size = UDim2.fromOffset(54, 24), Text = "Clear", TextColor3 = Library.Theme.SubText, Font = Enum.Font.GothamBold, TextSize = 10, AutoButtonColor = false, ZIndex = 7})
+                Utility:RegisterProperty(clearButton, "TextColor3", "SubText")
+                local output = Utility:Create("ScrollingFrame", {Parent = container, BackgroundColor3 = Library.Theme.Secondary, BackgroundTransparency = 0.25, Position = UDim2.fromOffset(7, 31), Size = UDim2.new(1, -14, 1, -38), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 2, ScrollBarImageColor3 = Library.Theme.Accent, BorderSizePixel = 0, ZIndex = 6})
+                Utility:RegisterProperty(output, "BackgroundColor3", "Secondary")
+                Utility:RegisterProperty(output, "ScrollBarImageColor3", "Accent")
+                Utility:Create("UIPadding", {Parent = output, PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6)})
+                Utility:Create("UIListLayout", {Parent = output, Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder})
+                local function render()
+                    for _, child in ipairs(output:GetChildren()) do if child:IsA("TextLabel") then child:Destroy() end end
+                    for index, entry in ipairs(entries) do
+                        local semantic = entry.Level == "Error" and "Error" or entry.Level == "Warn" and "Warn" or entry.Level == "Success" and "Success" or "SubText"
+                        local line = Utility:Create("TextLabel", {Parent = output, BackgroundTransparency = 1, Size = UDim2.new(1, -4, 0, 16), AutomaticSize = Enum.AutomaticSize.Y, Text = "[" .. entry.Level .. "] " .. entry.Text, TextColor3 = Library.Theme[semantic], Font = Enum.Font.Code, TextSize = 11, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, LayoutOrder = index, ZIndex = 7})
+                        Utility:RegisterProperty(line, "TextColor3", semantic)
+                    end
+                    task.defer(function() output.CanvasPosition = Vector2.new(0, math.max(0, output.AbsoluteCanvasSize.Y)) end)
+                end
+                addElement({Holder = container, Text = name})
+                local controller = finishController({Type = "LogConsole"}, container, name, options.Tooltip)
+                function controller:Write(text, level)
+                    table.insert(entries, {Text = tostring(text), Level = tostring(level or "Info")})
+                    while #entries > maxLines do table.remove(entries, 1) end
+                    render() return self
+                end
+                function controller:Log(text) return self:Write(text, "Info") end
+                function controller:Warn(text) return self:Write(text, "Warn") end
+                function controller:Error(text) return self:Write(text, "Error") end
+                function controller:Success(text) return self:Write(text, "Success") end
+                function controller:Clear() table.clear(entries) render() return self end
+                function controller:GetEntries() return entries end
+                Library:Connect(clearButton.MouseButton1Click, function() controller:Clear() end)
+                for _, entry in ipairs(options.Entries or {}) do controller:Write(entry.Text or entry[1] or entry, entry.Level or entry[2]) end
+                return controller
+            end
+
+            function Section:CreateSkeleton(options)
+                options = options or {}
+                local lineCount = math.clamp(tonumber(options.Lines) or 3, 1, 8)
+                local container = Utility:Create("Frame", {Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, 22 + lineCount * 18), BorderSizePixel = 0, ZIndex = 5})
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 7)})
+                local bars = {}
+                for index = 1, lineCount do
+                    local bar = Utility:Create("Frame", {Parent = container, BackgroundColor3 = Library.Theme.Hover, BackgroundTransparency = 0.15, Position = UDim2.new(0, 10, 0, 10 + (index - 1) * 18), Size = UDim2.new(index == lineCount and 0.62 or 1, index == lineCount and -10 or -20, 0, 10), BorderSizePixel = 0, ZIndex = 6})
+                    Utility:RegisterProperty(bar, "BackgroundColor3", "Hover")
+                    Utility:Create("UICorner", {Parent = bar, CornerRadius = UDim.new(1, 0)})
+                    table.insert(bars, bar)
+                end
+                addElement({Holder = container, Text = tostring(options.Name or "Loading placeholder")})
+                local controller = finishController({Type = "Skeleton"}, container, options.Name or "Skeleton")
+                local animationToken = 1
+                task.spawn(function()
+                    local bright = false
+                    while animationToken == 1 and container.Parent and not Library.Unloaded do
+                        bright = not bright
+                        for _, bar in ipairs(bars) do Utility:Tween(bar, TweenInfo.new(0.55), {BackgroundTransparency = bright and 0.48 or 0.15}) end
+                        task.wait(0.62)
+                    end
+                end)
+                local destroy = controller.Destroy
+                function controller:Destroy() animationToken = 0 destroy(self) end
+                return controller
+            end
+
+            -- TABBOX (minitabs)
+            function Section:CreateTabbox()
+                local tabboxContainer = Utility:Create("Frame", {
+                    Parent = ContentContainer,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 0),
+                    ZIndex = 5,
+                    BorderSizePixel = 0
+                })
+                local buttonBar = Utility:Create("Frame", {
+                    Parent = tabboxContainer,
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 30),
+                    ZIndex = 6
+                })
+                local buttonLayout = Utility:Create("UIListLayout", {
+                    Parent = buttonBar,
+                    FillDirection = Enum.FillDirection.Horizontal,
+                    HorizontalAlignment = Enum.HorizontalAlignment.Left,
+                    Padding = UDim.new(0, 4)
+                })
+                local contentArea = Utility:Create("Frame", {
+                    Parent = tabboxContainer,
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(0, 0, 0, 34),
+                    Size = UDim2.new(1, 0, 1, -34),
+                    ZIndex = 6,
+                    ClipsDescendants = true
+                })
+                local tabs = {}
+                local activeTab = nil
+
+                local function resize()
+                    local totalHeight = 34 + (activeTab and activeTab.ContentSize or 0)
+                    tabboxContainer.Size = UDim2.new(1, 0, 0, totalHeight)
+                    RefreshLayout()
+                end
+
+                local tabbox = {
+                    AddTab = function(self, tabName, contentBuilder)
+                        local btn = Utility:Create("TextButton", {
+                            Parent = buttonBar,
+                            BackgroundColor3 = Library.Theme.Surface,
+                            Size = UDim2.new(0, 80, 1, 0),
+                            Text = tabName,
+                            TextColor3 = Library.Theme.Text,
+                            Font = Enum.Font.GothamBold,
+                            TextSize = 12,
+                            AutoButtonColor = false,
+                            ZIndex = 7
+                        })
+                        Utility:RegisterProperty(btn, "BackgroundColor3", "Surface")
+                        Utility:RegisterProperty(btn, "TextColor3", "Text")
+                        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 4), Parent = btn})
+                        local content = Utility:Create("Frame", {
+                            Parent = contentArea,
+                            BackgroundTransparency = 1,
+                            Size = UDim2.new(1, 0, 1, 0),
+                            Visible = false,
+                            ZIndex = 7
+                        })
+                        local tab = { Button = btn, Content = content, ContentSize = 0, Built = false }
+                        table.insert(tabs, tab)
+                        local function activate()
+                            for _, t in ipairs(tabs) do
+                                t.Content.Visible = false
+                                t.Button.BackgroundColor3 = Library.Theme.Surface
+                                t.Button.TextColor3 = Library.Theme.Text
+                            end
+                            content.Visible = true
+                            btn.BackgroundColor3 = Library.Theme.Accent
+                            btn.TextColor3 = Color3.new(1, 1, 1)
+                            activeTab = tab
+                            if contentBuilder and not tab.Built then
+                                tab.Built = true
+                                Utility:SafeCall(contentBuilder, content)
+                            end
+                            local list = content:FindFirstChildWhichIsA("UIListLayout")
+                            if list then
+                                tab.ContentSize = list.AbsoluteContentSize.Y
+                            else
+                                tab.ContentSize = content.AbsoluteSize.Y
+                            end
+                            resize()
+                        end
+                        Library:Connect(btn.MouseButton1Click, activate)
+                        if #tabs == 1 then task.defer(activate) end
+                        return content
+                    end
+                }
+                addElement({Holder = tabboxContainer})
+                return tabbox
+            end
+
+            return Section
+        end
+
+        return Tab
+    end
+
+    function Window:CreateDashboard(options)
+        options = options or {}
+        local dashboardTab = Window:CreateTab({
+            Name = options.Name or "Overview",
+            Icon = options.Icon or ICONS.Dashboard,
+            IsOverview = options.IsNative == true
+        })
+        local heroHeight = IsMobile and 118 or 132
+        local hero = Utility:Create("Frame", {
+            Name = "DashboardHero", Parent = dashboardTab.Page,
+            BackgroundColor3 = Library.Theme.Surface, BackgroundTransparency = 0,
+            Position = UDim2.fromOffset(0, 0), Size = UDim2.new(1, -4, 0, heroHeight),
+            BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 3
+        })
+        Utility:RegisterProperty(hero, "BackgroundColor3", "Surface")
+        Utility:RegisterMaterial(hero, 0.28, 0)
+        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 13), Parent = hero})
+        local heroStroke = Utility:Create("UIStroke", {Parent = hero, Color = Library.Theme.Stroke, Thickness = 1})
+        Utility:RegisterProperty(heroStroke, "Color", "Stroke")
+        local heroGradient = Utility:Create("UIGradient", {Parent = hero, Rotation = 12})
+        Utility:RegisterGradient(heroGradient, "SurfaceAlt", "Surface", "Main")
+        local heroRail = Utility:Create("Frame", {
+            Parent = hero, BackgroundColor3 = Library.Theme.Accent,
+            Size = UDim2.new(1, 0, 0, 3), BorderSizePixel = 0, ZIndex = 4
+        })
+        Utility:RegisterProperty(heroRail, "BackgroundColor3", "Accent")
+        local heroRailGradient = Utility:Create("UIGradient", {Parent = heroRail})
+        Utility:RegisterGradient(heroRailGradient, "Accent", "Accent2", "Accent3")
+
+        local avatar = Utility:Create("ImageLabel", {
+            Parent = hero, BackgroundColor3 = Library.Theme.Main,
+            Position = UDim2.fromOffset(20, 20), Size = UDim2.fromOffset(88, 88),
+            Image = Utility:NormalizeAssetId(options.Avatar, ICONS.Profile),
+            ScaleType = Enum.ScaleType.Crop, BorderSizePixel = 0, ZIndex = 5
+        })
+        Utility:RegisterProperty(avatar, "BackgroundColor3", "Main")
+        Utility:Create("UICorner", {CornerRadius = UDim.new(0, 13), Parent = avatar})
+        local avatarStroke = Utility:Create("UIStroke", {Parent = avatar, Color = Library.Theme.Accent, Thickness = 1})
+        Utility:RegisterProperty(avatarStroke, "Color", "Accent")
+
+        local greeting = Utility:Create("TextLabel", {
+            Parent = hero, BackgroundTransparency = 1, Position = UDim2.fromOffset(128, 31),
+            Size = UDim2.new(1, -156, 0, 30), Font = Enum.Font.GothamBold,
+            Text = tostring(options.Greeting or ("Welcome, " .. (Plr.DisplayName or Plr.Name))),
+            TextColor3 = Library.Theme.Text, TextSize = 22, TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 5
+        })
+        Utility:RegisterProperty(greeting, "TextColor3", "Text")
+        local subtitle = Utility:Create("TextLabel", {
+            Parent = hero, BackgroundTransparency = 1, Position = UDim2.fromOffset(128, 63),
+            Size = UDim2.new(1, -156, 0, 22), Font = Enum.Font.Gotham,
+            Text = tostring(options.Subtitle or ("Your control center · @" .. Plr.Name)),
+            TextColor3 = Library.Theme.SubText, TextSize = 13,
+            TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 5
+        })
+        Utility:RegisterProperty(subtitle, "TextColor3", "SubText")
+        if not Utility:NormalizeAssetId(options.Avatar) then
+            task.spawn(function()
+                local ok, image = pcall(function()
+                    return Players:GetUserThumbnailAsync(tonumber(options.UserId) or Plr.UserId, Enum.ThumbnailType.AvatarBust, Enum.ThumbnailSize.Size180x180)
+                end)
+                if ok and avatar.Parent then avatar.Image = image end
+            end)
+        end
+
+        dashboardTab:SetHeader(hero, heroHeight + 12)
+        dashboardTab:OnResponsive(function(mobile)
+            heroHeight = mobile and 112 or 132
+            hero.Size = UDim2.new(1, -4, 0, heroHeight)
+            avatar.Position = mobile and UDim2.fromOffset(14, 20) or UDim2.fromOffset(20, 20)
+            avatar.Size = mobile and UDim2.fromOffset(58, 58) or UDim2.fromOffset(88, 88)
+            greeting.Position = mobile and UDim2.fromOffset(84, 24) or UDim2.fromOffset(128, 31)
+            greeting.Size = mobile and UDim2.new(1, -98, 0, 26) or UDim2.new(1, -156, 0, 30)
+            greeting.TextSize = mobile and 17 or 22
+            subtitle.Position = mobile and UDim2.fromOffset(84, 51) or UDim2.fromOffset(128, 63)
+            subtitle.Size = mobile and UDim2.new(1, -98, 0, 34) or UDim2.new(1, -156, 0, 22)
+            subtitle.TextWrapped = mobile
+            dashboardTab:SetHeader(hero, heroHeight + 12)
+        end)
+
+        local dashboard = {Tab = dashboardTab, Hero = hero, Cards = {}}
+        function dashboard:AddCard(cardOptions)
+            cardOptions = cardOptions or {}
+            local section = dashboardTab:CreateSection({
+                Name = cardOptions.Name or "Card",
+                Side = cardOptions.Side or "Auto",
+                Icon = cardOptions.Icon
+            })
+            if cardOptions.Description then
+                section:CreateParagraph({Content = cardOptions.Description})
+            end
+            for _, metric in ipairs(cardOptions.Metrics or {}) do
+                section:CreateMetric(metric)
+            end
+            if cardOptions.Action then
+                section:CreateButton({
+                    Name = cardOptions.Action.Name or "Open",
+                    Description = cardOptions.Action.Description,
+                    Icon = cardOptions.Action.Icon,
+                    Callback = cardOptions.Action.Callback
+                })
+            end
+            table.insert(self.Cards, section)
+            return section
+        end
+        function dashboard:SetGreeting(text) greeting.Text = tostring(text) end
+        function dashboard:SetSubtitle(text) subtitle.Text = tostring(text) end
+        function dashboard:SetAvatar(asset) avatar.Image = Utility:NormalizeAssetId(asset, avatar.Image) end
+        for _, card in ipairs(options.Cards or {}) do dashboard:AddCard(card) end
+        return dashboard
+    end
+
+    -- Native Overview is always available directly above UI Settings. It is
+    -- intentionally created after user-navigation plumbing but outside the
+    -- scrollable tab list, so scripts cannot accidentally push it offscreen.
+    local NativeOverview = Window:CreateDashboard({
+        Name = "Overview",
+        IsNative = true,
+        Greeting = "Welcome, " .. (Plr.DisplayName or Plr.Name),
+        Subtitle = "RenLib session · @" .. Plr.Name,
+        Cards = {
+            {
+                Name = "RenHub launcher",
+                Side = "Left",
+                Icon = ICONS.Play,
+                Description = "Close this RenLib session and return to the official RenHub script selector.",
+                Action = {
+                    Name = "Relaunch RenHub",
+                    Description = "Unload this interface, then start the official RenHub loader.",
+                    Icon = ICONS.Restore,
+                    Callback = function()
+                        Window:Dialog({
+                            Title = "Relaunch RenHub?",
+                            Content = "RenLib will close this interface and start the official RenHub selector.",
+                            Actions = {
+                                {Name = "Cancel"},
+                                {Name = "Relaunch", Primary = true, Callback = function()
+                                    Library:RelaunchRenHub(options.BeforeRelaunch)
+                                end}
+                            }
+                        })
+                    end
+                }
+            },
+            {
+                Name = "Session",
+                Side = "Right",
+                Icon = ICONS.Dashboard,
+                Metrics = {
+                    {Name = "Library", Value = "V" .. Library.Version, Detail = "Current RenLib release"},
+                    {Name = "Device", Value = Library.DeviceMode, Detail = "Responsive layout mode"},
+                    {Name = "Material", Value = Library.MaterialMode, Detail = "Current window material"}
+                }
+            }
+        }
+    })
+    Window.OverviewTab = NativeOverview.Tab
+
+    -- Create Settings Tab
+    local SettingsTab = Window:CreateTab({
+        Name = "UI Settings",
+        Emoji = EMOJIS.Settings,
+        IsSettings = true
+    })
+    Window.SettingsTab = SettingsTab
+
+    task.defer(function()
+        if not Library.Unloaded and not Window.ActiveTab and Window.OverviewTab then
+            Window.OverviewTab:Activate()
+        end
+    end)
+
+    local UISection = SettingsTab:CreateSection({ Name = "UI Controls", Side = "Left" })
+    if not IsMobile then
+        UISection:CreateLabel("Toggle UI Key: " .. Library.ToggleKey.Name)
+        UISection:CreateButton({
+            Name = "Change Toggle Key",
+            Callback = function()
+                Library:Notify({ Title = "Press Any Key", Content = "Press a key to set as toggle...", Emoji = "⌨️", Duration = 5 })
+                local conn
+                conn = Library:Connect(UserInputService.InputBegan, function(input)
+                    if input.UserInputType == Enum.UserInputType.Keyboard then
+                        Library.ToggleKey = input.KeyCode
+                        Library:Notify({ Title = "Success", Content = "Toggle key set to: " .. input.KeyCode.Name, Emoji = EMOJIS.Success })
+                        conn:Disconnect()
+                    end
+                end)
+            end
+        })
+    else
+        UISection:CreateLabel("Tap the floating RenHub button to toggle UI")
+    end
+    UISection:CreateButton({ Name = "Minimize UI", Icon = ICONS.Minimize, Callback = function() Window:Minimize() end })
+    UISection:CreateButton({ Name = "Close UI", Icon = ICONS.Close, Callback = function() Window:Close() end })
+
+    local AppearanceSection = SettingsTab:CreateSection({ Name = "Appearance & motion", Side = "Right" })
+    AppearanceSection:CreateDropdown({
+        Name = "Theme preset",
+        Values = {"Midnight", "Nebula", "Celestial", "Rose", "Aurora", "Ember", "Prism Frost", "Moss Archive", "Velvet Latte"},
+        Default = Library.ActiveTheme or "Midnight",
+        Flag = "__RenLibTheme",
+        Callback = function(theme)
+            Library:ApplyThemePreset(theme)
+        end
+    })
+    AppearanceSection:CreateDropdown({
+        Name = "Window material",
+        Values = {"Solid", "Frosted"},
+        Default = Library.MaterialMode,
+        Flag = "__RenLibMaterial",
+        Callback = function(mode)
+            Library:SetMaterialMode(mode)
+        end
+    })
+    AppearanceSection:CreateSlider({
+        Name = "Glass transparency",
+        Min = 0,
+        Max = 32,
+        Step = 2,
+        Default = Library.MaterialIntensity,
+        Flag = "__RenLibFrostIntensity",
+        CallbackMode = "Release",
+        Callback = function(value) Library:SetMaterialIntensity(value) end
+    })
+    local ScaleSlider = AppearanceSection:CreateSlider({
+        Name = "UI scale",
+        Min = 100,
+        Max = 150,
+        Step = 5,
+        Default = math.floor(Library.DPIScale * 100),
+        Flag = "__RenLibScale",
+        CallbackMode = "Release",
+        Callback = function(scale)
+            task.defer(function() Library:PreviewDPIScale(scale, 10) end)
+        end
+    })
+    AppearanceSection:CreateButton({
+        Name = "Reset UI size",
+        Description = "Preview the safe 100% size with the same 10-second recovery.",
+        Icon = ICONS.Restore,
+        Callback = function()
+            ScaleSlider:SetSilent(100)
+            Library:PreviewDPIScale(100, 10)
+        end
+    })
+    AppearanceSection:CreateToggle({
+        Name = "Reduced motion",
+        Default = Library.ReducedMotion,
+        Flag = "__RenLibReducedMotion",
+        Callback = function(enabled) Library:SetReducedMotion(enabled) end
+    })
+    AppearanceSection:CreateParagraph({
+        Title = "Responsive by default",
+        Content = "RenLib reflows from the UI's real visible width, so small scales and phones use one safe column. Frosted material is local to the RenLib window and never changes the game screen."
+    })
+
+    local UtilitySection = SettingsTab:CreateSection({ Name = "Utilities", Side = "Right" })
+    UtilitySection:CreateButton({
+        Name = "Keybind manager",
+        Description = "Review, edit, or reset every registered shortcut in one place.",
+        Icon = ICONS.Menu,
+        Callback = function() Window:ShowKeybindManager() end
+    })
+    if options.ShowInfiniteYield == nil or options.ShowInfiniteYield then
+        UtilitySection:CreateButton({
+            Name = "Launch Infinite Yield",
+            Description = "Fetch the current official EdgeIY source after confirmation.",
+            Icon = ICONS.Play,
+            Callback = function()
+                Window:Dialog({
+                    Title = "Launch Infinite Yield?",
+                    Content = "This downloads and runs the current script directly from the official EdgeIY/infiniteyield repository.",
+                    Actions = {
+                        {Name = "Cancel"},
+                        {Name = "Launch", Primary = true, Callback = function() Library:LaunchInfiniteYield() end}
+                    }
+                })
+            end
+        })
+    end
+
+    local ConfigSection = SettingsTab:CreateSection({ Name = "Configuration", Side = "Left" })
+    local configNames = Library:GetConfigList()
+    local selectedConfig = configNames[1]
+    local desiredConfigName = selectedConfig or "default"
+    local ConfigDropdown, AutoloadStatus
+
+    local function hasConfig(name, values)
+        for _, item in ipairs(values or {}) do if item == name then return true end end
+        return false
+    end
+
+    local function refreshConfigManager(preferred)
+        configNames = Library:GetConfigList()
+        local target
+        if preferred and hasConfig(preferred, configNames) then
+            target = preferred
+        elseif hasConfig(selectedConfig, configNames) then
+            target = selectedConfig
+        else
+            target = configNames[1]
+        end
+        if ConfigDropdown then
+            ConfigDropdown:Refresh(configNames)
+            selectedConfig = target
+            if target then ConfigDropdown:Set(target) end
+        else
+            selectedConfig = target
+        end
+        if AutoloadStatus then
+            AutoloadStatus:SetContent(Library:GetAutoloadConfigName() or "None")
+        end
+    end
+
+    ConfigDropdown = ConfigSection:CreateDropdown({
+        Name = "Saved configs",
+        Values = configNames,
+        Default = selectedConfig,
+        Flag = "__RenLibConfigSelection",
+        Callback = function(value) selectedConfig = value end
+    })
+    ConfigSection:CreateInput({
+        Name = "Config name / rename target",
+        Default = desiredConfigName,
+        Placeholder = "default",
+        Flag = "__RenLibConfigName",
+        Callback = function(value) desiredConfigName = cleanConfigName(value) end
+    })
+    AutoloadStatus = ConfigSection:CreateParagraph({
+        Title = "Current autoload",
+        Content = Library:GetAutoloadConfigName() or "None"
+    })
+    ConfigSection:CreateButton({Name = "Save or overwrite", Callback = function()
+        local ok, err = Library:SaveConfig(desiredConfigName)
+        if ok then selectedConfig = desiredConfigName; refreshConfigManager(desiredConfigName) end
+        Library:Notify({Title = ok and "Config saved" or "Save unavailable", Content = ok and desiredConfigName or tostring(err), Duration = 3})
+    end})
+    ConfigSection:CreateButton({Name = "Load selected", Callback = function()
+        if not selectedConfig then
+            Library:Notify({Title = "No config selected", Content = "Save or select a config first.", Duration = 3})
+            return
+        end
+        local ok, err = Library:LoadConfig(selectedConfig)
+        Library:Notify({Title = ok and "Config loaded" or "Load failed", Content = ok and selectedConfig or tostring(err), Duration = 3})
+    end})
+    ConfigSection:CreateButton({Name = "Rename selected", Callback = function()
+        if not selectedConfig then
+            Library:Notify({Title = "No config selected", Content = "Choose a saved config first.", Duration = 3})
+            return
+        end
+        local oldName = selectedConfig
+        local ok, err = Library:RenameConfig(oldName, desiredConfigName)
+        if ok then selectedConfig = desiredConfigName; refreshConfigManager(desiredConfigName) end
+        Library:Notify({Title = ok and "Config renamed" or "Rename failed", Content = ok and (oldName .. " → " .. desiredConfigName) or tostring(err), Duration = 3})
+    end})
+    ConfigSection:CreateButton({Name = "Set selected as autoload", Callback = function()
+        if not selectedConfig then
+            Library:Notify({Title = "No config selected", Content = "Choose a saved config first.", Duration = 3})
+            return
+        end
+        local ok, err = Library:SetAutoloadConfig(selectedConfig)
+        refreshConfigManager(selectedConfig)
+        Library:Notify({Title = ok and "Autoload set" or "Autoload unavailable", Content = ok and selectedConfig or tostring(err), Duration = 3})
+    end})
+    ConfigSection:CreateButton({Name = "Delete selected", Icon = EMOJIS.Trash, Callback = function()
+        if not selectedConfig then
+            Library:Notify({Title = "No config selected", Content = "Choose a saved config first.", Duration = 3})
+            return
+        end
+        local deleting = selectedConfig
+        Window:Dialog({
+            Title = "Delete " .. deleting .. "?",
+            Content = "This permanently removes the saved config. Its autoload link will also be cleared.",
+            Actions = {
+                {Name = "Cancel"},
+                {Name = "Delete", Primary = true, Callback = function()
+                    local ok, err = Library:DeleteConfig(deleting)
+                    if ok then selectedConfig = nil; refreshConfigManager() end
+                    Library:Notify({Title = ok and "Config deleted" or "Delete failed", Content = ok and deleting or tostring(err), Duration = 3})
+                end}
+            }
+        })
+    end})
+    ConfigSection:CreateButton({Name = "Clear autoload", Callback = function()
+        local ok, err = Library:ClearAutoloadConfig()
+        refreshConfigManager(selectedConfig)
+        Library:Notify({Title = ok and "Autoload cleared" or "Clear failed", Content = ok and "No config will load automatically." or tostring(err), Duration = 3})
+    end})
+    ConfigSection:CreateButton({Name = "Refresh config list", Icon = EMOJIS.Refresh, Callback = function()
+        refreshConfigManager(selectedConfig)
+    end})
+
+    Library:Connect(SettingsBtn.MouseButton1Click, function()
+        if SettingsTab then
+            SettingsTab:Activate()
+        end
+    end)
+
+    Library.Window = Window
+    return Window
+end
+
+--// UNLOAD
+function Library:Unload(reason)
+    if self.Unloaded then return end
+    self.Unloaded = true
+    self.ScalePreview = nil
+    for index = #self.AddonOrder, 1, -1 do
+        self:UnregisterAddon(self.AddonOrder[index])
+    end
+    for _, tween in pairs(self.ActiveTweens) do
+        pcall(function() tween:Cancel() end)
+    end
+    for _, tween in pairs(self.LayoutTweens) do
+        pcall(function() tween:Cancel() end)
+    end
+    for _, tween in pairs(self.VisibilityTweens) do
+        pcall(function() tween:Cancel() end)
+    end
+    for _, conn in pairs(Library.Connections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    if Library.ScreenGui then
+        Library.ScreenGui:Destroy()
+    end
+    table.clear(self.Connections)
+    table.clear(self.Registry)
+    table.clear(self.GradientRegistry)
+    table.clear(self.MaterialRegistry)
+    table.clear(self.MaterialDecorations)
+    table.clear(self.BrandMarks)
+    table.clear(self.Scales)
+    table.clear(self.Options)
+    table.clear(self.KeybindList)
+    table.clear(self.KeybindDefaults)
+    table.clear(self.PendingAutoloadFlags)
+    table.clear(self.LayoutTweens)
+    table.clear(self.VisibilityTweens)
+    self.Window = nil
+    self.KeybindManager = nil
+    self.ScreenGui = nil
+    if RuntimeEnvironment[RUNTIME_KEY] == self then RuntimeEnvironment[RUNTIME_KEY] = nil end
+    print("[RenLib] Unloaded" .. (reason and (" (" .. tostring(reason) .. ")") or ""))
+end
+
+--// TOGGLE KEY (PC only)
+Library:Connect(UserInputService.InputBegan, function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Library.ToggleKey then
+        if Library.Window then Library.Window:Toggle() end
+    end
+end)
+
+RuntimeEnvironment[RUNTIME_KEY] = Library
+ensureConfigFolders()
+Library:PrepareAutoloadConfig()
+
+print("[RenLib] Loaded - Version " .. Library.Version .. " (" .. Library.DeviceMode .. ")")
+
+return Library
+
+    end)()
+    Runtime.RenLib = RenLib
+
+    local Window = RenLib:CreateWindow({
+        Name = "RenBanana • Sea " .. tostring(Sea),
+        Width = 900,
+        Height = 620,
+        Icon = "9080449299",
+        ShowUserProfile = true,
+        ProfileUserId = LocalPlayer.UserId,
+        ProfileSubtitle = "Farming runtime ready",
+        EnableGlobalSearch = true,
+        EnableSidebarResize = true,
+        SidebarMode = "Dynamic",
+        MaterialMode = "Frosted",
+        MaterialIntensity = 18,
+        ShowInfiniteYield = false,
+        BeforeRelaunch = API.StopAll,
+    })
+    Runtime.Window = Window
+
+    local function uniqueLevelEnemies()
+        local output, seen = {}, {}
+        for _, row in ipairs(LEVEL_DATA[Sea]) do
+            if not seen[row.Enemy] then
+                seen[row.Enemy] = true
+                output[#output + 1] = row.Enemy
+            end
+        end
+        table.sort(output)
+        return output
+    end
+
+    local function toggle(section, name, key, tooltip)
+        local control = section:CreateToggle({
+            Name = name,
+            Flag = key,
+            Default = Settings[key],
+            Tooltip = tooltip,
+            Callback = function(value) API.Set(key, value) end,
+        })
+        Runtime.UIControls[key] = Runtime.UIControls[key] or {}
+        table.insert(Runtime.UIControls[key], control)
+        return control
+    end
+
+    local Farming = Window:CreateTab({Name = "Farming", Icon = "9080449299"})
+    local MainFarm = Farming:CreateSection({Name = "Main farming", Side = "Left"})
+    toggle(MainFarm, "Auto farm level", "AutoFarmLevel", "Uses the current sea level map and quests.")
+    toggle(MainFarm, "Auto farm nearest", "AutoFarmNearest", "Useful for unlabelled waves and humanoid trial enemies.")
+    MainFarm:CreateDropdown({
+        Name = "Weapon category",
+        Values = {"Melee", "Sword", "Blox Fruit", "Gun"},
+        Default = Settings.WeaponCategory,
+        Flag = "WeaponCategory",
+        Callback = function(value) API.Set("WeaponCategory", value) end,
+    })
+    MainFarm:CreateDropdown({
+        Name = "Attack cadence",
+        Values = {"Normal Attack", "Fast Attack", "Super Fast Attack", "Gravity hub"},
+        Default = Settings.AttackMode,
+        Flag = "AttackMode",
+        Callback = function(value) API.Set("AttackMode", value) end,
+    })
+    toggle(MainFarm, "Accept level quests", "AcceptLevelQuests")
+
+    local MobFarm = Farming:CreateSection({Name = "Mob and boss", Side = "Right"})
+    MobFarm:CreateDropdown({
+        Name = "Selected mob",
+        Values = uniqueLevelEnemies(),
+        Default = Settings.SelectedMob,
+        Flag = "SelectedMob",
+        Callback = function(value) API.Set("SelectedMob", value) end,
+    })
+    toggle(MobFarm, "Auto kill selected mob", "AutoKillMob")
+    MobFarm:CreateDropdown({
+        Name = "Selected boss",
+        Values = BOSS_LISTS[Sea],
+        Default = Settings.SelectedBoss,
+        Flag = "SelectedBoss",
+        Callback = function(value) API.Set("SelectedBoss", value) end,
+    })
+    toggle(MobFarm, "Auto farm selected boss", "AutoFarmBoss")
+    toggle(MobFarm, "Accept boss quests", "AcceptBossQuests")
+    toggle(MobFarm, "Auto farm all bosses", "AutoFarmAllBoss")
+
+    local Combat = Farming:CreateSection({Name = "Fixed anchor and hitbox", Side = "Left"})
+    toggle(Combat, "Bring mobs", "BringMobs", "Freezes and brings same-name enemies to one fixed anchor.")
+    toggle(Combat, "Fast target collector", "FastAttack")
+    toggle(Combat, "Activate equipped tool", "ActivateTool")
+    Combat:CreateSlider({Name = "Hitbox size", Min = 8, Max = 100, Step = 1, Default = Settings.HitboxSize, Flag = "HitboxSize", Callback = function(value) API.Set("HitboxSize", value) end})
+    Combat:CreateSlider({Name = "Height above anchor", Min = 5, Max = 80, Step = 1, Default = Settings.Height, Flag = "Height", Callback = function(value) API.Set("Height", value) end})
+    Combat:CreateSlider({Name = "Tween speed", Min = 25, Max = 500, Step = 5, Default = Settings.TweenSpeed, Flag = "TweenSpeed", Callback = function(value) API.Set("TweenSpeed", value) end})
+    Combat:CreateButton({Name = "Stop every automation", Callback = API.StopAll})
+
+    local Stats = Window:CreateTab({Name = "Stats", Icon = "6031260800"})
+    local StatsSection = Stats:CreateSection({Name = "Automatic stat allocation", Side = "Left"})
+    StatsSection:CreateSlider({Name = "Points per request", Min = 1, Max = 1000, Step = 1, Default = Settings.StatsValue, Flag = "StatsValue", Callback = function(value) API.Set("StatsValue", value) end})
+    toggle(StatsSection, "Auto melee", "AutoMelee")
+    toggle(StatsSection, "Auto defense", "AutoDefense")
+    toggle(StatsSection, "Auto sword", "AutoSword")
+    toggle(StatsSection, "Auto gun", "AutoGun")
+    toggle(StatsSection, "Auto Blox Fruit", "AutoFruitStats")
+
+    local Fruits = Window:CreateTab({Name = "Fruits", Icon = "6034509993"})
+    local FruitSection = Fruits:CreateSection({Name = "Fruit automation", Side = "Left"})
+    toggle(FruitSection, "Auto collect nearby fruits", "AutoCollectFruit", "Uses touch interest when available, with a local proximity fallback.")
+    toggle(FruitSection, "Auto store held fruits", "AutoStoreFruit")
+    toggle(FruitSection, "Auto buy random fruit", "AutoRandomFruit", "Requests the fruit cousin once per minute.")
+
+    if Sea >= 2 then
+        local Race = Window:CreateTab({Name = Sea == 3 and "Race & trials" or "Race", Icon = "6034287594"})
+        local Ability = Race:CreateSection({Name = "Race ability", Side = "Left"})
+        toggle(Ability, "Auto activate race V3", "AutoRaceV3")
+        if Sea == 3 then toggle(Ability, "Auto activate race V4", "AutoRaceV4") end
+        if Sea == 3 then
+            local Trials = Race:CreateSection({Name = "V4 trial navigation", Side = "Right"})
+            Trials:CreateParagraph({Title = "Sea 3 only", Content = "Trial destinations are resolved from live workspace landmarks, avoiding stale hard-coded coordinates."})
+            toggle(Trials, "Auto farm nearest trial enemy", "AutoFarmNearest", "Works for Humanoid combat trials; movement and survival trials need race-specific state.")
+            local function moveToLandmark(name)
+                for _, instance in ipairs(workspace:GetDescendants()) do
+                    if instance.Name == name then
+                        local destination = instance:IsA("BasePart") and instance.CFrame
+                            or (instance:IsA("Model") and instance:GetPivot())
+                        if destination then Movement:Go(destination * CFrame.new(0, 5, 0)); return end
+                    end
+                end
+                RenLib:Notify({Title = "Landmark unavailable", Content = name .. " is not currently replicated.", Duration = 5})
+            end
+            Trials:CreateButton({Name = "Move to Temple of Time", Callback = function() moveToLandmark("Temple of Time") end})
+            Trials:CreateButton({Name = "Move to Ancient Clock", Callback = function() moveToLandmark("Ancient Clock") end})
+            Trials:CreateButton({Name = "Move to Great Tree", Callback = function() moveToLandmark("Great Tree") end})
+        end
+    end
+
+    if Sea == 3 then
+        local Events = Window:CreateTab({Name = "Sea events", Icon = "6031094678"})
+        local Entity = Events:CreateSection({Name = "Fixed-anchor event enemy", Side = "Left"})
+        Entity:CreateDropdown({
+            Name = "Event enemy",
+            Values = {"Shark", "Piranha", "Terrorshark", "Fish Crew Member", "Haunted Crew Member"},
+            Default = Settings.SelectedEventEnemy,
+            Flag = "SelectedEventEnemy",
+            Callback = function(value) API.Set("SelectedEventEnemy", value) end,
+        })
+        toggle(Entity, "Auto farm event enemy", "AutoEventEnemy")
+        Entity:CreateParagraph({Title = "Sea 3 scope", Content = "This path handles humanoid event enemies. Sea beasts and Leviathan use different health/boat workflows and are intentionally not treated as ordinary mobs."})
+    elseif Sea == 2 then
+        local Events = Window:CreateTab({Name = "Sea 2 events", Icon = "6031094678"})
+        local Factory = Events:CreateSection({Name = "Factory enemies", Side = "Left"})
+        Factory:CreateParagraph({Title = "Sea 2", Content = "Factory Staff can use the fixed-anchor mob farm; the Factory Core is not a Humanoid and needs its own damage transport."})
+        Factory:CreateButton({Name = "Farm Factory Staff", Callback = function() API.Set("SelectedMob", "Factory Staff"); API.Set("AutoKillMob", true) end})
+    end
+
+    local Misc = Window:CreateTab({Name = "Misc", Icon = "6031280882"})
+    local RuntimeSection = Misc:CreateSection({Name = "Runtime", Side = "Left"})
+    toggle(RuntimeSection, "Auto Buso", "AutoBuso")
+    toggle(RuntimeSection, "Anti AFK", "AntiAFK")
+    RuntimeSection:CreateButton({Name = "Rejoin current server", Callback = function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end})
+    RuntimeSection:CreateButton({Name = "Unload RenBanana", Callback = API.Destroy})
+
+    local VisualSection = Misc:CreateSection({Name = "Local visuals", Side = "Right"})
+    VisualSection:CreateToggle({
+        Name = "Full bright",
+        Flag = "FullBright",
+        Default = Settings.FullBright,
+        Callback = function(value)
+            API.Set("FullBright", value)
+            Lighting.Brightness = value and 3 or 1
+            Lighting.GlobalShadows = not value
+        end,
+    })
+    VisualSection:CreateToggle({
+        Name = "Remove fog",
+        Flag = "RemoveFog",
+        Default = Settings.RemoveFog,
+        Callback = function(value)
+            API.Set("RemoveFog", value)
+            Lighting.FogEnd = value and 1000000 or 100000
+        end,
+    })
+
+    RenLib:ApplyThemePreset("Nebula")
+end
+
+function API.Destroy()
+    if not Runtime.Alive then return end
+    Runtime.Alive = false
+    API.StopAll()
+    for _, connection in ipairs(Runtime.Connections) do pcall(connection.Disconnect, connection) end
+    table.clear(Runtime.Connections)
+    for body in pairs(Runtime.OwnedBodyMovers) do
+        if body and body.Parent then pcall(body.Destroy, body) end
+    end
+    restoreCharacterPhysics()
+    if Runtime.Gui then pcall(Runtime.Gui.Destroy, Runtime.Gui) end
+    if Runtime.RenLib then pcall(Runtime.RenLib.Unload, Runtime.RenLib) end
+    if Environment.RenBanana == API then Environment.RenBanana = nil end
+end
+
+Environment.RenBanana = API
+if Settings.CreateUI then
+    local ok, err = pcall(makeRenLibUI)
+    if not ok then warn("RenBanana RenLib UI:", err) end
+end
+return API
