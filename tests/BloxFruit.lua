@@ -1,6 +1,9 @@
 -- RenBanana Farming Runtime
 -- Reconstructed from Gravity Hub / Banana MainV2 (commit 1970c5ed..., 2026-08-21).
 -- Self-contained: no mutable HTTP dependencies. The old 2024 validator remote is not used.
+-- The recovered current Fast Attack path contains target collection but no observable
+-- damage remote. This build uses close-range normal M1 input unless the caller supplies
+-- a verified experience-specific transport with SetAttackTransport().
 
 if not game:IsLoaded() then game.Loaded:Wait() end
 
@@ -10,6 +13,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local VirtualUser = game:GetService("VirtualUser")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local Lighting = game:GetService("Lighting")
 local TeleportService = game:GetService("TeleportService")
 local CoreGui = game:GetService("CoreGui")
@@ -200,7 +204,7 @@ local Settings = {
     SelectedEventEnemy = "Terrorshark",
     WeaponCategory = "Melee",
     ExactToolName = nil,
-    Height = 20,
+    Height = 6,
     TweenSpeed = 200,
     BringRadius = 3000,
     TargetRadius = 60,
@@ -226,6 +230,7 @@ local Settings = {
     AntiAFK = true,
     FullBright = false,
     RemoveFog = false,
+    AggressiveFPSBoost = false,
     CreateUI = true,
 }
 
@@ -259,6 +264,9 @@ local Runtime = {
     EnemyMutationState = setmetatable({}, { __mode = "k" }),
     FeatureLastRun = {},
     UIControls = {},
+    AttackAttempts = 0,
+    DamageRegistrations = 0,
+    ObservedHealth = setmetatable({}, { __mode = "k" }),
 }
 
 local function connect(signal, callback)
@@ -715,7 +723,15 @@ end
 
 local function defaultAttackTransport(tool, primaryTarget, hitParts)
     if not Settings.ActivateTool or not tool or not primaryTarget or #hitParts == 0 then return end
+    Runtime.AttackAttempts += 1
     pcall(tool.Activate, tool)
+    if type(mouse1click) == "function" then pcall(mouse1click) end
+    pcall(function()
+        local camera = workspace.CurrentCamera
+        local center = camera.ViewportSize / 2
+        VirtualInputManager:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 0)
+        VirtualInputManager:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 0)
+    end)
     pcall(function()
         VirtualUser:CaptureController()
         VirtualUser:Button1Down(Vector2.zero, workspace.CurrentCamera.CFrame)
@@ -728,6 +744,14 @@ local function attackTick()
     if not Settings.FastAttack then return end
     collectFastTargets()
     if not farmEnabled() or not Runtime.PrimaryTarget then return end
+    for _, target in ipairs(Runtime.FastTargets) do
+        local humanoid = target:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            local previous = Runtime.ObservedHealth[target]
+            if previous and humanoid.Health < previous then Runtime.DamageRegistrations += 1 end
+            Runtime.ObservedHealth[target] = humanoid.Health
+        end
+    end
     local now = os.clock()
     local delay = ATTACK_DELAYS[Settings.AttackMode] or 0.2
     if now - Runtime.LastAttack < delay then return end
@@ -980,6 +1004,69 @@ local function storeHeldFruits()
     scan(LocalPlayer:FindFirstChildOfClass("Backpack"))
 end
 
+local function optimizeVisualInstance(instance)
+    if instance:IsDescendantOf(LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer) then return end
+    pcall(function()
+        if instance:IsA("BasePart") then
+            instance.CastShadow = false
+            instance.Reflectance = 0
+            instance.Material = Enum.Material.SmoothPlastic
+            if instance:IsA("MeshPart") then
+                instance.TextureID = ""
+                instance.RenderFidelity = Enum.RenderFidelity.Performance
+            end
+        elseif instance:IsA("Decal") or instance:IsA("Texture") then
+            instance.Transparency = 1
+        elseif instance:IsA("ParticleEmitter") or instance:IsA("Trail")
+            or instance:IsA("Beam") or instance:IsA("Smoke")
+            or instance:IsA("Fire") or instance:IsA("Sparkles")
+        then
+            instance.Enabled = false
+        elseif instance:IsA("PostEffect") or instance:IsA("Light") then
+            instance.Enabled = false
+        elseif instance:IsA("Explosion") then
+            instance.Visible = false
+            instance.BlastPressure = 0
+        end
+    end)
+end
+
+local function applyAggressiveFPSBoost()
+    if Runtime.FPSApplied then return end
+    Runtime.FPSApplied = true
+    Settings.AggressiveFPSBoost = true
+
+    if type(setfpscap) == "function" then pcall(setfpscap, 60) end
+    pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
+    pcall(function() settings().Rendering.MeshPartDetailLevel = Enum.MeshPartDetailLevel.Level01 end)
+    pcall(function() sethiddenproperty(workspace.Terrain, "Decoration", false) end)
+    pcall(function()
+        local terrain = workspace.Terrain
+        terrain.WaterWaveSize = 0
+        terrain.WaterWaveSpeed = 0
+        terrain.WaterReflectance = 0
+        terrain.WaterTransparency = 1
+    end)
+    pcall(function()
+        Lighting.GlobalShadows = false
+        Lighting.FogEnd = 1000000
+        Lighting.Brightness = 1
+        Lighting.EnvironmentDiffuseScale = 0
+        Lighting.EnvironmentSpecularScale = 0
+    end)
+
+    for _, instance in ipairs(workspace:GetDescendants()) do optimizeVisualInstance(instance) end
+    for _, instance in ipairs(Lighting:GetDescendants()) do optimizeVisualInstance(instance) end
+    pcall(function() collectgarbage("collect") end)
+end
+
+connect(workspace.DescendantAdded, function(instance)
+    if Settings.AggressiveFPSBoost then task.defer(optimizeVisualInstance, instance) end
+end)
+connect(Lighting.DescendantAdded, function(instance)
+    if Settings.AggressiveFPSBoost then task.defer(optimizeVisualInstance, instance) end
+end)
+
 connect(LocalPlayer.Idled, function()
     if not Settings.AntiAFK then return end
     pcall(function()
@@ -1086,6 +1173,7 @@ function API.Set(name, value)
         end
     end
     Settings[name] = value
+    if name == "AggressiveFPSBoost" and value == true then applyAggressiveFPSBoost() end
     if exclusive[name] or name == "SelectedMob" or name == "SelectedBoss"
         or name == "SelectedEventEnemy"
     then
@@ -7960,9 +8048,19 @@ return Library
     toggle(Combat, "Fast target collector", "FastAttack")
     toggle(Combat, "Activate equipped tool", "ActivateTool")
     Combat:CreateSlider({Name = "Hitbox size", Min = 8, Max = 100, Step = 1, Default = Settings.HitboxSize, Flag = "HitboxSize", Callback = function(value) API.Set("HitboxSize", value) end})
-    Combat:CreateSlider({Name = "Height above anchor", Min = 5, Max = 80, Step = 1, Default = Settings.Height, Flag = "Height", Callback = function(value) API.Set("Height", value) end})
+    Combat:CreateSlider({Name = "M1 distance above anchor", Min = 2, Max = 20, Step = 1, Default = Settings.Height, Flag = "CombatHeightV2", Tooltip = "Normal server-validated M1 attacks need a short root-to-root distance.", Callback = function(value) API.Set("Height", value) end})
     Combat:CreateSlider({Name = "Tween speed", Min = 25, Max = 500, Step = 5, Default = Settings.TweenSpeed, Flag = "TweenSpeed", Callback = function(value) API.Set("TweenSpeed", value) end})
     Combat:CreateButton({Name = "Stop every automation", Callback = API.StopAll})
+    Combat:CreateButton({
+        Name = "Show combat diagnostics",
+        Callback = function()
+            RenLib:Notify({
+                Title = "Combat diagnostics",
+                Content = string.format("Attempts: %d | observed damage events: %d | targets in range: %d", Runtime.AttackAttempts, Runtime.DamageRegistrations, #Runtime.FastTargets),
+                Duration = 8,
+            })
+        end,
+    })
 
     local Stats = Window:CreateTab({Name = "Stats", Icon = "6031260800"})
     local StatsSection = Stats:CreateSection({Name = "Automatic stat allocation", Side = "Left"})
@@ -8031,6 +8129,17 @@ return Library
     RuntimeSection:CreateButton({Name = "Unload RenBanana", Callback = API.Destroy})
 
     local VisualSection = Misc:CreateSection({Name = "Local visuals", Side = "Right"})
+    VisualSection:CreateWarningBox({
+        Title = "Ultra FPS mode",
+        Text = "One-way for this session: removes textures, materials, shadows, particles, post effects, lights, water effects, and caps rendering at 60 FPS. Rejoin to restore visuals.",
+    })
+    VisualSection:CreateButton({
+        Name = "APPLY ULTRA FPS BOOST",
+        Callback = function()
+            API.Set("AggressiveFPSBoost", true)
+            RenLib:Notify({Title = "Ultra FPS mode", Content = "Aggressive client visuals were reduced. Rejoin to restore them.", Duration = 6})
+        end,
+    })
     VisualSection:CreateToggle({
         Name = "Full bright",
         Flag = "FullBright",
