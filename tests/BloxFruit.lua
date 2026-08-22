@@ -204,7 +204,7 @@ local Settings = {
     SelectedEventEnemy = "Terrorshark",
     WeaponCategory = "Melee",
     ExactToolName = nil,
-    Height = 6,
+    Height = 20,
     TweenSpeed = 200,
     BringRadius = 3000,
     TargetRadius = 60,
@@ -267,6 +267,10 @@ local Runtime = {
     AttackAttempts = 0,
     DamageRegistrations = 0,
     ObservedHealth = setmetatable({}, { __mode = "k" }),
+    CombatToken = nil,
+    CombatTransport = "initializing",
+    TokenHookInstalled = false,
+    LastTokenProbe = 0,
 }
 
 local function connect(signal, callback)
@@ -348,6 +352,11 @@ connect(workspace.DescendantRemoving, function(instance) WorldFruits[instance] =
 local Remotes = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:WaitForChild("Remotes", 15)
 local CommF = Remotes and (Remotes:FindFirstChild("CommF_") or Remotes:WaitForChild("CommF_", 10))
 local CommE = Remotes and Remotes:FindFirstChild("CommE")
+local Modules = ReplicatedStorage:FindFirstChild("Modules")
+local Net = Modules and Modules:FindFirstChild("Net")
+local RegisterAttack = Net and Net:FindFirstChild("RE/RegisterAttack")
+local RegisterHit = Net and Net:FindFirstChild("RE/RegisterHit")
+local LegacyRigController = ReplicatedStorage:FindFirstChild("RigControllerEvent")
 
 local function invokeComm(...)
     if not CommF then return false end
@@ -359,6 +368,117 @@ local function fireComm(...)
     if not CommE then return false end
     local ok = pcall(CommE.FireServer, CommE, ...)
     return ok
+end
+
+local function isCombatToken(value)
+    return type(value) == "string" and #value == 8 and value:match("^%x+$") ~= nil
+end
+
+local function captureCombatToken(value)
+    if not isCombatToken(value) then return false end
+    Runtime.CombatToken = value
+    Runtime.CombatTransport = "Net token ready"
+    return true
+end
+
+local function inspectTokenValues(values)
+    for _, value in pairs(values) do
+        if captureCombatToken(value) then return true end
+    end
+    return false
+end
+
+local function watchTokenRemote(instance)
+    if not instance:IsA("RemoteEvent") then return end
+    connect(instance.OnClientEvent, function(...)
+        if Runtime.Alive then inspectTokenValues({...}) end
+    end)
+end
+
+local function scanLoadedCombatState()
+    if type(getgc) ~= "function" then return false end
+    local ok, objects = pcall(getgc, true)
+    if not ok or type(objects) ~= "table" then return false end
+    for _, object in ipairs(objects) do
+        if isCombatToken(object) then
+            captureCombatToken(object)
+            return true
+        elseif type(object) == "table" then
+            for _, value in pairs(object) do
+                if isCombatToken(value) then
+                    captureCombatToken(value)
+                    return true
+                end
+            end
+        elseif type(object) == "function" and type(debug) == "table"
+            and type(debug.getupvalues) == "function"
+        then
+            local success, upvalues = pcall(debug.getupvalues, object)
+            if success and type(upvalues) == "table" and inspectTokenValues(upvalues) then return true end
+        end
+    end
+    return false
+end
+
+local function installCombatTokenCapture()
+    if Runtime.TokenHookInstalled or not RegisterHit then return end
+    Runtime.TokenHookInstalled = true
+
+    if Net then
+        for _, remote in ipairs(Net:GetDescendants()) do watchTokenRemote(remote) end
+        connect(Net.DescendantAdded, watchTokenRemote)
+    end
+
+    if type(hookmetamethod) == "function" and type(getnamecallmethod) == "function" then
+        local oldNamecall
+        local interceptor = function(self, ...)
+            local args = {...}
+            local method = getnamecallmethod()
+            if Runtime.Alive and method == "FireServer" and self == RegisterHit then
+                captureCombatToken(args[4])
+            end
+            local results = table.pack(oldNamecall(self, ...))
+            if Runtime.Alive and method == "InvokeServer" then
+                for index = 1, results.n do captureCombatToken(results[index]) end
+            end
+            return table.unpack(results, 1, results.n)
+        end
+        if type(newcclosure) == "function" then interceptor = newcclosure(interceptor) end
+        local installed, original = pcall(hookmetamethod, game, "__namecall", interceptor)
+        if installed then oldNamecall = original end
+    end
+
+    scanLoadedCombatState()
+end
+
+local function probeCombatToken()
+    if not RegisterAttack or Runtime.CombatToken then return end
+    local now = os.clock()
+    if now - Runtime.LastTokenProbe < 2 then return end
+    Runtime.LastTokenProbe = now
+    task.spawn(function()
+        for _ = 1, 5 do
+            if not Runtime.Alive or Runtime.CombatToken then break end
+            pcall(RegisterAttack.FireServer, RegisterAttack, 0.5)
+            pcall(function()
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+                task.wait(0.04)
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+            end)
+            task.wait(0.12)
+        end
+        if not Runtime.CombatToken then scanLoadedCombatState() end
+    end)
+end
+
+if RegisterAttack and RegisterHit then
+    Runtime.CombatTransport = "Net token pending"
+    installCombatTokenCapture()
+    probeCombatToken()
+elseif LegacyRigController then
+    Runtime.CombatTransport = "Legacy RigController"
+else
+    Runtime.CombatTransport = "Input fallback"
 end
 
 local function activeFarmMode()
@@ -721,9 +841,7 @@ local function collectFastTargets()
     end
 end
 
-local function defaultAttackTransport(tool, primaryTarget, hitParts)
-    if not Settings.ActivateTool or not tool or not primaryTarget or #hitParts == 0 then return end
-    Runtime.AttackAttempts += 1
+local function inputAttack(tool)
     pcall(tool.Activate, tool)
     if type(mouse1click) == "function" then pcall(mouse1click) end
     pcall(function()
@@ -737,6 +855,71 @@ local function defaultAttackTransport(tool, primaryTarget, hitParts)
         VirtualUser:Button1Down(Vector2.zero, workspace.CurrentCamera.CFrame)
         VirtualUser:Button1Up(Vector2.zero, workspace.CurrentCamera.CFrame)
     end)
+end
+
+local function currentHitModel(targetModels)
+    local current = Runtime.CurrentTarget
+    if current and aliveModel(current) then return current end
+    for _, model in ipairs(targetModels or {}) do
+        if model:IsA("Model") and aliveModel(model) then return model end
+    end
+    return nil
+end
+
+local function netTokenAttack(targetModels)
+    if not RegisterAttack or not RegisterHit then return false end
+    if not Runtime.CombatToken then
+        probeCombatToken()
+        return false
+    end
+    local enemy = currentHitModel(targetModels)
+    if not enemy then return false end
+    local part = enemy:FindFirstChild("LeftHand")
+        or enemy:FindFirstChild("RightHand")
+        or enemy:FindFirstChild("Head")
+        or enemy:FindFirstChild("HumanoidRootPart")
+    if not part then return false end
+    local attackOk = pcall(RegisterAttack.FireServer, RegisterAttack, 0.5)
+    local hitOk = pcall(RegisterHit.FireServer, RegisterHit, part, {}, nil, Runtime.CombatToken)
+    if attackOk and hitOk then
+        Runtime.CombatTransport = "Net token attack"
+        return true
+    end
+    return false
+end
+
+local function legacyRigAttack(tool, targetModels)
+    if not LegacyRigController then return false end
+    local roots, seen = {}, {}
+    for _, model in ipairs(targetModels or {}) do
+        local root
+        if model.Parent == EnemyFolder then
+            local _, candidateRoot = aliveModel(model)
+            root = candidateRoot
+        end
+        if root and not seen[model] then
+            seen[model] = true
+            roots[#roots + 1] = root
+        end
+    end
+    if #roots == 0 then return false end
+    local weaponName = tool and tool.Name or ""
+    local changed = pcall(LegacyRigController.FireServer, LegacyRigController, "weaponChange", weaponName)
+    local hit = pcall(LegacyRigController.FireServer, LegacyRigController, "hit", roots, 1, "")
+    if changed and hit then
+        Runtime.CombatTransport = "Legacy RigController attack"
+        return true
+    end
+    return false
+end
+
+local function defaultAttackTransport(tool, primaryTarget, hitParts, targetModels)
+    if not Settings.ActivateTool or not tool or not primaryTarget or #hitParts == 0 then return end
+    Runtime.AttackAttempts += 1
+    if netTokenAttack(targetModels) then return end
+    if legacyRigAttack(tool, targetModels) then return end
+    Runtime.CombatTransport = RegisterHit and "Net token pending; input probe" or "Input fallback"
+    inputAttack(tool)
 end
 Runtime.AttackTransport = defaultAttackTransport
 
@@ -1154,6 +1337,7 @@ API.BossLists = BOSS_LISTS
 
 function API.Set(name, value)
     assert(Settings[name] ~= nil, "Unknown RenBanana setting: " .. tostring(name))
+    if name == "Height" then value = math.max(16, tonumber(value) or 20) end
     local exclusive = {
         AutoFarmLevel = true,
         AutoFarmNearest = true,
@@ -8048,7 +8232,7 @@ return Library
     toggle(Combat, "Fast target collector", "FastAttack")
     toggle(Combat, "Activate equipped tool", "ActivateTool")
     Combat:CreateSlider({Name = "Hitbox size", Min = 8, Max = 100, Step = 1, Default = Settings.HitboxSize, Flag = "HitboxSize", Callback = function(value) API.Set("HitboxSize", value) end})
-    Combat:CreateSlider({Name = "M1 distance above anchor", Min = 2, Max = 20, Step = 1, Default = Settings.Height, Flag = "CombatHeightV2", Tooltip = "Normal server-validated M1 attacks need a short root-to-root distance.", Callback = function(value) API.Set("Height", value) end})
+    Combat:CreateSlider({Name = "Height above anchor", Min = 16, Max = 50, Step = 1, Default = Settings.Height, Flag = "CombatHeightV3", Tooltip = "The tokenized/legacy transports support the original above-mob farming position.", Callback = function(value) API.Set("Height", math.max(16, value)) end})
     Combat:CreateSlider({Name = "Tween speed", Min = 25, Max = 500, Step = 5, Default = Settings.TweenSpeed, Flag = "TweenSpeed", Callback = function(value) API.Set("TweenSpeed", value) end})
     Combat:CreateButton({Name = "Stop every automation", Callback = API.StopAll})
     Combat:CreateButton({
@@ -8056,7 +8240,7 @@ return Library
         Callback = function()
             RenLib:Notify({
                 Title = "Combat diagnostics",
-                Content = string.format("Attempts: %d | observed damage events: %d | targets in range: %d", Runtime.AttackAttempts, Runtime.DamageRegistrations, #Runtime.FastTargets),
+                Content = string.format("%s | token:%s | attempts:%d | damage:%d | targets:%d", Runtime.CombatTransport, Runtime.CombatToken and "yes" or "no", Runtime.AttackAttempts, Runtime.DamageRegistrations, #Runtime.FastTargets),
                 Duration = 8,
             })
         end,
