@@ -301,6 +301,7 @@ local Settings = {
     SelectedRaidChip = "Flame",
     SelectedStockFruit = "Light-Light",
     RedeemCode = "",
+    JoinJobId = "",
     SelectedEventEnemy = "Terrorshark",
     SelectedIsland = "",
     SelectedFishingRod = "Fishing Rod",
@@ -432,6 +433,21 @@ local ATTACK_DELAYS = {
     ["Instant"] = 0.03,
 }
 
+local FARM_TOGGLE_KEYS = {
+    AutoFarmLevel = true,
+    AutoFarmNearest = true,
+    AutoKillMob = true,
+    AutoFarmBoss = true,
+    AutoFarmAllBoss = true,
+    AutoFarmMaterial = true,
+    AutoEliteHunter = true,
+    AutoFarmObservation = true,
+    AutoFarmMastery = true,
+    AutoRaid = true,
+    AutoSeaBeast = true,
+    AutoEventEnemy = true,
+}
+
 local Runtime = {
     Alive = true,
     Connections = {},
@@ -447,11 +463,19 @@ local Runtime = {
     LastSimulationRadius = 0,
     MovementTween = nil,
     MovementGoal = nil,
+    MovementOwner = nil,
+    MovementCharacter = nil,
     MovementStarted = 0,
     MovementLastProgress = 0,
     MovementLastPosition = nil,
     LastLandCFrame = nil,
     RecoveryCount = 0,
+    ManualTravelHold = false,
+    ManualTravelInProgress = false,
+    Respawning = false,
+    CharacterGeneration = 0,
+    RespawnFarmSettings = nil,
+    UIHydrating = false,
     FarmAnchor = nil,
     FarmAnchorKey = nil,
     AnchorReached = false,
@@ -1033,17 +1057,24 @@ end
 
 local Movement = {}
 
-function Movement:Cancel()
+function Movement:Cancel(expectedOwner)
+    if expectedOwner and Runtime.MovementOwner ~= expectedOwner then return false end
     if Runtime.MovementTween then
         pcall(Runtime.MovementTween.Cancel, Runtime.MovementTween)
     end
     Runtime.MovementTween = nil
     Runtime.MovementGoal = nil
+    Runtime.MovementOwner = nil
+    Runtime.MovementCharacter = nil
+    return true
 end
 
-function Movement:Go(destination)
+function Movement:Go(destination, owner)
     if typeof(destination) ~= "CFrame" then return false end
-    local _, humanoid, root = characterParts()
+    owner = owner or "Automation"
+    if Runtime.Respawning then return false end
+    if Runtime.ManualTravelHold and owner ~= "ManualTravel" then return false end
+    local model, humanoid, root = characterParts()
     if not humanoid or not root or humanoid.Health <= 0 then return false end
     if humanoid.Sit then humanoid.Sit = false end
 
@@ -1051,15 +1082,20 @@ function Movement:Go(destination)
     if distance <= 3 then
         self:Cancel()
         root.CFrame = destination
+        Runtime.ManualTravelInProgress = false
         return true
     end
 
-    if Runtime.MovementGoal and (Runtime.MovementGoal.Position - destination.Position).Magnitude <= 2 then
+    if Runtime.MovementOwner == owner and Runtime.MovementGoal
+        and (Runtime.MovementGoal.Position - destination.Position).Magnitude <= 2
+    then
         return false
     end
 
     self:Cancel()
     Runtime.MovementGoal = destination
+    Runtime.MovementOwner = owner
+    Runtime.MovementCharacter = model
     Runtime.MovementStarted = os.clock()
     Runtime.MovementLastProgress = os.clock()
     Runtime.MovementLastPosition = root.Position
@@ -1074,6 +1110,9 @@ function Movement:Go(destination)
         if Runtime.MovementTween == tween then
             Runtime.MovementTween = nil
             Runtime.MovementGoal = nil
+            Runtime.MovementOwner = nil
+            Runtime.MovementCharacter = nil
+            if owner == "ManualTravel" then Runtime.ManualTravelInProgress = false end
             if playbackState == Enum.PlaybackState.Completed then Runtime.MovementLastProgress = os.clock() end
         end
     end)
@@ -1094,7 +1133,7 @@ task.spawn(function()
     local strandedSince = nil
     while Runtime.Alive do
         local _, humanoid, root = characterParts()
-        if humanoid and root and humanoid.Health > 0 then
+        if humanoid and root and humanoid.Health > 0 and not Runtime.Respawning then
             if humanoid.FloorMaterial ~= Enum.Material.Air
                 and humanoid.FloorMaterial ~= Enum.Material.Water
                 and landBelow(root)
@@ -1103,7 +1142,7 @@ task.spawn(function()
             end
 
             local goal = Runtime.MovementGoal
-            if Runtime.MovementTween and goal then
+            if Runtime.MovementTween and goal and Runtime.MovementCharacter == character() then
                 local previous = Runtime.MovementLastPosition
                 if not previous or (root.Position - previous).Magnitude >= 2 then
                     Runtime.MovementLastPosition = root.Position
@@ -1111,13 +1150,13 @@ task.spawn(function()
                 elseif os.clock() - Runtime.MovementLastProgress > 2.5
                     and (root.Position - goal.Position).Magnitude > 10
                 then
-                    local retry = goal
+                    local retry, owner = goal, Runtime.MovementOwner
                     Runtime.RecoveryCount += 1
                     Movement:Cancel()
-                    Movement:Go(retry)
+                    Movement:Go(retry, owner)
                 end
                 strandedSince = nil
-            elseif farmEnabled() and not Runtime.PickupBusy and not Runtime.AnchorReached
+            elseif farmEnabled() and not Runtime.ManualTravelHold and not Runtime.PickupBusy and not Runtime.AnchorReached
                 and not Runtime.CurrentTarget and not landBelow(root)
             then
                 strandedSince = strandedSince or os.clock()
@@ -1141,11 +1180,16 @@ end)
 
 local function ensureBodyVelocity(root, name, force)
     local body = root:FindFirstChild(name)
-    if body and body:IsA("BodyVelocity") then return body end
+    if body and body:IsA("BodyVelocity") then
+        Runtime.OwnedBodyMovers[body] = true
+        pcall(body.SetAttribute, body, "BloxFruitOwned", true)
+        return body
+    end
     body = Instance.new("BodyVelocity")
     body.Name = name
     body.MaxForce = force
     body.Velocity = Vector3.zero
+    body:SetAttribute("BloxFruitOwned", true)
     body.Parent = root
     Runtime.OwnedBodyMovers[body] = true
     return body
@@ -1467,6 +1511,7 @@ Runtime.AttackTransport = defaultAttackTransport
 
 local function attackTick()
     if not Settings.FastAttack then return end
+    if Runtime.Respawning or Runtime.ManualTravelHold then return end
     if Runtime.PickupBusy then return end
     if activeFarmMode() == "Observation" then return end
     collectFastTargets()
@@ -1946,6 +1991,10 @@ local function choosePickup(playerRoot)
 end
 
 local function tickPickupOverlay(playerRoot)
+    if Runtime.Respawning or Runtime.ManualTravelHold then
+        finishPickupOverlay()
+        return
+    end
     if not Settings.AutoCollectFruit and not Settings.AutoCollectChest and not Settings.AutoCollectBerries then
         finishPickupOverlay()
         return
@@ -2097,7 +2146,9 @@ task.spawn(function()
             lastMode = mode
         end
 
-        if mode and not Runtime.PickupBusy and os.clock() - lastRun >= MODE_INTERVALS[mode] then
+        if mode and not Runtime.Respawning and not Runtime.ManualTravelHold
+            and not Runtime.PickupBusy and os.clock() - lastRun >= MODE_INTERVALS[mode]
+        then
             lastRun = os.clock()
             local _, humanoid, playerRoot = characterParts()
             if humanoid and playerRoot and humanoid.Health > 0 then
@@ -2118,7 +2169,9 @@ task.spawn(function()
                 end)
                 if not ok then warn("BloxFruitScript farm tick:", err) end
             end
-        elseif not mode and not Runtime.PickupBusy and Runtime.MovementTween then
+        elseif not mode and not Runtime.PickupBusy and Runtime.MovementTween
+            and Runtime.MovementOwner ~= "ManualTravel"
+        then
             Movement:Cancel()
         end
         task.wait(0.03)
@@ -2131,7 +2184,9 @@ end)
 task.spawn(function()
     while Runtime.Alive do
         local _, humanoid, playerRoot = characterParts()
-        if humanoid and playerRoot and humanoid.Health > 0 then
+        if humanoid and playerRoot and humanoid.Health > 0
+            and not Runtime.Respawning and not Runtime.ManualTravelHold
+        then
             local ok, err = pcall(tickPickupOverlay, playerRoot)
             if not ok then warn("BloxFruitScript pickup tick:", err) end
         end
@@ -2271,12 +2326,44 @@ local function travelToSelectedIsland(instant)
     local destination = selectedIslandDestination()
     if not destination then return false end
     destination = destination * CFrame.new(0, 8, 0)
+    Runtime.ManualTravelHold = true
+    Runtime.ManualTravelInProgress = not instant
+    Runtime.CurrentTarget = nil
+    finishPickupOverlay()
+    Movement:Cancel()
+    clearFarmAnchor(true)
     if instant then
         local _, _, root = characterParts()
-        if root then Movement:Cancel(); root.CFrame = destination; return true end
+        if root then
+            root.Anchored = false
+            root.CFrame = destination
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            return true
+        end
+        Runtime.ManualTravelHold = false
         return false
     end
-    return Movement:Go(destination)
+    local started = Movement:Go(destination, "ManualTravel")
+    if not started and not Runtime.MovementTween then Runtime.ManualTravelInProgress = false end
+    return started or Runtime.ManualTravelHold
+end
+
+local function resumeAutomationMovement()
+    Movement:Cancel("ManualTravel")
+    Runtime.ManualTravelHold = false
+    Runtime.ManualTravelInProgress = false
+    Runtime.CurrentTarget = nil
+    clearFarmAnchor(true)
+    return true
+end
+
+local function joinServerJobId(jobId)
+    jobId = string.match(tostring(jobId or ""), "^%s*(.-)%s*$")
+    if jobId == "" then return false, "Enter a server Job ID first" end
+    local ok, err = pcall(TeleportService.TeleportToPlaceInstance,
+        TeleportService, game.PlaceId, jobId, LocalPlayer)
+    return ok, err
 end
 
 local function hopServer(preferLowestPing)
@@ -2846,10 +2933,71 @@ local function acceptAllyRequest()
     end
 end
 
-connect(LocalPlayer.CharacterAdded, function()
+connect(LocalPlayer.CharacterRemoving, function(removingCharacter)
+    Runtime.Respawning = true
+    Runtime.CharacterGeneration += 1
+    local snapshot = {}
+    for key in pairs(FARM_TOGGLE_KEYS) do snapshot[key] = Settings[key] == true end
+    Runtime.RespawnFarmSettings = snapshot
+    Runtime.ManualTravelHold = false
+    Runtime.ManualTravelInProgress = false
+    Runtime.CurrentTarget = nil
+    finishPickupOverlay()
+    Movement:Cancel()
+    clearFarmAnchor(true)
+    for part, original in pairs(Runtime.CollisionState) do
+        if part and part:IsDescendantOf(removingCharacter) then
+            pcall(function() part.CanCollide = original end)
+            Runtime.CollisionState[part] = nil
+        end
+    end
+    for body in pairs(Runtime.OwnedBodyMovers) do
+        if body and body.Name == "BodyClip" and body:IsDescendantOf(removingCharacter) then
+            Runtime.OwnedBodyMovers[body] = nil
+            if body.Parent then pcall(body.Destroy, body) end
+        end
+    end
+end)
+
+connect(LocalPlayer.CharacterAdded, function(addedCharacter)
+    Runtime.CharacterGeneration += 1
+    local generation = Runtime.CharacterGeneration
+    Runtime.Respawning = true
     Runtime.EnergyFloor = nil
     Runtime.SoruClosures = nil
+    Runtime.LastLandCFrame = nil
+    Runtime.CurrentTarget = nil
+    Runtime.ManualTravelHold = false
+    Runtime.ManualTravelInProgress = false
+    Movement:Cancel()
+    clearFarmAnchor(true)
     if Runtime.WaterPart then pcall(Runtime.WaterPart.Destroy, Runtime.WaterPart); Runtime.WaterPart = nil end
+    task.spawn(function()
+        local humanoid = addedCharacter:WaitForChild("Humanoid", 15)
+        local root = addedCharacter:WaitForChild("HumanoidRootPart", 15)
+        if not Runtime.Alive or generation ~= Runtime.CharacterGeneration
+            or addedCharacter ~= LocalPlayer.Character or not humanoid or not root
+        then
+            return
+        end
+        root.Anchored = false
+        humanoid.PlatformStand = false
+        humanoid.AutoRotate = true
+        local snapshot = Runtime.RespawnFarmSettings
+        Runtime.RespawnFarmSettings = nil
+        if snapshot then
+            for key, enabled in pairs(snapshot) do
+                if enabled then
+                    Settings[key] = true
+                    for _, control in ipairs(Runtime.UIControls[key] or {}) do
+                        pcall(control.Set, control, true)
+                    end
+                end
+            end
+        end
+        Runtime.Respawning = false
+        savePersistentSettings(true)
+    end)
 end)
 connect(Players.PlayerAdded, function()
     if Runtime.PlayerDropdown then pcall(Runtime.PlayerDropdown.Refresh, Runtime.PlayerDropdown, playerNames()) end
@@ -2940,14 +3088,32 @@ local function restoreCharacterPhysics()
         end
     end
     local _, humanoid, root = characterParts()
+    local staleBodyClip = root and root:FindFirstChild("BodyClip")
+    if staleBodyClip and staleBodyClip:IsA("BodyVelocity") then
+        released = true
+        Runtime.OwnedBodyMovers[staleBodyClip] = nil
+        pcall(staleBodyClip.Destroy, staleBodyClip)
+    end
+    if root and root.Anchored then
+        released = true
+        root.Anchored = false
+    end
     if released and root then
-        root.AssemblyLinearVelocity = Vector3.zero
+        -- A small downward velocity guarantees that a character released over
+        -- open air falls normally instead of remaining suspended after a farm.
+        root.AssemblyLinearVelocity = Vector3.new(0, -2, 0)
         root.AssemblyAngularVelocity = Vector3.zero
     end
     if released and humanoid then
         humanoid.PlatformStand = false
+        humanoid.Sit = false
         humanoid.AutoRotate = true
-        pcall(humanoid.ChangeState, humanoid, Enum.HumanoidStateType.Freefall)
+        pcall(humanoid.ChangeState, humanoid, Enum.HumanoidStateType.GettingUp)
+        task.defer(function()
+            if humanoid.Parent and humanoid.Health > 0 then
+                pcall(humanoid.ChangeState, humanoid, Enum.HumanoidStateType.Running)
+            end
+        end)
     end
 end
 
@@ -2965,7 +3131,11 @@ connect(RunService.Heartbeat, function(delta)
     physicsAccumulator += delta
     if physicsAccumulator >= 0.12 then
         physicsAccumulator = 0
-        if farmEnabled() or Runtime.PickupBusy then
+        local manualTween = Runtime.ManualTravelInProgress
+            and Runtime.MovementOwner == "ManualTravel"
+        if (farmEnabled() or Runtime.PickupBusy or manualTween)
+            and not Runtime.Respawning and (not Runtime.ManualTravelHold or manualTween)
+        then
             local model, _, root = characterParts()
             if root then ensureBodyVelocity(root, "BodyClip", Vector3.new(100000, 100000, 100000)) end
             if not Runtime.PickupBusy and root and Runtime.AnchorReached and Runtime.FarmAnchor then
@@ -3002,27 +3172,17 @@ function API.Set(name, value)
         warn("BloxFruitScript ignored unknown UI setting:", tostring(name))
         return nil
     end
+    -- RenLib may replay stored control flags while constructing the window.
+    -- The script profile is authoritative during that short hydration phase.
+    if Runtime.UIHydrating then return Settings[name] end
     if name == "Height" then value = math.max(16, tonumber(value) or 20) end
     if name == "TweenSpeed" then value = math.clamp(tonumber(value) or 300, 5, 600) end
     if name == "StatsValue" then value = math.clamp(math.floor(tonumber(value) or 2), 1, 1000) end
     if name == "WalkSpeed" then value = math.clamp(tonumber(value) or 16, 0, 500) end
     if name == "JumpPower" then value = math.clamp(tonumber(value) or 50, 0, 500) end
-    local exclusive = {
-        AutoFarmLevel = true,
-        AutoFarmNearest = true,
-        AutoKillMob = true,
-        AutoFarmBoss = true,
-        AutoFarmAllBoss = true,
-        AutoFarmMaterial = true,
-        AutoEliteHunter = true,
-        AutoFarmObservation = true,
-        AutoFarmMastery = true,
-        AutoRaid = true,
-        AutoSeaBeast = true,
-        AutoEventEnemy = true,
-    }
-    if value == true and exclusive[name] then
-        for other in pairs(exclusive) do
+    if value == true and FARM_TOGGLE_KEYS[name] then
+        resumeAutomationMovement()
+        for other in pairs(FARM_TOGGLE_KEYS) do
             if other ~= name and Settings[other] then
                 Settings[other] = false
                 for _, control in ipairs(Runtime.UIControls[other] or {}) do
@@ -3039,13 +3199,13 @@ function API.Set(name, value)
     if name == "AimbotSkills" and value == true then installSkillAimbotHook() end
     if name == "SpectatePlayer" and value == false then pcall(updateSpectateAndAim) end
     if name == "WalkOnWater" and value == false then pcall(maintainWaterWalk) end
-    if exclusive[name] or name == "SelectedMob" or name == "SelectedBoss"
+    if FARM_TOGGLE_KEYS[name] or name == "SelectedMob" or name == "SelectedBoss"
         or name == "SelectedMaterial" or name == "SelectedEventEnemy"
     then
         Runtime.CurrentTarget = nil
         if name == "AutoFarmAllBoss" then Runtime.AllBossIndex = 1; Runtime.AllBossArrivedAt = nil end
         clearFarmAnchor(true)
-        if exclusive[name] and value == false and not farmEnabled() then
+        if FARM_TOGGLE_KEYS[name] and value == false and not farmEnabled() then
             Movement:Cancel()
             finishPickupOverlay()
             restoreCharacterPhysics()
@@ -3069,7 +3229,9 @@ function API.Set(name, value)
     then
         finishPickupOverlay()
     end
-    savePersistentSettings(false)
+    -- Farm state is committed immediately so even executors that rebuild the
+    -- injected LocalScript on CharacterAdded restore the enabled toggle.
+    savePersistentSettings(FARM_TOGGLE_KEYS[name] == true)
     return value
 end
 
@@ -3092,6 +3254,10 @@ end
 
 function API.Move(destination)
     return Movement:Go(destination)
+end
+
+function API.ResumeAutomationMovement()
+    return resumeAutomationMovement()
 end
 
 function API.StopAll()
@@ -3298,7 +3464,13 @@ end
 
 local function makeRenLibUI()
     local RenLib = (function()
--- RenLib V7.0.0
+-- GENERATED FILE: edit RenLibSource/Modules, then run Build-RenLib.ps1
+-- Module count: 22
+
+--[[ MODULE: 00_runtime.part.lua ]]
+-- Module fragment: runtime, services, constants, root state
+-- Generated from the working V7 baseline; edit this feature in isolation.
+-- RenLib V9.0.0 beta modular compatibility bundle
 -- Responsive Roblox UI framework with centralized navigation, non-destructive
 -- search, mobile-first input, live theming, addons, and deterministic cleanup.
 
@@ -3311,6 +3483,7 @@ local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
 local TextService = game:GetService("TextService")
 local GuiService = game:GetService("GuiService")
+local ContentProvider = game:GetService("ContentProvider")
 
 --// LOCAL SHORTCUTS
 local Plr = Players.LocalPlayer
@@ -3344,11 +3517,31 @@ local ScreenSize = getViewport()
 
 --// CONSTANTS
 local CONFIG_FOLDER = "RenLib/Configs"
-local RUNTIME_KEY = "__RENLIB_V6_RUNTIME"
+local RUNTIME_KEY = "__RENLIB_V8_RUNTIME"
 local INFINITE_YIELD_URL = "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"
-local RENHUB_LOADER_URL = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/RenHubLoader"
-local BRAND_ICON_MANIFEST_URL = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/main/Assets/Brand/icon.txt"
-local RuntimeEnvironment = (getgenv and getgenv()) or shared or _G
+local RenCore_LOADER_URL = "https://raw.githubusercontent.com/xsakyx/RobloxUILib/refs/heads/main/Loaders/RenCoreLoader"
+local BRAND_ICON_ASSET_ID = "rbxassetid://84928996923191"
+local BRAND_ICON_FALLBACK = "rbxassetid://6034316009"
+local function resolveRuntimeEnvironment()
+    if type(getgenv) == "function" then
+        local ok, environment = pcall(getgenv)
+        if ok and type(environment) == "table" then
+            return environment
+        end
+        if not ok then
+            warn("[RenLib] getgenv failed; using a fallback environment: " .. tostring(environment))
+        end
+    end
+    if type(shared) == "table" then
+        return shared
+    end
+    if type(_G) == "table" then
+        return _G
+    end
+    return {}
+end
+
+local RuntimeEnvironment = resolveRuntimeEnvironment()
 
 -- Only one RenLib session may own input and UI at a time.
 local PreviousSession = RuntimeEnvironment[RUNTIME_KEY]
@@ -3405,7 +3598,8 @@ local ICONS = {
 
 --// ROOT LIBRARY
 local Library = {}
-Library.Version = "7.0.0"
+Library.Version = "9.0.0-beta"
+Library.Architecture = "modular-bundle"
 Library.Title = "RenLib"
 Library.Connections = {}
 Library.Tasks = {}
@@ -3420,6 +3614,7 @@ Library.Keybinds = {}
 Library.KeybindDefaults = {}
 Library.Addons = {}
 Library.AddonOrder = {}
+Library.ESPManagers = {}
 Library.ToggleKey = Enum.KeyCode.K
 Library.IsMinimized = false
 Library.IsMobile = IsMobile
@@ -3427,45 +3622,87 @@ Library.DeviceMode = DeviceMode
 Library.DPIScale = 1
 Library.ReducedMotion = false
 Library.MotionScale = 1
-Library.ActiveTweens = setmetatable({}, {__mode = "k"})
-Library.LayoutTweens = setmetatable({}, {__mode = "k"})
-Library.VisibilityTweens = setmetatable({}, {__mode = "k"})
-Library.GradientRegistry = setmetatable({}, {__mode = "k"})
-Library.ActiveTheme = "Celestial"
+-- Strong registries are intentional. Some injected Instance wrappers are not
+-- stable as weak-table keys, which can make theme entries disappear mid-session.
+-- Every registry is explicitly cleared by Unload, so this does not leak state.
+Library.ActiveTweens = {}
+Library.LayoutTweens = {}
+Library.VisibilityTweens = {}
+Library.GradientRegistry = {}
+Library.ActiveTheme = "Obsidian"
 Library.ScalePreview = nil
 Library.MaterialMode = "Solid"
 Library.MaterialIntensity = 18
-Library.MaterialRegistry = setmetatable({}, {__mode = "k"})
-Library.MaterialDecorations = setmetatable({}, {__mode = "k"})
-Library.BrandIcon = ICONS.Palette
+Library.MaterialRegistry = {}
+Library.MaterialDecorations = {}
+Library.BrandIcon = BRAND_ICON_ASSET_ID
 -- Brand marks use semantic text contrast. A dark theme therefore receives a
 -- bright mark while a light theme receives a dark mark, without hard-coded
 -- per-theme exceptions.
-Library.BrandIconTint = "Text"
-Library.BrandMarks = setmetatable({}, {__mode = "k"})
+Library.BrandIconTint = nil
+Library.BrandMarks = {}
 Library.Icons = ICONS
+Library.WorkflowPresets = {
+    Leveling = {
+        Name = "Leveling",
+        Description = "Prioritize repeatable progression and experience actions.",
+        Synonyms = {"level", "levels", "xp", "grind", "farm"},
+        Flags = {}
+    },
+    Items = {
+        Name = "Items",
+        Description = "Prioritize item collection, ownership checks, and upgrades.",
+        Synonyms = {"item", "items", "loot", "collect", "inventory"},
+        Flags = {}
+    },
+    Raids = {
+        Name = "Raids",
+        Description = "Prioritize raid preparation, islands, and boss actions.",
+        Synonyms = {"raid", "raids", "boss", "event", "island"},
+        Flags = {}
+    },
+    LowEnd = {
+        Name = "Low-end devices",
+        Description = "Reduce motion and expensive material effects for a lighter UI.",
+        Synonyms = {"low end", "performance", "fps", "mobile", "potato"},
+        Flags = {},
+        ReducedMotion = true,
+        MotionScale = 0.5,
+        MaterialMode = "Solid"
+    }
+}
+Library.StrategyProfilePrefix = "strategy_"
 
 -- Theme (can be changed at runtime)
 Library.Theme = {
-    Main = Color3.fromRGB(24, 26, 37),
-    Secondary = Color3.fromRGB(29, 32, 44),
-    Surface = Color3.fromRGB(36, 39, 53),
-    SurfaceAlt = Color3.fromRGB(44, 47, 63),
-    Stroke = Color3.fromRGB(82, 86, 111),
-    Divider = Color3.fromRGB(57, 60, 79),
-    Text = Color3.fromRGB(245, 245, 249),
-    SubText = Color3.fromRGB(158, 160, 178),
-    Hover = Color3.fromRGB(48, 51, 68),
-    Click = Color3.fromRGB(55, 59, 77),
-    Accent = Color3.fromRGB(157, 112, 255),
-    Accent2 = Color3.fromRGB(91, 190, 255),
-    Accent3 = Color3.fromRGB(255, 142, 216),
+    Main = Color3.fromRGB(9, 11, 16),
+    Secondary = Color3.fromRGB(14, 17, 24),
+    Surface = Color3.fromRGB(20, 24, 34),
+    SurfaceAlt = Color3.fromRGB(28, 33, 45),
+    Stroke = Color3.fromRGB(66, 74, 94),
+    Divider = Color3.fromRGB(38, 44, 58),
+    Text = Color3.fromRGB(241, 244, 249),
+    SubText = Color3.fromRGB(147, 156, 174),
+    Hover = Color3.fromRGB(31, 37, 50),
+    Click = Color3.fromRGB(39, 46, 61),
+    Accent = Color3.fromRGB(103, 151, 255),
+    Accent2 = Color3.fromRGB(69, 207, 190),
+    Accent3 = Color3.fromRGB(184, 118, 255),
     Success = Color3.fromRGB(75, 215, 155),
-    Warn = Color3.fromRGB(247, 190, 78),
-    Error = Color3.fromRGB(247, 91, 121)
+    Warn = Color3.fromRGB(242, 184, 78),
+    Error = Color3.fromRGB(241, 89, 113)
 }
 
 Library.ThemePresets = {
+    Obsidian = {
+        Main = Color3.fromRGB(9, 11, 16), Secondary = Color3.fromRGB(14, 17, 24),
+        Surface = Color3.fromRGB(20, 24, 34), SurfaceAlt = Color3.fromRGB(28, 33, 45),
+        Stroke = Color3.fromRGB(66, 74, 94), Divider = Color3.fromRGB(38, 44, 58),
+        Text = Color3.fromRGB(241, 244, 249), SubText = Color3.fromRGB(147, 156, 174),
+        Hover = Color3.fromRGB(31, 37, 50), Click = Color3.fromRGB(39, 46, 61),
+        Accent = Color3.fromRGB(103, 151, 255), Accent2 = Color3.fromRGB(69, 207, 190), Accent3 = Color3.fromRGB(184, 118, 255),
+        Success = Color3.fromRGB(75, 215, 155), Warn = Color3.fromRGB(242, 184, 78), Error = Color3.fromRGB(241, 89, 113)
+    },
     Midnight = {
         Main = Color3.fromRGB(23, 26, 36), Secondary = Color3.fromRGB(29, 32, 44),
         Surface = Color3.fromRGB(36, 40, 53), SurfaceAlt = Color3.fromRGB(44, 48, 63),
@@ -3550,13 +3787,139 @@ Library.ThemePresets = {
 }
 
 -- Registry for dynamic theming
-Library.Registry = setmetatable({}, {__mode = "k"})
+Library.Registry = {}
 Library.Scales = {}
 
 -- Global keybinds list
 Library.KeybindManager = nil
 Library.KeybindList = {}
 
+
+--[[ MODULE: 05_capabilities.part.lua ]]
+-- Module fragment: host capability discovery and safe adapters
+-- Optional executor functions are captured once and never called directly by UI modules.
+
+local Capabilities = {
+    Functions = {},
+    Failures = {}
+}
+
+local function captureCapability(name, resolver)
+    local ok, value = pcall(resolver)
+    if ok and type(value) == "function" then
+        Capabilities.Functions[name] = value
+        return value
+    end
+    return nil
+end
+
+captureCapability("loadstring", function() return loadstring end)
+captureCapability("request", function() return request end)
+captureCapability("request", function() return http_request end)
+captureCapability("request", function() return syn and syn.request end)
+captureCapability("request", function() return http and http.request end)
+captureCapability("gethui", function() return gethui end)
+captureCapability("protectGui", function() return syn and syn.protect_gui end)
+captureCapability("setclipboard", function() return setclipboard end)
+captureCapability("setclipboard", function() return toclipboard end)
+captureCapability("isfolder", function() return isfolder end)
+captureCapability("makefolder", function() return makefolder end)
+captureCapability("isfile", function() return isfile end)
+captureCapability("readfile", function() return readfile end)
+captureCapability("writefile", function() return writefile end)
+captureCapability("delfile", function() return delfile end)
+captureCapability("listfiles", function() return listfiles end)
+
+function Capabilities:Has(name)
+    return type(self.Functions[name]) == "function"
+end
+
+function Capabilities:Call(name, ...)
+    local fn = self.Functions[name]
+    if type(fn) ~= "function" then
+        return false, name .. " is unavailable"
+    end
+    return pcall(fn, ...)
+end
+
+function Capabilities:Disable(name, reason)
+    self.Functions[name] = nil
+    self.Failures[name] = tostring(reason or "capability failed")
+end
+
+function Capabilities:HttpGet(url)
+    local gameOk, gameResult = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if gameOk and type(gameResult) == "string" and gameResult ~= "" then
+        return true, gameResult
+    end
+
+    local requestFn = self.Functions.request
+    if type(requestFn) == "function" then
+        local requestOk, response = pcall(requestFn, {Url = url, Method = "GET"})
+        if requestOk and type(response) == "table" then
+            local status = response.StatusCode or response.Status or response.status_code
+            local body = response.Body or response.body
+            if (status == nil or (tonumber(status) and tonumber(status) >= 200 and tonumber(status) < 300))
+                and type(body) == "string" then
+                return true, body
+            end
+            return false, "request returned status " .. tostring(status)
+        end
+        self:Disable("request", response)
+    end
+
+    return false, gameOk and "HTTP returned an empty response" or gameResult
+end
+
+function Capabilities:Compile(source)
+    local compiler = self.Functions.loadstring
+    if type(compiler) ~= "function" then
+        return false, "loadstring is unavailable"
+    end
+    local callOk, chunk, compileError = pcall(compiler, source)
+    if not callOk then return false, chunk end
+    if type(chunk) ~= "function" then return false, compileError or "compiler returned no function" end
+    return true, chunk
+end
+
+function Capabilities:SetClipboard(text)
+    local ok, result = self:Call("setclipboard", tostring(text or ""))
+    if not ok then self.Failures.setclipboard = tostring(result) end
+    return ok, result
+end
+
+function Capabilities:GetGuiParent()
+    local getHui = self.Functions.gethui
+    if type(getHui) == "function" then
+        local ok, result = pcall(getHui)
+        if ok and result then return result end
+        self:Disable("gethui", result)
+    end
+    if CoreGui then return CoreGui end
+    return Plr and Plr:FindFirstChildOfClass("PlayerGui") or nil
+end
+
+function Capabilities:ProtectGui(gui)
+    local protect = self.Functions.protectGui
+    if type(protect) ~= "function" then return false end
+    return pcall(protect, gui)
+end
+
+function Capabilities:GetReport()
+    local report = {}
+    for name in pairs(self.Functions) do report[name] = true end
+    for name, reason in pairs(self.Failures) do report[name] = reason end
+    return report
+end
+
+Library.Capabilities = Capabilities
+
+
+--[[ MODULE: 10_utility.part.lua ]]
+-- Module fragment: utility, assets, animation, responsive helpers
+-- Generated from the working V7 baseline; edit this feature in isolation.
 --// MODULE: UTILITY (extended)
 local Utility = {}
 
@@ -3624,7 +3987,7 @@ end
 function Utility:Create(class, properties)
     local instance = Instance.new(class)
     if class == "UIStroke" and properties.Transparency == nil then
-        instance.Transparency = 0.24
+        instance.Transparency = 0.56
     end
     for k, v in pairs(properties) do
         if k ~= "Parent" then
@@ -3649,32 +4012,35 @@ end
 
 function Utility:LoadBrandIcon(callback)
     task.spawn(function()
-        local resolved = Library.BrandIcon
-        local tintKey = Library.BrandIconTint
-        local ok, manifest = pcall(function()
-            return game:HttpGet(BRAND_ICON_MANIFEST_URL)
+        local resolved = Utility:NormalizeAssetId(BRAND_ICON_ASSET_ID, BRAND_ICON_FALLBACK)
+        local preloadOk = pcall(function()
+            ContentProvider:PreloadAsync({resolved})
         end)
-        if ok and type(manifest) == "string" then
-            local assetLine = manifest:match("^%s*([^\r\n]+)")
-            local requestedTint = manifest:match("[\r\n]+%s*[Tt][Ii][Nn][Tt]%s*=%s*([%w_]+)")
-            resolved = Utility:NormalizeAssetId(assetLine, resolved)
-            tintKey = requestedTint and Library.Theme[requestedTint] and requestedTint or nil
+        if not preloadOk then
+            resolved = BRAND_ICON_FALLBACK
         end
         Library.BrandIcon = resolved
-        Library.BrandIconTint = tintKey
+        Library.BrandIconTint = nil
         for mark in pairs(Library.BrandMarks) do
-            if mark and mark.Parent then
-                mark.Image = resolved
-                if tintKey then
-                    Utility:RegisterProperty(mark, "ImageColor3", tintKey)
-                else
+            local markOk = pcall(function()
+                if mark and mark.Parent then
+                    mark.Image = resolved
                     if Library.Registry[mark] then Library.Registry[mark].ImageColor3 = nil end
                     mark.ImageColor3 = Color3.new(1, 1, 1)
                 end
-            end
+            end)
+            if not markOk or not mark or not mark.Parent then Library.BrandMarks[mark] = nil end
         end
         if callback then Utility:SafeCall(callback, resolved) end
     end)
+end
+
+function Library:SetBrandIcon(asset)
+    local resolved = Utility:NormalizeAssetId(asset)
+    if not resolved then return false, "Invalid icon asset" end
+    BRAND_ICON_ASSET_ID = resolved
+    Utility:LoadBrandIcon()
+    return true
 end
 
 function Utility:Tween(instance, info, properties, callback)
@@ -3907,6 +4273,10 @@ function Utility:RegisterMaterial(instance, frostedTransparency, solidTransparen
     instance[property] = Library:ResolveMaterialTransparency(state)
 end
 
+
+--[[ MODULE: 20_theme.part.lua ]]
+-- Module fragment: themes and material system
+-- Generated from the working V7 baseline; edit this feature in isolation.
 --// DYNAMIC THEME UPDATE
 function Library:UpdateColors()
     for instance, props in pairs(self.Registry) do
@@ -3924,15 +4294,23 @@ function Library:UpdateColors()
 end
 
 function Library:SetTheme(newTheme)
-    local nextAccent = newTheme.Accent or self.Theme.Accent
-    local nextAccent2 = newTheme.Accent2 or nextAccent
-    newTheme.Accent3 = newTheme.Accent3 or nextAccent2
-    for k, v in pairs(newTheme) do
-        self.Theme[k] = v
+    if type(newTheme) ~= "table" then return false, "Theme must be a table" end
+    local merged = {}
+    for key, value in pairs(self.Theme) do merged[key] = value end
+    for key, value in pairs(newTheme) do
+        if typeof(value) == "Color3" then merged[key] = value end
     end
+    if typeof(newTheme.Accent2) ~= "Color3" and typeof(newTheme.Accent) == "Color3" then
+        merged.Accent2 = newTheme.Accent
+    end
+    if typeof(newTheme.Accent3) ~= "Color3" then
+        merged.Accent3 = merged.Accent2 or merged.Accent
+    end
+    for key, value in pairs(merged) do self.Theme[key] = value end
     self:UpdateColors()
     self:SetMaterialIntensity(self.MaterialIntensity)
     if self.Window and self.Window.RefreshThemeState then self.Window:RefreshThemeState() end
+    return true
 end
 
 function Library:ApplyThemePreset(name)
@@ -4004,6 +4382,10 @@ function Library:SetMaterialMode(mode)
     return true
 end
 
+
+--[[ MODULE: 30_scaling.part.lua ]]
+-- Module fragment: DPI and scale preview
+-- Generated from the working V7 baseline; edit this feature in isolation.
 --// DPI SCALING
 function Library:SetDPIScale(percent)
     percent = math.clamp(tonumber(percent) or 100, 100, 150)
@@ -4091,18 +4473,31 @@ function Library:PreviewDPIScale(percent, timeout)
     return token
 end
 
-local function hasFileSystem()
-    return type(isfolder) == "function" and type(makefolder) == "function"
-        and type(isfile) == "function" and type(readfile) == "function"
-        and type(writefile) == "function"
-end
 
-local function ensureConfigFolders()
-    if not hasFileSystem() then return false end
-    if not isfolder("RenLib") then makefolder("RenLib") end
-    if not isfolder(CONFIG_FOLDER) then makefolder(CONFIG_FOLDER) end
-    return true
+--[[ MODULE: 40_storage.part.lua ]]
+-- Module fragment: config storage and autoload
+-- Disk persistence is preferred, with a transparent session-memory fallback.
+
+local MEMORY_STORAGE_KEY = "__RENLIB_V8_MEMORY_STORAGE"
+local AUTOLOAD_PATH = "RenLib/autoload.txt"
+
+local virtualReadOk, VirtualStorage = pcall(function()
+    return RuntimeEnvironment[MEMORY_STORAGE_KEY]
+end)
+if not virtualReadOk then VirtualStorage = nil end
+if type(VirtualStorage) ~= "table" then
+    VirtualStorage = {Configs = {}, Autoload = nil}
+    pcall(function() RuntimeEnvironment[MEMORY_STORAGE_KEY] = VirtualStorage end)
 end
+if type(VirtualStorage.Configs) ~= "table" then VirtualStorage.Configs = {} end
+
+local Storage = {
+    Mode = "Memory",
+    Persistent = false,
+    LastError = nil,
+    Initialized = false,
+    WarningShown = false
+}
 
 local function cleanConfigName(name)
     local cleaned = tostring(name or "default"):gsub("[^%w_%-%s]", ""):sub(1, 64)
@@ -4138,51 +4533,260 @@ local function decodeValue(value)
     return value
 end
 
+local function copyPayload(payload)
+    if type(payload) ~= "table" then return payload end
+    local copied = {}
+    for key, value in pairs(payload) do
+        copied[key] = type(value) == "table" and copyPayload(value) or value
+    end
+    return copied
+end
+
+function Storage:UseMemory(reason)
+    self.Mode = "Memory"
+    self.Persistent = false
+    self.LastError = reason and tostring(reason) or self.LastError
+    Library.StorageMode = self.Mode
+    Library.PersistenceAvailable = false
+    if self.LastError and not self.WarningShown then
+        self.WarningShown = true
+        warn("[RenLib] Persistent config storage unavailable; using session memory: " .. self.LastError)
+    end
+    return true
+end
+
+function Storage:Initialize()
+    if self.Initialized then return true end
+    self.Initialized = true
+
+    local required = {"isfolder", "makefolder", "isfile", "readfile", "writefile"}
+    for _, name in ipairs(required) do
+        if not Capabilities:Has(name) then
+            return self:UseMemory(name .. " is unavailable")
+        end
+    end
+
+    local ok, failure = pcall(function()
+        local rootOk, rootExists = Capabilities:Call("isfolder", "RenLib")
+        if not rootOk then error(rootExists) end
+        if not rootExists then
+            local makeOk, makeError = Capabilities:Call("makefolder", "RenLib")
+            if not makeOk then error(makeError) end
+        end
+
+        local folderOk, folderExists = Capabilities:Call("isfolder", CONFIG_FOLDER)
+        if not folderOk then error(folderExists) end
+        if not folderExists then
+            local makeOk, makeError = Capabilities:Call("makefolder", CONFIG_FOLDER)
+            if not makeOk then error(makeError) end
+        end
+    end)
+
+    if not ok then return self:UseMemory(failure) end
+    self.Mode = "File"
+    self.Persistent = true
+    self.LastError = nil
+    Library.StorageMode = self.Mode
+    Library.PersistenceAvailable = true
+    return true
+end
+
+function Storage:Save(name, payload)
+    self:Initialize()
+    local cleaned = cleanConfigName(name)
+    VirtualStorage.Configs[cleaned] = copyPayload(payload)
+
+    if self.Mode == "File" then
+        local encodedOk, encoded = pcall(function() return HttpService:JSONEncode(payload) end)
+        if not encodedOk then return false, encoded end
+        local writeOk, writeError = Capabilities:Call("writefile", CONFIG_FOLDER .. "/" .. cleaned .. ".json", encoded)
+        if not writeOk then self:UseMemory(writeError) end
+    end
+    return true, self.Mode == "Memory" and "Saved for this session" or nil
+end
+
+function Storage:Load(name)
+    self:Initialize()
+    local cleaned = cleanConfigName(name)
+    if self.Mode == "File" then
+        local path = CONFIG_FOLDER .. "/" .. cleaned .. ".json"
+        local existsOk, exists = Capabilities:Call("isfile", path)
+        if not existsOk then
+            self:UseMemory(exists)
+        elseif exists then
+            local readOk, contents = Capabilities:Call("readfile", path)
+            if readOk then
+                local decodeOk, payload = pcall(function() return HttpService:JSONDecode(contents) end)
+                if decodeOk and type(payload) == "table" then
+                    VirtualStorage.Configs[cleaned] = copyPayload(payload)
+                    return true, payload
+                end
+                return false, payload
+            end
+            self:UseMemory(contents)
+        end
+    end
+
+    local payload = VirtualStorage.Configs[cleaned]
+    if type(payload) ~= "table" then return false, "Config does not exist" end
+    return true, copyPayload(payload)
+end
+
+function Storage:List()
+    self:Initialize()
+    local names, seen = {}, {}
+    local function add(name)
+        name = cleanConfigName(name)
+        local key = name:lower()
+        if not seen[key] then
+            seen[key] = true
+            table.insert(names, name)
+        end
+    end
+
+    for name in pairs(VirtualStorage.Configs) do add(name) end
+    for name in pairs(Library.KnownConfigs) do add(name) end
+
+    if self.Mode == "File" and Capabilities:Has("listfiles") then
+        local listOk, files = Capabilities:Call("listfiles", CONFIG_FOLDER)
+        if listOk and type(files) == "table" then
+            for _, path in ipairs(files) do
+                local normalized = tostring(path):gsub("\\", "/")
+                local name = normalized:match("/([^/]+)%.json$") or normalized:match("^([^/]+)%.json$")
+                if name then add(name) end
+            end
+        elseif not listOk then
+            Capabilities:Disable("listfiles", files)
+        end
+    end
+
+    table.sort(names, function(a, b) return a:lower() < b:lower() end)
+    return names
+end
+
+function Storage:Delete(name)
+    self:Initialize()
+    local cleaned = cleanConfigName(name)
+    local existedInMemory = VirtualStorage.Configs[cleaned] ~= nil
+    VirtualStorage.Configs[cleaned] = nil
+
+    if self.Mode == "File" then
+        local path = CONFIG_FOLDER .. "/" .. cleaned .. ".json"
+        local existsOk, exists = Capabilities:Call("isfile", path)
+        if not existsOk then
+            self:UseMemory(exists)
+        elseif exists then
+            if not Capabilities:Has("delfile") then
+                return false, "delfile is unavailable"
+            end
+            local deleteOk, deleteError = Capabilities:Call("delfile", path)
+            if not deleteOk then return false, deleteError end
+            return true
+        elseif not existedInMemory then
+            return false, "Config does not exist"
+        end
+    elseif not existedInMemory then
+        return false, "Config does not exist"
+    end
+    return true
+end
+
+function Storage:Rename(oldName, newName)
+    local oldClean, newClean = cleanConfigName(oldName), cleanConfigName(newName)
+    if oldClean == newClean then return true end
+    local loadOk, payload = self:Load(oldClean)
+    if not loadOk then return false, payload end
+    local duplicateOk = self:Load(newClean)
+    if duplicateOk then return false, "A config already uses that name" end
+    local saveOk, saveError = self:Save(newClean, payload)
+    if not saveOk then return false, saveError end
+    local deleteOk, deleteError = self:Delete(oldClean)
+    if not deleteOk then return false, deleteError end
+    return true
+end
+
+function Storage:GetAutoload()
+    self:Initialize()
+    if self.Mode == "File" then
+        local existsOk, exists = Capabilities:Call("isfile", AUTOLOAD_PATH)
+        if existsOk and exists then
+            local readOk, name = Capabilities:Call("readfile", AUTOLOAD_PATH)
+            if readOk then
+                name = tostring(name or ""):match("^%s*(.-)%s*$")
+                if name and name ~= "" then
+                    VirtualStorage.Autoload = cleanConfigName(name)
+                    return VirtualStorage.Autoload
+                end
+            else
+                self:UseMemory(name)
+            end
+        elseif not existsOk then
+            self:UseMemory(exists)
+        end
+    end
+    return VirtualStorage.Autoload and cleanConfigName(VirtualStorage.Autoload) or nil
+end
+
+function Storage:SetAutoload(name)
+    local cleaned = cleanConfigName(name)
+    local exists = self:Load(cleaned)
+    if not exists then return false, "Config does not exist" end
+    VirtualStorage.Autoload = cleaned
+    if self.Mode == "File" then
+        local writeOk, writeError = Capabilities:Call("writefile", AUTOLOAD_PATH, cleaned)
+        if not writeOk then self:UseMemory(writeError) end
+    end
+    return true, self.Mode == "Memory" and "Autoload applies for this session" or nil
+end
+
+function Storage:ClearAutoload()
+    self:Initialize()
+    VirtualStorage.Autoload = nil
+    if self.Mode == "File" then
+        local existsOk, exists = Capabilities:Call("isfile", AUTOLOAD_PATH)
+        if not existsOk then
+            self:UseMemory(exists)
+        elseif exists then
+            if Capabilities:Has("delfile") then
+                local deleteOk, deleteError = Capabilities:Call("delfile", AUTOLOAD_PATH)
+                if not deleteOk then return false, deleteError end
+            else
+                local clearOk, clearError = Capabilities:Call("writefile", AUTOLOAD_PATH, "")
+                if not clearOk then return false, clearError end
+            end
+        end
+    end
+    return true
+end
+
+Library.Storage = Storage
+Library.StorageMode = "Memory"
+Library.PersistenceAvailable = false
+
+local function ensureConfigFolders()
+    return Storage:Initialize()
+end
+
 function Library:SaveConfig(name)
-    if not ensureConfigFolders() then return false, "Filesystem APIs are unavailable" end
     local payload = {version = self.Version, flags = {}}
     for flag, value in pairs(self.Flags) do
         if not CONFIG_MANAGER_FLAGS[flag] then payload.flags[flag] = encodeValue(value) end
     end
     local cleaned = cleanConfigName(name)
-    local ok, result = pcall(function()
-        writefile(CONFIG_FOLDER .. "/" .. cleaned .. ".json", HttpService:JSONEncode(payload))
-    end)
+    local ok, result = Storage:Save(cleaned, payload)
     if ok then self.KnownConfigs[cleaned] = true end
-    return ok, ok and nil or result
+    return ok, result
 end
 
 function Library:GetConfigList()
-    if not ensureConfigFolders() then return {} end
-    local names, seen = {}, {}
-    for name in pairs(self.KnownConfigs) do
-        seen[name:lower()] = true
-        table.insert(names, name)
-    end
-    if type(listfiles) == "function" then
-        local ok, files = pcall(listfiles, CONFIG_FOLDER)
-        if ok and type(files) == "table" then
-            for _, path in ipairs(files) do
-                local normalized = tostring(path):gsub("\\", "/")
-                local name = normalized:match("/([^/]+)%.json$") or normalized:match("^([^/]+)%.json$")
-                if name and not seen[name:lower()] then
-                    seen[name:lower()] = true
-                    table.insert(names, name)
-                end
-            end
-        end
-    end
-    table.sort(names, function(a, b) return a:lower() < b:lower() end)
-    return names
+    return Storage:List()
 end
 
 function Library:LoadConfig(name)
-    if not ensureConfigFolders() then return false, "Filesystem APIs are unavailable" end
-    local path = CONFIG_FOLDER .. "/" .. cleanConfigName(name) .. ".json"
-    if not isfile(path) then return false, "Config does not exist" end
-    local ok, payload = pcall(function() return HttpService:JSONDecode(readfile(path)) end)
+    local cleaned = cleanConfigName(name)
+    local ok, payload = Storage:Load(cleaned)
     if not ok or type(payload) ~= "table" then return false, payload end
-    self.KnownConfigs[cleanConfigName(name)] = true
+    self.KnownConfigs[cleaned] = true
     for flag, rawValue in pairs(payload.flags or {}) do
         local value = decodeValue(rawValue)
         self.Flags[flag] = value
@@ -4193,10 +4797,8 @@ function Library:LoadConfig(name)
 end
 
 function Library:DeleteConfig(name)
-    if not ensureConfigFolders() or type(delfile) ~= "function" then return false, "Delete API is unavailable" end
     local cleaned = cleanConfigName(name)
-    local path = CONFIG_FOLDER .. "/" .. cleaned .. ".json"
-    local ok, err = pcall(function() if isfile(path) then delfile(path) end end)
+    local ok, err = Storage:Delete(cleaned)
     if not ok then return false, err end
     self.KnownConfigs[cleaned] = nil
     if self:GetAutoloadConfigName() == cleaned then
@@ -4207,17 +4809,8 @@ function Library:DeleteConfig(name)
 end
 
 function Library:RenameConfig(oldName, newName)
-    if not ensureConfigFolders() or type(delfile) ~= "function" then return false, "Rename APIs are unavailable" end
     local oldClean, newClean = cleanConfigName(oldName), cleanConfigName(newName)
-    local oldPath = CONFIG_FOLDER .. "/" .. oldClean .. ".json"
-    local newPath = CONFIG_FOLDER .. "/" .. newClean .. ".json"
-    if not isfile(oldPath) then return false, "Config does not exist" end
-    if oldClean ~= newClean and isfile(newPath) then return false, "A config already uses that name" end
-    if oldClean == newClean then return true end
-    local ok, err = pcall(function()
-        writefile(newPath, readfile(oldPath))
-        delfile(oldPath)
-    end)
+    local ok, err = Storage:Rename(oldClean, newClean)
     if not ok then return false, err end
     self.KnownConfigs[oldClean] = nil
     self.KnownConfigs[newClean] = true
@@ -4229,48 +4822,33 @@ function Library:RenameConfig(oldName, newName)
 end
 
 function Library:GetAutoloadConfigName()
-    if not ensureConfigFolders() or not isfile("RenLib/autoload.txt") then return nil end
-    local ok, name = pcall(readfile, "RenLib/autoload.txt")
-    if not ok then return nil end
-    name = tostring(name or ""):match("^%s*(.-)%s*$")
-    if not name or name == "" then return nil end
-    return cleanConfigName(name)
+    return Storage:GetAutoload()
 end
 
 function Library:SetAutoloadConfig(name)
-    if not ensureConfigFolders() then return false, "Filesystem APIs are unavailable" end
-    local cleaned = cleanConfigName(name)
-    if not isfile(CONFIG_FOLDER .. "/" .. cleaned .. ".json") then return false, "Config does not exist" end
-    local ok, err = pcall(writefile, "RenLib/autoload.txt", cleaned)
-    if ok then self.AutoloadConfigName = cleaned end
-    return ok, ok and nil or err
+    local ok, err = Storage:SetAutoload(name)
+    if ok then self.AutoloadConfigName = cleanConfigName(name) end
+    return ok, err
 end
 
 function Library:ClearAutoloadConfig()
-    if not ensureConfigFolders() then return false, "Filesystem APIs are unavailable" end
-    local ok, err = pcall(function()
-        if isfile("RenLib/autoload.txt") then
-            if type(delfile) == "function" then delfile("RenLib/autoload.txt") else writefile("RenLib/autoload.txt", "") end
-        end
-    end)
+    local ok, err = Storage:ClearAutoload()
     if ok then
         self.AutoloadConfigName = nil
         self.AutoloadThemeName = nil
     end
-    return ok, ok and nil or err
+    return ok, err
 end
 
 function Library:PrepareAutoloadConfig()
     self.AutoloadThemeName = nil
     local name = self:GetAutoloadConfigName()
     if not name then return false, "No autoload config" end
-    local path = CONFIG_FOLDER .. "/" .. name .. ".json"
-    if not isfile(path) then
+    local ok, payload = Storage:Load(name)
+    if not ok or type(payload) ~= "table" then
         self:ClearAutoloadConfig()
-        return false, "Autoload config no longer exists"
+        return false, payload or "Autoload config no longer exists"
     end
-    local ok, payload = pcall(function() return HttpService:JSONDecode(readfile(path)) end)
-    if not ok or type(payload) ~= "table" then return false, payload end
     self.AutoloadConfigName = name
     self.KnownConfigs[name] = true
     self.PendingAutoloadFlags = {}
@@ -4295,8 +4873,6 @@ function Library:PrepareAutoloadConfig()
     if self.PendingAutoloadFlags.__RenLibScale ~= nil then
         self:SetDPIScale(self.PendingAutoloadFlags.__RenLibScale)
     end
-    -- Core appearance values are already applied before the window exists;
-    -- their controls will read Library.Flags without replaying preview dialogs.
     self.PendingAutoloadFlags.__RenLibTheme = nil
     self.PendingAutoloadFlags.__RenLibMaterial = nil
     self.PendingAutoloadFlags.__RenLibFrostIntensity = nil
@@ -4305,8 +4881,27 @@ function Library:PrepareAutoloadConfig()
     return true
 end
 
-function Library:RegisterOption(flag, controller)
+--[[ MODULE: 50_extensions.part.lua ]]
+-- Module fragment: options, icons, addons, relaunch helpers
+-- Generated from the working V7 baseline; edit this feature in isolation.
+local function cloneFeatureValue(value)
+    if type(value) ~= "table" then return value end
+    local cloned = {}
+    for key, item in pairs(value) do cloned[key] = cloneFeatureValue(item) end
+    return cloned
+end
+
+function Library:RegisterOption(flag, controller, defaultValue)
     self.Options[flag] = controller
+    controller.Flag = flag
+    controller.Default = cloneFeatureValue(defaultValue)
+    function controller:Reset()
+        if self.Default == nil or type(self.Set) ~= "function" then
+            return false, "This feature has no reset value"
+        end
+        self:Set(cloneFeatureValue(self.Default))
+        return true
+    end
     if self.PendingAutoloadFlags[flag] ~= nil and controller and controller.Set then
         local value = self.PendingAutoloadFlags[flag]
         self.PendingAutoloadFlags[flag] = nil
@@ -4317,6 +4912,120 @@ function Library:RegisterOption(flag, controller)
         end)
     end
     return controller
+end
+
+function Library:ResetFeature(flag)
+    local controller = self.Options[flag]
+    if not controller then return false, "Unknown feature: " .. tostring(flag) end
+    if type(controller.Reset) ~= "function" then return false, "Feature cannot be reset" end
+    return controller:Reset()
+end
+
+function Library:ResetFeatures(flags)
+    local reset, failures = {}, {}
+    local requested = flags
+    if type(requested) ~= "table" then
+        requested = {}
+        for flag in pairs(self.Options) do table.insert(requested, flag) end
+    end
+    for key, value in pairs(requested) do
+        local flag = type(key) == "number" and value or key
+        if value ~= false then
+            local ok, err = self:ResetFeature(flag)
+            if ok then table.insert(reset, flag) else failures[flag] = err end
+        end
+    end
+    return next(failures) == nil, reset, failures
+end
+
+function Library:RegisterWorkflowPreset(name, definition)
+    assert(type(definition) == "table", "[RenLib] RegisterWorkflowPreset requires a table")
+    local key = tostring(name or definition.Name or ""):match("^%s*(.-)%s*$")
+    assert(key ~= "", "[RenLib] RegisterWorkflowPreset requires a name")
+    definition.Name = definition.Name or key
+    self.WorkflowPresets[key] = definition
+    return definition
+end
+
+function Library:GetWorkflowPresets()
+    local presets = {}
+    for key, definition in pairs(self.WorkflowPresets) do
+        table.insert(presets, {Key = key, Definition = definition})
+    end
+    table.sort(presets, function(a, b)
+        return tostring(a.Definition.Name or a.Key):lower() < tostring(b.Definition.Name or b.Key):lower()
+    end)
+    return presets
+end
+
+function Library:ApplyWorkflowPreset(name)
+    local preset = type(name) == "table" and name or self.WorkflowPresets[tostring(name)]
+    if type(preset) ~= "table" then return false, "Unknown workflow preset: " .. tostring(name) end
+    local applied = {}
+    for flag, value in pairs(preset.Flags or {}) do
+        local controller = self.Options[flag]
+        if controller and type(controller.Set) == "function" then
+            controller:Set(cloneFeatureValue(value))
+        else
+            self.Flags[flag] = cloneFeatureValue(value)
+        end
+        table.insert(applied, flag)
+    end
+    if preset.ReducedMotion ~= nil then self:SetReducedMotion(preset.ReducedMotion) end
+    if preset.MotionScale ~= nil then self:SetMotionScale(preset.MotionScale) end
+    if preset.MaterialMode ~= nil then self:SetMaterialMode(preset.MaterialMode) end
+    if preset.MaterialIntensity ~= nil then self:SetMaterialIntensity(preset.MaterialIntensity) end
+    if preset.DPIScale ~= nil then self:SetDPIScale(preset.DPIScale) end
+    Utility:SafeCall(preset.Callback, preset, applied)
+    return true, applied
+end
+
+function Library:SaveStrategyProfile(name, flags)
+    local profileName = cleanConfigName(name)
+    local selected = {}
+    if type(flags) == "table" then
+        for key, value in pairs(flags) do
+            local flag = type(key) == "number" and value or key
+            if value ~= false and self.Flags[flag] ~= nil then selected[flag] = encodeValue(self.Flags[flag]) end
+        end
+    else
+        for flag, value in pairs(self.Flags) do
+            if not CONFIG_MANAGER_FLAGS[flag] then selected[flag] = encodeValue(value) end
+        end
+    end
+    return Storage:Save(self.StrategyProfilePrefix .. profileName, {
+        version = self.Version,
+        kind = "strategy",
+        displayName = profileName,
+        flags = selected
+    })
+end
+
+function Library:GetStrategyProfiles()
+    local profiles = {}
+    local prefix = self.StrategyProfilePrefix
+    for _, storedName in ipairs(Storage:List()) do
+        if storedName:sub(1, #prefix) == prefix then
+            table.insert(profiles, storedName:sub(#prefix + 1))
+        end
+    end
+    table.sort(profiles, function(a, b) return a:lower() < b:lower() end)
+    return profiles
+end
+
+function Library:LoadStrategyProfile(name)
+    local ok, payload = Storage:Load(self.StrategyProfilePrefix .. cleanConfigName(name))
+    if not ok or type(payload) ~= "table" then return false, payload end
+    for flag, rawValue in pairs(payload.flags or {}) do
+        local value = decodeValue(rawValue)
+        local controller = self.Options[flag]
+        if controller and type(controller.Set) == "function" then controller:Set(value) else self.Flags[flag] = value end
+    end
+    return true
+end
+
+function Library:DeleteStrategyProfile(name)
+    return Storage:Delete(self.StrategyProfilePrefix .. cleanConfigName(name))
 end
 
 function Library:RegisterIcon(name, asset)
@@ -4400,21 +5109,20 @@ function Library:LoadAutoloadConfig()
 end
 
 function Library:LaunchInfiniteYield()
-    if type(loadstring) ~= "function" then
+    if not Capabilities:Has("loadstring") then
         if self.Notify then self:Notify({Title = "Infinite Yield unavailable", Content = "This environment does not expose loadstring.", Duration = 4}) end
         return false, "loadstring is unavailable"
     end
 
-    local ok, source = pcall(function()
-        return game:HttpGet(INFINITE_YIELD_URL)
-    end)
+    local ok, source = Capabilities:HttpGet(INFINITE_YIELD_URL)
     if not ok or type(source) ~= "string" or source == "" then
         if self.Notify then self:Notify({Title = "Infinite Yield failed", Content = tostring(source), Duration = 5}) end
         return false, source
     end
 
-    local chunk, compileError = loadstring(source)
-    if not chunk then
+    local compiled, chunk = Capabilities:Compile(source)
+    if not compiled then
+        local compileError = chunk
         if self.Notify then self:Notify({Title = "Infinite Yield failed", Content = tostring(compileError), Duration = 5}) end
         return false, compileError
     end
@@ -4429,33 +5137,837 @@ function Library:LaunchInfiniteYield()
     return true
 end
 
-function Library:RelaunchRenHub(beforeRelaunch)
-    if type(loadstring) ~= "function" then
-        if self.Notify then self:Notify({Title = "RenHub unavailable", Content = "This environment does not expose loadstring.", Duration = 4}) end
+function Library:RelaunchRenCore(beforeRelaunch)
+    if not Capabilities:Has("loadstring") then
+        if self.Notify then self:Notify({Title = "RenCore unavailable", Content = "This environment does not expose loadstring.", Duration = 4}) end
         return false, "loadstring is unavailable"
     end
-    local ok, source = pcall(function() return game:HttpGet(RENHUB_LOADER_URL) end)
+    local ok, source = Capabilities:HttpGet(RenCore_LOADER_URL)
     if not ok or type(source) ~= "string" or source == "" then
-        if self.Notify then self:Notify({Title = "RenHub failed to load", Content = tostring(source), Duration = 5}) end
+        if self.Notify then self:Notify({Title = "RenCore failed to load", Content = tostring(source), Duration = 5}) end
         return false, source
     end
-    local chunk, compileError = loadstring(source)
-    if not chunk then
-        if self.Notify then self:Notify({Title = "RenHub failed to compile", Content = tostring(compileError), Duration = 5}) end
+    local compiled, chunk = Capabilities:Compile(source)
+    if not compiled then
+        local compileError = chunk
+        if self.Notify then self:Notify({Title = "RenCore failed to compile", Content = tostring(compileError), Duration = 5}) end
         return false, compileError
     end
     Utility:SafeCall(beforeRelaunch)
-    self:Unload("relaunching RenHub")
+    self:Unload("relaunching RenCore")
     task.defer(function()
         local ran, runtimeError = pcall(chunk)
-        if not ran then warn("[RenLib] RenHub relaunch failed: " .. tostring(runtimeError)) end
+        if not ran then warn("[RenLib] RenCore relaunch failed: " .. tostring(runtimeError)) end
     end)
     return true
+end
+
+
+--[[ MODULE: 55_esp_runtime.part.lua ]]
+-- Reusable, executor-safe ESP renderer for players, NPCs, models, parts,
+-- attachments, pickups, and other world objects. It deliberately uses Roblox
+-- GUI instances instead of Drawing so it works in more client environments.
+local ESP_R15_JOINTS = {
+    {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
+    {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"},
+    {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"},
+    {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"},
+    {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"},
+}
+local ESP_R6_JOINTS = {
+    {"Head", "Torso"}, {"Torso", "Left Arm"}, {"Torso", "Right Arm"},
+    {"Torso", "Left Leg"}, {"Torso", "Right Leg"},
+}
+local ESP_DEFAULTS = {
+    Enabled = true,
+    IncludeLocalPlayer = false,
+    AliveOnly = true,
+    MaxDistance = 2500,
+    MaxVisible = 64,
+    NearestOnly = false,
+    UpdateRate = 0,
+    MinScreenHeight = 4,
+    Color = Color3.fromRGB(105, 190, 255),
+    HiddenColor = nil,
+    HiddenTransparency = 0.3,
+    Box = true,
+    BoxStyle = "Corners",
+    BoxThickness = 1.5,
+    BoxTransparency = 0,
+    CornerScale = 0.26,
+    Outline = true,
+    OutlineColor = Color3.fromRGB(3, 3, 5),
+    OutlineThickness = 2,
+    OutlineTransparency = 0.08,
+    ShowName = true,
+    NameColor = nil,
+    NameSize = 14,
+    NameOffset = Vector2.zero,
+    ShowDetails = true,
+    DetailsColor = Color3.fromRGB(238, 241, 247),
+    DetailsSize = 11,
+    DetailsOffset = Vector2.zero,
+    Font = Enum.Font.GothamBold,
+    TextStrokeColor = Color3.new(0, 0, 0),
+    TextStrokeTransparency = 0.12,
+    ShowDistance = true,
+    DistanceSuffix = "m",
+    HealthBar = true,
+    HealthText = true,
+    HealthBarWidth = 5,
+    HealthSide = "Left",
+    HealthBackgroundColor = Color3.fromRGB(4, 4, 5),
+    Skeleton = false,
+    SkeletonColor = nil,
+    SkeletonThickness = 1.5,
+    SkeletonMaxDistance = 350,
+    SkeletonMinScreenHeight = 28,
+    SkeletonLineLimit = 24,
+    Highlight = false,
+    HighlightColor = nil,
+    HighlightDepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+    HighlightFillTransparency = 0.88,
+    HighlightOutlineTransparency = 0.08,
+    OccludedFillTransparency = 0.72,
+    Tracer = false,
+    TracerColor = nil,
+    TracerThickness = 1,
+    TracerOrigin = "Bottom",
+    VisibilityCheck = true,
+    VisibilityInterval = 0.08,
+    DefaultObjectSize = Vector3.new(2, 2, 2),
+}
+
+local function copyEspTable(source)
+    local result = {}
+    for key, value in pairs(source or {}) do result[key] = value end
+    return result
+end
+
+local function mergeEspTables(base, override)
+    local result = copyEspTable(base)
+    for key, value in pairs(override or {}) do result[key] = value end
+    return result
+end
+
+Library.ESPDefaults = copyEspTable(ESP_DEFAULTS)
+
+local function createEspInstance(className, properties)
+    local object = Instance.new(className)
+    for key, value in pairs(properties or {}) do
+        if key ~= "Parent" then object[key] = value end
+    end
+    if properties and properties.Parent then object.Parent = properties.Parent end
+    return object
+end
+
+local function createEspLine(parent, zIndex)
+    return createEspInstance("Frame", {
+        Parent = parent,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BorderSizePixel = 0,
+        Size = UDim2.fromOffset(0, 1),
+        Visible = false,
+        ZIndex = zIndex or 22,
+    })
+end
+
+local function positionEspLine(line, a, b, thickness)
+    local delta = b - a
+    local length = delta.Magnitude
+    if length < 0.35 then line.Visible = false return false end
+    line.Position = UDim2.fromOffset((a.X + b.X) * 0.5, (a.Y + b.Y) * 0.5)
+    line.Size = UDim2.fromOffset(length, math.max(0.5, tonumber(thickness) or 1))
+    line.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+    line.Visible = true
+    return true
+end
+
+local function createEspLinePair(parent, zIndex)
+    return {
+        Shadow = createEspLine(parent, (zIndex or 22) - 1),
+        Main = createEspLine(parent, zIndex or 22),
+    }
+end
+
+local function hideEspLinePair(pair)
+    pair.Shadow.Visible = false
+    pair.Main.Visible = false
+end
+
+local function renderEspLinePair(pair, a, b, color, thickness, transparency, style)
+    local visible = positionEspLine(pair.Main, a, b, thickness)
+    if not visible then pair.Shadow.Visible = false return end
+    pair.Main.BackgroundColor3 = color
+    pair.Main.BackgroundTransparency = transparency or 0
+    if style.Outline then
+        positionEspLine(pair.Shadow, a, b, (tonumber(thickness) or 1) + (tonumber(style.OutlineThickness) or 2))
+        pair.Shadow.BackgroundColor3 = style.OutlineColor
+        pair.Shadow.BackgroundTransparency = style.OutlineTransparency
+    else
+        pair.Shadow.Visible = false
+    end
+end
+
+local function createEspText(parent, size, zIndex)
+    return createEspInstance("TextLabel", {
+        Parent = parent,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Font = Enum.Font.GothamBold,
+        Size = UDim2.fromOffset(420, 20),
+        Text = "",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = size,
+        TextStrokeColor3 = Color3.new(0, 0, 0),
+        TextStrokeTransparency = 0.12,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Visible = false,
+        ZIndex = zIndex or 30,
+    })
+end
+
+local function resolveEspInstance(target, targetOptions)
+    if type(targetOptions.GetInstance) == "function" then
+        local ok, value = pcall(targetOptions.GetInstance, target, targetOptions)
+        if ok and typeof(value) == "Instance" then return value end
+    end
+    if typeof(target) ~= "Instance" then return nil end
+    if target:IsA("Player") then return target.Character end
+    return target
+end
+
+local function resolveEspBounds(instance, style, target, targetOptions)
+    if type(targetOptions.GetBounds) == "function" then
+        local ok, cf, size = pcall(targetOptions.GetBounds, target, instance, targetOptions)
+        if ok and typeof(cf) == "CFrame" and typeof(size) == "Vector3" then return cf, size end
+    end
+    if not instance then return nil end
+    if instance:IsA("Model") then
+        local ok, cf, size = pcall(instance.GetBoundingBox, instance)
+        if ok then return cf, size end
+    elseif instance:IsA("BasePart") then
+        return instance.CFrame, instance.Size
+    elseif instance:IsA("Attachment") then
+        return instance.WorldCFrame, targetOptions.Size or style.DefaultObjectSize
+    end
+    local part = instance:FindFirstChildWhichIsA("BasePart", true)
+    if part then return part.CFrame, targetOptions.Size or part.Size end
+    return nil
+end
+
+local function projectEspBounds(camera, cf, size)
+    local half = size * 0.5
+    local left, top = math.huge, math.huge
+    local right, bottom = -math.huge, -math.huge
+    local visibleCorners = 0
+    for x = -1, 1, 2 do
+        for y = -1, 1, 2 do
+            for z = -1, 1, 2 do
+                local worldPoint = cf:PointToWorldSpace(Vector3.new(half.X * x, half.Y * y, half.Z * z))
+                local screen = camera:WorldToViewportPoint(worldPoint)
+                if screen.Z > 0.05 then
+                    visibleCorners += 1
+                    left = math.min(left, screen.X)
+                    right = math.max(right, screen.X)
+                    top = math.min(top, screen.Y)
+                    bottom = math.max(bottom, screen.Y)
+                end
+            end
+        end
+    end
+    if visibleCorners == 0 then return nil end
+    return left, top, right, bottom
+end
+
+local function getEspDistanceOrigin(style)
+    local origin = style.DistanceOrigin
+    if type(origin) == "function" then
+        local ok, value = pcall(origin)
+        if ok then origin = value end
+    end
+    if typeof(origin) == "Instance" then
+        if origin:IsA("Attachment") then return origin.WorldPosition end
+        if origin:IsA("BasePart") then return origin.Position end
+    elseif typeof(origin) == "Vector3" then
+        return origin
+    end
+    local character = Plr and Plr.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    return root and root.Position or (Camera and Camera.CFrame.Position) or Vector3.zero
+end
+
+local function resolveEspHealth(target, instance, options)
+    if type(options.GetHealth) == "function" then
+        local ok, health, maximum = pcall(options.GetHealth, target, instance, options)
+        if ok and tonumber(health) then return tonumber(health), math.max(tonumber(maximum) or 100, 1) end
+    end
+    local humanoid = instance and instance:FindFirstChildOfClass("Humanoid")
+    if humanoid then return humanoid.Health, math.max(humanoid.MaxHealth, 1), humanoid end
+    local health = instance and instance:GetAttribute("Health")
+    if tonumber(health) then return tonumber(health), math.max(tonumber(instance:GetAttribute("MaxHealth")) or 100, 1) end
+    return nil
+end
+
+local function cacheEspRigParts(instance)
+    local parts = {}
+    if not instance then return parts end
+    for _, child in ipairs(instance:GetDescendants()) do
+        if child:IsA("BasePart") and parts[child.Name] == nil then parts[child.Name] = child end
+    end
+    return parts
+end
+
+function Library:CreateESP(options)
+    options = options or {}
+    local guiParent = Capabilities:GetGuiParent()
+    assert(guiParent, "[RenLib] No supported UI parent is available for ESP")
+
+    local overlayGui = createEspInstance("ScreenGui", {
+        Name = tostring(options.GuiName or ("RenLibESP_" .. Utility:RandomString(7))),
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        DisplayOrder = tonumber(options.DisplayOrder) or 9999,
+        ZIndexBehavior = Enum.ZIndexBehavior.Global,
+    })
+    overlayGui:SetAttribute("RenLibESP", true)
+    overlayGui:SetAttribute("RenLibVersion", self.Version)
+    Capabilities:ProtectGui(overlayGui)
+    overlayGui.Parent = guiParent
+    local overlay = createEspInstance("Frame", {
+        Name = "Overlay",
+        Parent = overlayGui,
+        BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 1),
+        ZIndex = 10,
+    })
+
+    local manager = {
+        Type = "ESPManager",
+        Options = mergeEspTables(ESP_DEFAULTS, options),
+        Records = {},
+        Connections = {},
+        Tracks = {},
+        OverlayGui = overlayGui,
+        Overlay = overlay,
+        Enabled = options.Enabled ~= false,
+        Destroyed = false,
+        LastUpdate = 0,
+        VisibleCount = 0,
+    }
+    manager.Options.Enabled = manager.Enabled
+    table.insert(self.ESPManagers, manager)
+
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.IgnoreWater = options.IgnoreWater == true
+
+    local function connect(signal, callback)
+        local connection = signal:Connect(callback)
+        table.insert(manager.Connections, connection)
+        return connection
+    end
+
+    local function hideRecord(record)
+        if not record or not record.Visual then return end
+        local wasVisible = record.Visible == true
+        for _, pair in ipairs(record.Visual.BoxLines) do hideEspLinePair(pair) end
+        for _, pair in ipairs(record.Visual.SkeletonLines) do hideEspLinePair(pair) end
+        hideEspLinePair(record.Visual.Tracer)
+        record.Visual.Name.Visible = false
+        record.Visual.Details.Visible = false
+        record.Visual.HealthBack.Visible = false
+        record.Visual.HealthFill.Visible = false
+        if record.Visual.Highlight then record.Visual.Highlight.Enabled = false end
+        record.Visible = false
+        if wasVisible then Utility:SafeCall(record.Style.OnVisibilityChanged, false, record) end
+    end
+
+    local function destroyRecord(record)
+        if not record then return end
+        hideRecord(record)
+        for _, connection in ipairs(record.Connections or {}) do pcall(function() connection:Disconnect() end) end
+        if record.Visual.Highlight then record.Visual.Highlight:Destroy() end
+        record.Visual.Container:Destroy()
+        record.Destroyed = true
+    end
+
+    local function makeVisual(target, style)
+        local container = createEspInstance("Frame", {
+            Name = "ESP_" .. tostring((typeof(target) == "Instance" and target.Name) or "Target"),
+            Parent = overlay,
+            BackgroundTransparency = 1,
+            Size = UDim2.fromScale(1, 1),
+            ZIndex = 20,
+        })
+        local visual = {Container = container, BoxLines = {}, SkeletonLines = {}}
+        for index = 1, 8 do visual.BoxLines[index] = createEspLinePair(container, 22) end
+        for index = 1, math.max(14, tonumber(style.SkeletonLineLimit) or 24) do
+            visual.SkeletonLines[index] = createEspLinePair(container, 25)
+        end
+        visual.Tracer = createEspLinePair(container, 21)
+        visual.Name = createEspText(container, style.NameSize, 31)
+        visual.Details = createEspText(container, style.DetailsSize, 31)
+        visual.HealthBack = createEspInstance("Frame", {Parent = container, BackgroundColor3 = Color3.fromRGB(4, 4, 5), BorderSizePixel = 0, Visible = false, ZIndex = 27})
+        visual.HealthFill = createEspInstance("Frame", {Parent = container, AnchorPoint = Vector2.new(0, 1), BackgroundColor3 = Color3.fromRGB(80, 235, 105), BorderSizePixel = 0, Visible = false, ZIndex = 28})
+        return visual
+    end
+
+    local function ensureHighlight(record, instance)
+        if not record.Style.Highlight then
+            if record.Visual.Highlight then record.Visual.Highlight.Enabled = false end
+            return nil
+        end
+        local adornee = instance
+        if not adornee or (not adornee:IsA("Model") and not adornee:IsA("BasePart")) then
+            if record.Visual.Highlight then record.Visual.Highlight.Enabled = false end
+            return nil
+        end
+        if not record.Visual.Highlight then
+            record.Visual.Highlight = createEspInstance("Highlight", {
+                Name = "RenESPHighlight",
+                Parent = overlayGui,
+                Enabled = false,
+            })
+        end
+        record.Visual.Highlight.Adornee = adornee
+        return record.Visual.Highlight
+    end
+
+    local function resolveColor(record, instance, occluded)
+        local style = record.Style
+        local color = record.Options.Color or style.Color
+        local callback = record.Options.GetColor or style.GetColor
+        if type(callback) == "function" then
+            local ok, result = pcall(callback, record.Target, instance, record)
+            if ok and typeof(result) == "Color3" then color = result end
+        end
+        if occluded and typeof(style.HiddenColor) == "Color3" then color = style.HiddenColor end
+        return typeof(color) == "Color3" and color or ESP_DEFAULTS.Color
+    end
+
+    local function resolveName(record, instance)
+        local callback = record.Options.GetName or record.Style.GetName
+        if type(callback) == "function" then
+            local ok, result = pcall(callback, record.Target, instance, record)
+            if ok and result ~= nil then return tostring(result) end
+        end
+        if record.Options.Name ~= nil then return tostring(record.Options.Name) end
+        if typeof(record.Target) == "Instance" and record.Target:IsA("Player") then
+            local player = record.Target
+            return player.DisplayName ~= player.Name and (player.DisplayName .. "  @" .. player.Name) or ("@" .. player.Name)
+        end
+        return instance and instance.Name or "Target"
+    end
+
+    local function resolveDetail(record, instance, health, maximum, distance, occluded)
+        local callback = record.Options.GetText or record.Style.GetText
+        if type(callback) == "function" then
+            local ok, result = pcall(callback, record.Target, instance, record)
+            if ok and result ~= nil then return tostring(result) end
+        end
+        if record.Options.Text ~= nil then return tostring(record.Options.Text) end
+        local pieces = {}
+        if record.Style.HealthText and health then table.insert(pieces, string.format("HP %d/%d", math.max(0, math.floor(health + 0.5)), math.floor(maximum + 0.5))) end
+        if record.Style.ShowDistance then table.insert(pieces, tostring(math.floor(distance + 0.5)) .. tostring(record.Style.DistanceSuffix or "m")) end
+        if occluded then table.insert(pieces, "OCCLUDED") end
+        return table.concat(pieces, "  •  ")
+    end
+
+    local function renderBox(record, left, top, right, bottom, color, transparency)
+        local style = record.Style
+        local lines = record.Visual.BoxLines
+        if not style.Box or style.BoxStyle == "None" then
+            for _, pair in ipairs(lines) do hideEspLinePair(pair) end
+            return
+        end
+        local thickness = tonumber(style.BoxThickness) or 1.5
+        if tostring(style.BoxStyle):lower() == "full" then
+            local points = {
+                {Vector2.new(left, top), Vector2.new(right, top)},
+                {Vector2.new(right, top), Vector2.new(right, bottom)},
+                {Vector2.new(right, bottom), Vector2.new(left, bottom)},
+                {Vector2.new(left, bottom), Vector2.new(left, top)},
+            }
+            for index, pair in ipairs(lines) do
+                local pointsForLine = points[index]
+                if pointsForLine then renderEspLinePair(pair, pointsForLine[1], pointsForLine[2], color, thickness, transparency, style) else hideEspLinePair(pair) end
+            end
+            return
+        end
+        local width, height = right - left, bottom - top
+        local corner = math.clamp(math.min(width, height) * (tonumber(style.CornerScale) or 0.26), 4, 22)
+        local points = {
+            {Vector2.new(left, top), Vector2.new(left + corner, top)}, {Vector2.new(left, top), Vector2.new(left, top + corner)},
+            {Vector2.new(right - corner, top), Vector2.new(right, top)}, {Vector2.new(right, top), Vector2.new(right, top + corner)},
+            {Vector2.new(left, bottom - corner), Vector2.new(left, bottom)}, {Vector2.new(left, bottom), Vector2.new(left + corner, bottom)},
+            {Vector2.new(right, bottom - corner), Vector2.new(right, bottom)}, {Vector2.new(right - corner, bottom), Vector2.new(right, bottom)},
+        }
+        for index, pair in ipairs(lines) do renderEspLinePair(pair, points[index][1], points[index][2], color, thickness, transparency, style) end
+    end
+
+    local function updateRecord(record, now)
+        local style = record.Style
+        local instance = resolveEspInstance(record.Target, record.Options)
+        if not manager.Enabled or style.Enabled == false or not instance or not instance.Parent then hideRecord(record) return false end
+        if type(style.Predicate) == "function" then
+            local ok, allowed = pcall(style.Predicate, record.Target, instance, record)
+            if not ok or allowed == false then hideRecord(record) return false end
+        end
+        local cf, size = resolveEspBounds(instance, style, record.Target, record.Options)
+        if not cf or not size then hideRecord(record) return false end
+        local health, maximum, humanoid = resolveEspHealth(record.Target, instance, record.Options)
+        if style.AliveOnly and humanoid and health <= 0 then hideRecord(record) return false end
+        Camera = workspace.CurrentCamera or Camera
+        if not Camera then hideRecord(record) return false end
+        local distance = (cf.Position - getEspDistanceOrigin(style)).Magnitude
+        if tonumber(style.MaxDistance) and style.MaxDistance > 0 and distance > style.MaxDistance then hideRecord(record) return false end
+        local left, top, right, bottom = projectEspBounds(Camera, cf, size)
+        if not left then hideRecord(record) return false end
+        local width, height = right - left, bottom - top
+        local viewport = Camera.ViewportSize
+        if height < (tonumber(style.MinScreenHeight) or 4) or right < -24 or left > viewport.X + 24 or bottom < -24 or top > viewport.Y + 24 then hideRecord(record) return false end
+
+        local occluded = false
+        if style.VisibilityCheck and now >= (record.NextVisibilityUpdate or 0) then
+            record.NextVisibilityUpdate = now + math.max(0.02, tonumber(style.VisibilityInterval) or 0.08)
+            local filters = {}
+            for _, item in ipairs(style.RaycastIgnore or {}) do if typeof(item) == "Instance" then table.insert(filters, item) end end
+            if Plr and Plr.Character then table.insert(filters, Plr.Character) end
+            table.insert(filters, Camera)
+            table.insert(filters, instance)
+            rayParams.FilterDescendantsInstances = filters
+            local origin = Camera.CFrame.Position
+            record.Occluded = workspace:Raycast(origin, cf.Position - origin, rayParams) ~= nil
+        end
+        occluded = record.Occluded == true
+        local baseColor = resolveColor(record, instance, occluded)
+        local transparency = math.clamp((tonumber(style.BoxTransparency) or 0) + (occluded and (tonumber(style.HiddenTransparency) or 0.3) or 0), 0, 0.95)
+        renderBox(record, left, top, right, bottom, style.BoxColor or baseColor, transparency)
+
+        local centerX = (left + right) * 0.5
+        local nameOffset = typeof(style.NameOffset) == "Vector2" and style.NameOffset or Vector2.zero
+        record.Visual.Name.Position = UDim2.fromOffset(centerX + nameOffset.X, top - math.max(10, style.NameSize or 14) * 0.72 + nameOffset.Y)
+        record.Visual.Name.Text = resolveName(record, instance)
+        record.Visual.Name.TextColor3 = style.NameColor or baseColor
+        record.Visual.Name.TextSize = tonumber(style.NameSize) or 14
+        record.Visual.Name.Font = typeof(style.Font) == "EnumItem" and style.Font or Enum.Font.GothamBold
+        record.Visual.Name.TextStrokeColor3 = style.TextStrokeColor
+        record.Visual.Name.TextStrokeTransparency = style.TextStrokeTransparency
+        record.Visual.Name.Visible = style.ShowName == true
+
+        local details = resolveDetail(record, instance, health, maximum, distance, occluded)
+        local detailsOffset = typeof(style.DetailsOffset) == "Vector2" and style.DetailsOffset or Vector2.zero
+        record.Visual.Details.Position = UDim2.fromOffset(centerX + detailsOffset.X, bottom + math.max(9, style.DetailsSize or 11) * 0.78 + detailsOffset.Y)
+        record.Visual.Details.Text = details
+        record.Visual.Details.TextColor3 = style.DetailsColor or baseColor
+        record.Visual.Details.TextSize = tonumber(style.DetailsSize) or 11
+        record.Visual.Details.Font = typeof(style.Font) == "EnumItem" and style.Font or Enum.Font.GothamBold
+        record.Visual.Details.TextStrokeColor3 = style.TextStrokeColor
+        record.Visual.Details.TextStrokeTransparency = style.TextStrokeTransparency
+        record.Visual.Details.Visible = style.ShowDetails == true and details ~= ""
+
+        local showHealth = style.HealthBar == true and health ~= nil
+        if showHealth then
+            local ratio = math.clamp(health / math.max(maximum, 1), 0, 1)
+            local barWidth = math.max(2, tonumber(style.HealthBarWidth) or 5)
+            local healthX = tostring(style.HealthSide):lower() == "right" and right + 2 or left - barWidth - 4
+            record.Visual.HealthBack.Position = UDim2.fromOffset(healthX, top - 1)
+            record.Visual.HealthBack.Size = UDim2.fromOffset(barWidth + 2, height + 2)
+            record.Visual.HealthFill.Position = UDim2.fromOffset(healthX + 1, bottom)
+            record.Visual.HealthFill.Size = UDim2.fromOffset(barWidth, math.max(1, height * ratio))
+            local healthColor = style.HealthColor
+            if type(healthColor) == "function" then
+                local ok, resolved = pcall(healthColor, ratio, record)
+                healthColor = ok and typeof(resolved) == "Color3" and resolved or nil
+            end
+            record.Visual.HealthFill.BackgroundColor3 = healthColor or Color3.fromHSV(ratio * 0.33, 0.85, 0.98)
+            record.Visual.HealthBack.BackgroundColor3 = style.HealthBackgroundColor
+        end
+        record.Visual.HealthBack.Visible = showHealth
+        record.Visual.HealthFill.Visible = showHealth
+
+        if style.Tracer then
+            local tracerOrigin = style.TracerOrigin
+            local start
+            if typeof(tracerOrigin) == "Vector2" then start = tracerOrigin
+            elseif tostring(tracerOrigin):lower() == "center" then start = viewport * 0.5
+            elseif tostring(tracerOrigin):lower() == "top" then start = Vector2.new(viewport.X * 0.5, 0)
+            else start = Vector2.new(viewport.X * 0.5, viewport.Y) end
+            renderEspLinePair(record.Visual.Tracer, start, Vector2.new(centerX, bottom), style.TracerColor or baseColor, style.TracerThickness, transparency, style)
+        else hideEspLinePair(record.Visual.Tracer) end
+
+        local highlight = ensureHighlight(record, instance)
+        if highlight then
+            highlight.Enabled = true
+            highlight.DepthMode = style.HighlightDepthMode
+            highlight.FillColor = style.HighlightColor or baseColor
+            highlight.OutlineColor = style.HighlightOutlineColor or style.HighlightColor or baseColor
+            highlight.FillTransparency = occluded and style.OccludedFillTransparency or style.HighlightFillTransparency
+            highlight.OutlineTransparency = style.HighlightOutlineTransparency
+        end
+
+        local drawSkeleton = style.Skeleton == true and instance:IsA("Model") and height >= (style.SkeletonMinScreenHeight or 28)
+            and (not style.SkeletonMaxDistance or style.SkeletonMaxDistance <= 0 or distance <= style.SkeletonMaxDistance)
+        if drawSkeleton then
+            if now >= (record.NextRigRefresh or 0) then
+                record.NextRigRefresh = now + 0.25
+                record.RigParts = cacheEspRigParts(instance)
+            end
+            local joints = record.Options.SkeletonJoints or style.SkeletonJoints or (record.RigParts.UpperTorso and ESP_R15_JOINTS or ESP_R6_JOINTS)
+            for index, pair in ipairs(record.Visual.SkeletonLines) do
+                local joint = joints[index]
+                local a = joint and record.RigParts[joint[1]]
+                local b = joint and record.RigParts[joint[2]]
+                if a and b and a.Parent and b.Parent then
+                    local aScreen = Camera:WorldToViewportPoint(a.Position)
+                    local bScreen = Camera:WorldToViewportPoint(b.Position)
+                    if aScreen.Z > 0.05 and bScreen.Z > 0.05 then
+                        renderEspLinePair(pair, Vector2.new(aScreen.X, aScreen.Y), Vector2.new(bScreen.X, bScreen.Y), style.SkeletonColor or baseColor, style.SkeletonThickness, occluded and 0.06 or 0, style)
+                    else hideEspLinePair(pair) end
+                else hideEspLinePair(pair) end
+            end
+        else
+            for _, pair in ipairs(record.Visual.SkeletonLines) do hideEspLinePair(pair) end
+        end
+        record.Instance = instance
+        record.Distance = distance
+        record.Bounds = {Left = left, Top = top, Right = right, Bottom = bottom, Width = width, Height = height}
+        local becameVisible = not record.Visible
+        record.Visible = true
+        if becameVisible then Utility:SafeCall(style.OnVisibilityChanged, true, record) end
+        Utility:SafeCall(style.OnRender, record, {Instance = instance, Distance = distance, Occluded = occluded, Bounds = record.Bounds, Color = baseColor})
+        return true
+    end
+
+    function manager:Add(target, targetOptions)
+        targetOptions = targetOptions or {}
+        if typeof(target) ~= "Instance" then return nil, "ESP target must be a Roblox Instance" end
+        local existing = self.Records[target]
+        if existing then existing:Configure(targetOptions) return existing end
+        if target:IsA("Player") and target == Plr and not (targetOptions.IncludeLocalPlayer or self.Options.IncludeLocalPlayer) then return nil, "Local player is excluded" end
+        local style = mergeEspTables(self.Options, targetOptions)
+        local record = {
+            Type = "ESPRecord",
+            Manager = self,
+            Target = target,
+            Options = copyEspTable(targetOptions),
+            Style = style,
+            Visual = makeVisual(target, style),
+            Visible = false,
+            Destroyed = false,
+            Occluded = false,
+            Connections = {},
+        }
+        function record:Configure(values)
+            for key, value in pairs(values or {}) do
+                self.Options[key] = value
+                self.Style[key] = value
+            end
+            return self
+        end
+        function record:SetOption(name, value) self.Options[name] = value self.Style[name] = value return self end
+        function record:SetFeature(name, value) return self:SetOption(name, value == true) end
+        function record:SetColor(value) return self:SetOption("Color", value) end
+        function record:SetText(value) self.Options.Text = value return self end
+        function record:SetName(value) self.Options.Name = value return self end
+        function record:SetVisible(value) self.Style.Enabled = value == true if not value then hideRecord(self) end return self end
+        function record:ClearOverride(name)
+            self.Options[name] = nil
+            self.Style[name] = self.Manager.Options[name]
+            return self
+        end
+        function record:Remove() return self.Manager:Remove(self.Target) end
+        self.Records[target] = record
+        if not target:IsA("Player") then
+            table.insert(record.Connections, connect(target.AncestryChanged, function(_, parent)
+                if parent == nil and self.Records[target] == record then self:Remove(target) end
+            end))
+        end
+        return record
+    end
+
+    function manager:Remove(target)
+        local record = self.Records[target]
+        if not record then return false end
+        self.Records[target] = nil
+        destroyRecord(record)
+        return true
+    end
+
+    function manager:Clear()
+        local targets = {}
+        for target in pairs(self.Records) do table.insert(targets, target) end
+        for _, target in ipairs(targets) do self:Remove(target) end
+        return self
+    end
+
+    function manager:SetEnabled(value)
+        self.Enabled = value == true
+        self.Options.Enabled = self.Enabled
+        if not self.Enabled then for _, record in pairs(self.Records) do hideRecord(record) end end
+        return self
+    end
+
+    function manager:SetOption(name, value)
+        self.Options[name] = value
+        for _, record in pairs(self.Records) do
+            if record.Options[name] == nil then record.Style[name] = value end
+        end
+        if name == "Enabled" then self:SetEnabled(value) end
+        return self
+    end
+
+    function manager:SetOptions(values)
+        for name, value in pairs(values or {}) do self:SetOption(name, value) end
+        return self
+    end
+
+    function manager:SetFeature(name, value) return self:SetOption(name, value == true) end
+    function manager:GetOptions() return copyEspTable(self.Options) end
+    function manager:GetRecord(target) return self.Records[target] end
+    function manager:GetRecords() return self.Records end
+    function manager:GetStats()
+        local total = 0
+        for _ in pairs(self.Records) do total += 1 end
+        return {Total = total, Visible = self.VisibleCount, Enabled = self.Enabled, UpdateRate = self.Options.UpdateRate}
+    end
+
+    function manager:TrackPlayers(trackOptions)
+        trackOptions = trackOptions or {}
+        local track = {Targets = {}, Active = true}
+        local function add(player)
+            if not track.Active or (player == Plr and not (trackOptions.IncludeLocalPlayer or self.Options.IncludeLocalPlayer)) then return end
+            local record = self:Add(player, trackOptions)
+            if record then track.Targets[player] = true end
+        end
+        for _, player in ipairs(Players:GetPlayers()) do add(player) end
+        table.insert(track, connect(Players.PlayerAdded, add))
+        table.insert(track, connect(Players.PlayerRemoving, function(player)
+            track.Targets[player] = nil
+            self:Remove(player)
+        end))
+        function track:Stop(removeTargets)
+            if not self.Active then return false end
+            self.Active = false
+            for _, connection in ipairs(self) do pcall(function() connection:Disconnect() end) end
+            if removeTargets ~= false then
+                for target in pairs(self.Targets) do manager:Remove(target) end
+            end
+            table.clear(self.Targets)
+            return true
+        end
+        table.insert(self.Tracks, track)
+        return track
+    end
+
+    function manager:TrackContainer(container, trackOptions)
+        assert(typeof(container) == "Instance", "[RenLib] TrackContainer requires an Instance")
+        trackOptions = trackOptions or {}
+        local track = {Targets = {}, Active = true}
+        local function allowed(instance)
+            if type(trackOptions.Predicate) == "function" then
+                local ok, result = pcall(trackOptions.Predicate, instance)
+                return ok and result == true
+            end
+            return instance:IsA("Model") or instance:IsA("BasePart") or instance:IsA("Attachment")
+        end
+        local function add(instance)
+            if track.Active and allowed(instance) then
+                local record = self:Add(instance, trackOptions)
+                if record then track.Targets[instance] = true end
+            end
+        end
+        local initial = trackOptions.Recursive and container:GetDescendants() or container:GetChildren()
+        for _, instance in ipairs(initial) do add(instance) end
+        local addedSignal = trackOptions.Recursive and container.DescendantAdded or container.ChildAdded
+        local removingSignal = trackOptions.Recursive and container.DescendantRemoving or container.ChildRemoved
+        table.insert(track, connect(addedSignal, add))
+        table.insert(track, connect(removingSignal, function(instance)
+            if track.Targets[instance] then track.Targets[instance] = nil self:Remove(instance) end
+        end))
+        function track:Stop(removeTargets)
+            if not self.Active then return false end
+            self.Active = false
+            for _, connection in ipairs(self) do pcall(function() connection:Disconnect() end) end
+            if removeTargets ~= false then for target in pairs(self.Targets) do manager:Remove(target) end end
+            table.clear(self.Targets)
+            return true
+        end
+        table.insert(self.Tracks, track)
+        return track
+    end
+
+    function manager:Refresh()
+        self.LastUpdate = 0
+        return self
+    end
+
+    function manager:Destroy()
+        if self.Destroyed then return end
+        self.Destroyed = true
+        for _, track in ipairs(self.Tracks) do track:Stop(false) end
+        self:Clear()
+        for _, connection in ipairs(self.Connections) do pcall(function() connection:Disconnect() end) end
+        table.clear(self.Connections)
+        if self.OverlayGui then self.OverlayGui:Destroy() end
+        for index, candidate in ipairs(Library.ESPManagers) do
+            if candidate == self then table.remove(Library.ESPManagers, index) break end
+        end
+    end
+
+    local function approximateDistance(record)
+        local instance = resolveEspInstance(record.Target, record.Options)
+        if not instance then return math.huge end
+        local position
+        if instance:IsA("Attachment") then
+            position = instance.WorldPosition
+        elseif instance:IsA("BasePart") then
+            position = instance.Position
+        elseif instance:IsA("Model") then
+            local root = instance.PrimaryPart or instance:FindFirstChild("HumanoidRootPart") or instance:FindFirstChildWhichIsA("BasePart", true)
+            position = root and root.Position
+        else
+            local root = instance:FindFirstChildWhichIsA("BasePart", true)
+            position = root and root.Position
+        end
+        return position and (position - getEspDistanceOrigin(record.Style)).Magnitude or math.huge
+    end
+
+    connect(RunService.RenderStepped, function()
+        if manager.Destroyed or Library.Unloaded then return end
+        local now = os.clock()
+        local updateRate = math.max(0, tonumber(manager.Options.UpdateRate) or 0)
+        if updateRate > 0 and now - manager.LastUpdate < updateRate then return end
+        manager.LastUpdate = now
+        Camera = workspace.CurrentCamera or Camera
+        if not Camera then return end
+        local candidates = {}
+        for _, record in pairs(manager.Records) do
+            table.insert(candidates, {Record = record, Distance = approximateDistance(record)})
+        end
+        table.sort(candidates, function(a, b) return a.Distance < b.Distance end)
+        local limit = manager.Options.NearestOnly and 1 or math.max(1, tonumber(manager.Options.MaxVisible) or #candidates)
+        local visible = 0
+        for index, candidate in ipairs(candidates) do
+            if index <= limit and updateRecord(candidate.Record, now) then visible += 1 else hideRecord(candidate.Record) end
+        end
+        manager.VisibleCount = visible
+    end)
+
+    if options.AutoPlayers then manager.PlayerTrack = manager:TrackPlayers(options.PlayerOptions or {}) end
+    return manager
 end
 
 -- Compatibility facade for safely migrating scripts that were authored
 -- against Rayfield's tab-level control API. The rendered UI, persistence,
 -- cleanup, input handling, and controllers are all RenLib-owned.
+
+--[[ MODULE: 60_rayfield_compat.part.lua ]]
+-- Module fragment: Rayfield compatibility adapter
+-- Generated from the working V7 baseline; edit this feature in isolation.
 function Library:CreateRayfieldAdapter()
     local source = self
     local adapter = {ConfigName = nil, Window = nil}
@@ -4553,7 +6065,7 @@ function Library:CreateRayfieldAdapter()
         local rawWindow = source:CreateWindow({
             Name = options.Name or options.LoadingTitle or "RenLib Script",
             Icon = options.Icon,
-            SidebarMode = "Dynamic",
+            SidebarMode = "Expanded",
             ShowUserProfile = true,
             ShowInfiniteYield = false,
             EnableGlobalSearch = true
@@ -4721,6 +6233,10 @@ function Library:CreateRayfieldAdapter()
     return adapter
 end
 
+
+--[[ MODULE: 70_window_shell.part.lua ]]
+-- Module fragment: window shell, navigation, notifications
+-- Generated from the working V7 baseline; edit this feature in isolation.
 --// CORE UI: WINDOW
 function Library:CreateWindow(options)
     options = options or {}
@@ -4728,12 +6244,13 @@ function Library:CreateWindow(options)
     local EnableSidebarResize = options.EnableSidebarResize == nil and true or options.EnableSidebarResize
     local EnableGlobalSearch = options.EnableGlobalSearch == nil and true or options.EnableGlobalSearch
     local SidebarCompactMode = options.SidebarCompactMode or false
-    local SidebarMode = tostring(options.SidebarMode or (SidebarCompactMode and "Compact" or "Dynamic"))
-    if SidebarMode ~= "Dynamic" and SidebarMode ~= "Expanded" and SidebarMode ~= "Compact" then SidebarMode = "Dynamic" end
+    local SidebarMode = tostring(options.SidebarMode or (SidebarCompactMode and "Compact" or (DeviceMode == "Desktop" and "Expanded" or "Compact")))
+    if SidebarMode ~= "Dynamic" and SidebarMode ~= "Expanded" and SidebarMode ~= "Compact" then SidebarMode = "Expanded" end
     local WindowIcon = Utility:NormalizeAssetId(options.Icon or options.Logo)
     local SettingsIcon = Utility:NormalizeAssetId(options.SettingsIcon, ICONS.Settings)
     local ShowUserProfile = options.ShowUserProfile == nil and true or options.ShowUserProfile
     local RequestedMaterialMode = options.MaterialMode or self.MaterialMode or "Solid"
+    local EnableCommandPalette = options.EnableCommandPalette == nil and true or options.EnableCommandPalette
 
     local brandLoadStarted = false
     local function createWindowMark(parent, textSize, zIndex)
@@ -4743,7 +6260,7 @@ function Library:CreateWindow(options)
             Position = UDim2.fromScale(0.16, 0.16),
             Size = UDim2.fromScale(0.68, 0.68),
             Image = WindowIcon or Library.BrandIcon,
-            ImageColor3 = WindowIcon and Color3.new(1, 1, 1) or Library.Theme[Library.BrandIconTint or "Text"],
+            ImageColor3 = (WindowIcon or not Library.BrandIconTint) and Color3.new(1, 1, 1) or Library.Theme[Library.BrandIconTint],
             ScaleType = Enum.ScaleType.Fit,
             ZIndex = zIndex
         })
@@ -4798,14 +6315,10 @@ function Library:CreateWindow(options)
     local uiScale = Utility:Create("UIScale", {Parent = ScreenGui})
     table.insert(Library.Scales, uiScale)
 
-    if syn and syn.protect_gui then
-        syn.protect_gui(ScreenGui)
-        ScreenGui.Parent = CoreGui
-    elseif gethui then
-        ScreenGui.Parent = gethui()
-    else
-        ScreenGui.Parent = CoreGui
-    end
+    Capabilities:ProtectGui(ScreenGui)
+    local guiParent = Capabilities:GetGuiParent()
+    assert(guiParent, "[RenLib] No supported UI parent is available")
+    ScreenGui.Parent = guiParent
     Library.ScreenGui = ScreenGui
 
     -- Main Container
@@ -5626,8 +7139,513 @@ function Library:CreateWindow(options)
         NavigationListeners = {},
         NavigationRevision = 0,
         SearchResults = {},
-        SearchQuery = ""
+        SearchQuery = "",
+        Commands = {},
+        CommandOrder = {},
+        Favorites = cloneFeatureValue(Library.Flags.__RenLibFavorites or {}),
+        RecentActions = cloneFeatureValue(Library.Flags.__RenLibRecentActions or {}),
+        MaxRecentActions = math.max(1, tonumber(options.MaxRecentActions) or 8),
+        PhoneCompactEnabled = options.PhoneCompact == nil and true or options.PhoneCompact == true,
+        CommandPaletteEnabled = EnableCommandPalette,
+        ContentDensity = tostring(options.ContentDensity or "Compact"),
+        ContentSpacing = ({Tight = 2, Compact = 5, Comfortable = 8})[tostring(options.ContentDensity or "Compact")] or 5
     }
+
+    local commandPalette, commandSearch, commandResults, commandEmpty
+    local function normalizeActionId(value)
+        local id = tostring(value or ""):lower():gsub("[^%w]+", "-"):gsub("^%-+", ""):gsub("%-+$", "")
+        return id ~= "" and id or ("action-" .. tostring(#Window.CommandOrder + 1))
+    end
+
+    function Window:MarkActionUsed(id)
+        id = normalizeActionId(id)
+        for index = #self.RecentActions, 1, -1 do
+            if self.RecentActions[index] == id then table.remove(self.RecentActions, index) end
+        end
+        table.insert(self.RecentActions, 1, id)
+        while #self.RecentActions > self.MaxRecentActions do table.remove(self.RecentActions) end
+        Library.Flags.__RenLibRecentActions = cloneFeatureValue(self.RecentActions)
+        return self.RecentActions
+    end
+
+    function Window:SetFavorite(id, favorite)
+        id = normalizeActionId(id)
+        self.Favorites[id] = favorite == true or nil
+        Library.Flags.__RenLibFavorites = cloneFeatureValue(self.Favorites)
+        return self.Favorites[id] == true
+    end
+
+    function Window:ToggleFavorite(id)
+        return self:SetFavorite(id, not self.Favorites[normalizeActionId(id)])
+    end
+
+    function Window:GetFavoriteActions()
+        local actions = {}
+        for _, id in ipairs(self.CommandOrder) do
+            if self.Favorites[id] and self.Commands[id] then table.insert(actions, self.Commands[id]) end
+        end
+        return actions
+    end
+
+    function Window:GetRecentActions()
+        local actions = {}
+        for _, id in ipairs(self.RecentActions) do
+            if self.Commands[id] then table.insert(actions, self.Commands[id]) end
+        end
+        return actions
+    end
+
+    function Window:RegisterCommand(commandOptions)
+        commandOptions = commandOptions or {}
+        local id = normalizeActionId(commandOptions.Id or commandOptions.Name)
+        local command = self.Commands[id]
+        if not command then
+            command = {Id = id}
+            self.Commands[id] = command
+            table.insert(self.CommandOrder, id)
+        end
+        command.Name = tostring(commandOptions.Name or command.Name or id)
+        command.Description = tostring(commandOptions.Description or command.Description or "")
+        command.Category = tostring(commandOptions.Category or command.Category or "Actions")
+        command.Synonyms = commandOptions.Synonyms or commandOptions.Aliases or command.Synonyms or {}
+        command.Callback = commandOptions.Callback or command.Callback
+        command.Requirement = commandOptions.Requirement
+        command.Icon = Utility:NormalizeAssetId(commandOptions.Icon or command.Icon)
+        command.Data = commandOptions.Data or command.Data
+        return command
+    end
+
+    Window.RegisterAction = Window.RegisterCommand
+
+    function Window:ExecuteCommand(idOrCommand)
+        local command = type(idOrCommand) == "table" and idOrCommand or self.Commands[normalizeActionId(idOrCommand)]
+        if not command then return false, "Unknown command" end
+        local requirement = command.Requirement
+        if type(requirement) == "function" then
+            local ok, allowed, reason = pcall(requirement, command.Data or command, command)
+            if not ok then return false, allowed end
+            if allowed == false then return false, reason or "Requirements are not met" end
+        elseif requirement == false then
+            return false, "Requirements are not met"
+        end
+        self:MarkActionUsed(command.Id)
+        local ok, err = Utility:SafeCall(command.Callback, command)
+        return ok, err
+    end
+
+    local function commandHaystack(command)
+        local synonyms = command.Synonyms
+        if type(synonyms) == "table" then synonyms = table.concat(synonyms, " ") end
+        return table.concat({command.Name or "", command.Description or "", command.Category or "", tostring(synonyms or "")}, " "):lower()
+    end
+
+    local function ensureCommandPalette()
+        if commandPalette or not EnableCommandPalette then return commandPalette end
+        commandPalette = Utility:Create("Frame", {
+            Name = "CommandPalette", Parent = MainFrame, AnchorPoint = Vector2.new(0.5, 0),
+            Position = UDim2.new(0.5, 0, 0, IsMobile and 48 or 72),
+            Size = UDim2.new(1, IsMobile and -18 or -160, 0, IsMobile and 310 or 360),
+            BackgroundColor3 = Library.Theme.Secondary, Visible = false,
+            ClipsDescendants = true, BorderSizePixel = 0, ZIndex = 410
+        })
+        Utility:RegisterProperty(commandPalette, "BackgroundColor3", "Secondary")
+        Utility:RegisterMaterial(commandPalette, 0.08, 0)
+        Utility:Create("UICorner", {Parent = commandPalette, CornerRadius = UDim.new(0, 12)})
+        local paletteStroke = Utility:Create("UIStroke", {Parent = commandPalette, Color = Library.Theme.Accent, Thickness = 1.5, Transparency = 0.08})
+        Utility:RegisterProperty(paletteStroke, "Color", "Accent")
+
+        local header = Utility:Create("Frame", {
+            Parent = commandPalette, BackgroundColor3 = Library.Theme.Surface,
+            Size = UDim2.new(1, 0, 0, 52), BorderSizePixel = 0, ZIndex = 411
+        })
+        Utility:RegisterProperty(header, "BackgroundColor3", "Surface")
+        commandSearch = Utility:Create("TextBox", {
+            Name = "Search", Parent = header, BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(16, 0), Size = UDim2.new(1, -62, 1, 0),
+            ClearTextOnFocus = false, PlaceholderText = "Search actions, features, or synonyms…",
+            Text = "", TextColor3 = Library.Theme.Text, PlaceholderColor3 = Library.Theme.SubText,
+            Font = Enum.Font.Gotham, TextSize = IsMobile and 13 or 14,
+            TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 412
+        })
+        Utility:RegisterProperty(commandSearch, "TextColor3", "Text")
+        Utility:RegisterProperty(commandSearch, "PlaceholderColor3", "SubText")
+        local closePalette = Utility:Create("TextButton", {
+            Parent = header, BackgroundTransparency = 1, Position = UDim2.new(1, -44, 0, 0),
+            Size = UDim2.fromOffset(44, 52), Text = "×", TextColor3 = Library.Theme.SubText,
+            Font = Enum.Font.GothamBold, TextSize = 22, ZIndex = 412
+        })
+        Utility:RegisterProperty(closePalette, "TextColor3", "SubText")
+        commandResults = Utility:Create("ScrollingFrame", {
+            Name = "Results", Parent = commandPalette, BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(8, 60), Size = UDim2.new(1, -16, 1, -68),
+            CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            ScrollBarThickness = 2, ScrollBarImageColor3 = Library.Theme.Accent,
+            BorderSizePixel = 0, ZIndex = 411
+        })
+        Utility:RegisterProperty(commandResults, "ScrollBarImageColor3", "Accent")
+        Utility:Create("UIListLayout", {Parent = commandResults, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6)})
+        commandEmpty = Utility:Create("TextLabel", {
+            Name = "Empty", Parent = commandResults, BackgroundTransparency = 1,
+            Size = UDim2.new(1, 0, 0, 56), Text = "No matching actions",
+            TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham,
+            TextSize = 12, Visible = false, ZIndex = 412
+        })
+        Utility:RegisterProperty(commandEmpty, "TextColor3", "SubText")
+        Library:Connect(closePalette.MouseButton1Click, function() Window:CloseCommandPalette() end)
+        Library:Connect(commandSearch:GetPropertyChangedSignal("Text"), function() Window:RefreshCommandPalette(commandSearch.Text) end)
+        Library:Connect(commandSearch.FocusLost, function(enterPressed)
+            if not enterPressed then return end
+            local first = commandResults and commandResults:FindFirstChild("CommandResult")
+            if first then Window:ExecuteCommand(first:GetAttribute("CommandId")); Window:CloseCommandPalette() end
+        end)
+        return commandPalette
+    end
+
+    function Window:RefreshCommandPalette(query)
+        if not ensureCommandPalette() then return {} end
+        query = tostring(query or ""):lower():match("^%s*(.-)%s*$") or ""
+        for _, child in ipairs(commandResults:GetChildren()) do
+            if child.Name == "CommandResult" then child:Destroy() end
+        end
+        local matches = {}
+        for _, id in ipairs(self.CommandOrder) do
+            local command = self.Commands[id]
+            if command and (query == "" or commandHaystack(command):find(query, 1, true)) then table.insert(matches, command) end
+        end
+        table.sort(matches, function(a, b)
+            local af, bf = self.Favorites[a.Id] == true, self.Favorites[b.Id] == true
+            if af ~= bf then return af end
+            local ar, br = table.find(self.RecentActions, a.Id), table.find(self.RecentActions, b.Id)
+            if (ar ~= nil) ~= (br ~= nil) then return ar ~= nil end
+            if ar and br and ar ~= br then return ar < br end
+            return a.Name:lower() < b.Name:lower()
+        end)
+        local limit = IsMobile and 5 or 7
+        for index, command in ipairs(matches) do
+            if index > limit then break end
+            local row = Utility:Create("TextButton", {
+                Name = "CommandResult", Parent = commandResults, BackgroundColor3 = Library.Theme.Surface,
+                Size = UDim2.new(1, -4, 0, IsMobile and 44 or 48), Text = "", AutoButtonColor = false,
+                LayoutOrder = index, BorderSizePixel = 0, ZIndex = 412
+            })
+            row:SetAttribute("CommandId", command.Id)
+            Utility:RegisterProperty(row, "BackgroundColor3", "Surface")
+            Utility:Create("UICorner", {Parent = row, CornerRadius = UDim.new(0, 7)})
+            local label = Utility:Create("TextLabel", {
+                Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 5),
+                Size = UDim2.new(1, -54, 0, 19), Text = command.Name,
+                TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamMedium,
+                TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 413
+            })
+            Utility:RegisterProperty(label, "TextColor3", "Text")
+            local detail = Utility:Create("TextLabel", {
+                Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 23),
+                Size = UDim2.new(1, -54, 0, 16), Text = command.Category .. (command.Description ~= "" and ("  •  " .. command.Description) or ""),
+                TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 10,
+                TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 413
+            })
+            Utility:RegisterProperty(detail, "TextColor3", "SubText")
+            local star = Utility:Create("TextButton", {
+                Parent = row, BackgroundTransparency = 1, Position = UDim2.new(1, -42, 0, 0),
+                Size = UDim2.fromOffset(42, IsMobile and 44 or 48), Text = self.Favorites[command.Id] and "★" or "☆",
+                TextColor3 = Library.Theme.Warn, Font = Enum.Font.GothamBold, TextSize = 17, ZIndex = 414
+            })
+            Utility:RegisterProperty(star, "TextColor3", "Warn")
+            Library:Connect(star.MouseButton1Click, function()
+                Window:ToggleFavorite(command.Id)
+                Window:RefreshCommandPalette(query)
+            end)
+            Library:Connect(row.MouseButton1Click, function()
+                local ok, err = Window:ExecuteCommand(command)
+                if not ok then Library:Notify({Title = "Action unavailable", Content = tostring(err), Duration = 3}) end
+                Window:CloseCommandPalette()
+            end)
+            Library:Connect(row.MouseEnter, function() Utility:Tween(row, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Hover}) end)
+            Library:Connect(row.MouseLeave, function() Utility:Tween(row, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Surface}) end)
+        end
+        commandEmpty.Visible = #matches == 0
+        return matches
+    end
+
+    function Window:OpenCommandPalette(query)
+        if not self.CommandPaletteEnabled or not ensureCommandPalette() then return false end
+        commandPalette.Position = UDim2.new(0.5, 0, 0, Library.DeviceMode == "Phone" and 42 or 72)
+        commandPalette.Size = UDim2.new(1, Library.DeviceMode == "Phone" and -14 or -160, 0, Library.DeviceMode == "Phone" and 292 or 360)
+        commandPalette.Visible = true
+        commandSearch.Text = tostring(query or "")
+        self:RefreshCommandPalette(commandSearch.Text)
+        task.defer(function() if commandSearch and commandSearch.Parent then commandSearch:CaptureFocus() end end)
+        return true
+    end
+
+    function Window:CloseCommandPalette()
+        if commandPalette then commandPalette.Visible = false end
+        if commandSearch then commandSearch:ReleaseFocus() end
+        return self
+    end
+
+    function Window:ToggleCommandPalette()
+        if commandPalette and commandPalette.Visible then return self:CloseCommandPalette() end
+        self:OpenCommandPalette("")
+        return self
+    end
+
+    local PaletteOpenButton
+    if EnableCommandPalette then
+        PaletteOpenButton = Utility:Create("TextButton", {
+            Name = "PhoneCommandPalette", Parent = ScreenGui, AnchorPoint = Vector2.new(1, 1),
+            Position = UDim2.new(1, -12, 1, -12), Size = UDim2.fromOffset(42, 42),
+            BackgroundColor3 = Library.Theme.Accent, Text = "⌘", TextColor3 = Library.Theme.Text,
+            Font = Enum.Font.GothamBold, TextSize = 18, AutoButtonColor = false,
+            Visible = DeviceMode == "Phone", BorderSizePixel = 0, ZIndex = 405
+        })
+        Utility:RegisterProperty(PaletteOpenButton, "BackgroundColor3", "Accent")
+        Utility:RegisterProperty(PaletteOpenButton, "TextColor3", "Text")
+        Utility:Create("UICorner", {Parent = PaletteOpenButton, CornerRadius = UDim.new(1, 0)})
+        Library:Connect(PaletteOpenButton.MouseButton1Click, function() Window:ToggleCommandPalette() end)
+        Library:Connect(UserInputService.InputBegan, function(input, processed)
+            if input.KeyCode == Enum.KeyCode.Escape and commandPalette and commandPalette.Visible then
+                Window:CloseCommandPalette()
+            elseif not processed and input.KeyCode == Enum.KeyCode.K
+                and (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)) then
+                Window:ToggleCommandPalette()
+            end
+        end)
+    end
+    Library:Connect(UserInputService.InputBegan, function(input, processed)
+        if processed or input.KeyCode ~= Enum.KeyCode.Tab then return end
+        if not (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)) then return end
+        local backwards = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+        if backwards then Window:PreviousTab() else Window:NextTab() end
+    end)
+
+    function Window:CreateAutomationHUD(hudOptions)
+        hudOptions = hudOptions or {}
+        local phone = Library.DeviceMode == "Phone"
+        local expandedHeight = phone and 100 or 108
+        local hudFrame = Utility:Create("Frame", {
+            Name = tostring(hudOptions.Name or "AutomationHUD"), Parent = ScreenGui,
+            AnchorPoint = Vector2.new(1, 0), Position = hudOptions.Position or UDim2.new(1, -14, 0, 76),
+            Size = UDim2.fromOffset(phone and 216 or 248, expandedHeight),
+            BackgroundColor3 = Library.Theme.Secondary, ClipsDescendants = true,
+            BorderSizePixel = 0, ZIndex = 500
+        })
+        Utility:RegisterProperty(hudFrame, "BackgroundColor3", "Secondary")
+        Utility:RegisterMaterial(hudFrame, 0.1, 0)
+        Utility:Create("UICorner", {Parent = hudFrame, CornerRadius = UDim.new(0, 9)})
+        local hudStroke = Utility:Create("UIStroke", {Parent = hudFrame, Color = Library.Theme.Stroke, Thickness = 1, Transparency = 0.68})
+        Utility:RegisterProperty(hudStroke, "Color", "Stroke")
+        local hudHeader = Utility:Create("Frame", {
+            Parent = hudFrame, BackgroundColor3 = Library.Theme.Surface,
+            Size = UDim2.new(1, 0, 0, 34), BorderSizePixel = 0, ZIndex = 501
+        })
+        Utility:RegisterProperty(hudHeader, "BackgroundColor3", "Surface")
+        local statusDot = Utility:Create("Frame", {
+            Name = "StatusDot", Parent = hudHeader, BackgroundColor3 = Library.Theme.SubText,
+            Position = UDim2.fromOffset(11, 13), Size = UDim2.fromOffset(8, 8),
+            BorderSizePixel = 0, ZIndex = 503
+        })
+        Utility:RegisterProperty(statusDot, "BackgroundColor3", "SubText")
+        Utility:Create("UICorner", {Parent = statusDot, CornerRadius = UDim.new(1, 0)})
+        local hudTitle = Utility:Create("TextLabel", {
+            Parent = hudHeader, BackgroundTransparency = 1, Position = UDim2.fromOffset(27, 0),
+            Size = UDim2.new(1, -62, 1, 0), Text = tostring(hudOptions.Title or "Automation"),
+            TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11,
+            TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 502
+        })
+        Utility:RegisterProperty(hudTitle, "TextColor3", "Text")
+        local collapse = Utility:Create("TextButton", {
+            Parent = hudHeader, BackgroundTransparency = 1, Position = UDim2.new(1, -34, 0, 0),
+            Size = UDim2.fromOffset(34, 34), Text = "−", TextColor3 = Library.Theme.SubText,
+            Font = Enum.Font.GothamBold, TextSize = 15, ZIndex = 503
+        })
+        Utility:RegisterProperty(collapse, "TextColor3", "SubText")
+        local statusLabel = Utility:Create("TextLabel", {
+            Name = "Status", Parent = hudFrame, BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(11, 39), Size = UDim2.new(1, -22, 0, 17),
+            Text = tostring(hudOptions.StatusText or "Idle"), TextColor3 = Library.Theme.Text,
+            Font = Enum.Font.GothamMedium, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 501
+        })
+        Utility:RegisterProperty(statusLabel, "TextColor3", "Text")
+        local detailLabel = Utility:Create("TextLabel", {
+            Name = "Detail", Parent = hudFrame, BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(11, 56), Size = UDim2.new(1, -22, 0, 16),
+            Text = tostring(hudOptions.Detail or "No active workflow"), TextColor3 = Library.Theme.SubText,
+            Font = Enum.Font.Gotham, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 501
+        })
+        Utility:RegisterProperty(detailLabel, "TextColor3", "SubText")
+        local progressTrack = Utility:Create("Frame", {
+            Name = "Progress", Parent = hudFrame, BackgroundColor3 = Library.Theme.SurfaceAlt,
+            Position = UDim2.fromOffset(11, 77), Size = UDim2.new(1, -22, 0, 4),
+            BorderSizePixel = 0, ZIndex = 501
+        })
+        Utility:RegisterProperty(progressTrack, "BackgroundColor3", "SurfaceAlt")
+        Utility:Create("UICorner", {Parent = progressTrack, CornerRadius = UDim.new(1, 0)})
+        local progressFill = Utility:Create("Frame", {
+            Parent = progressTrack, BackgroundColor3 = Library.Theme.Accent,
+            Size = UDim2.new(math.clamp(tonumber(hudOptions.Progress) or 0, 0, 1), 0, 1, 0),
+            BorderSizePixel = 0, ZIndex = 502
+        })
+        Utility:RegisterProperty(progressFill, "BackgroundColor3", "Accent")
+        Utility:Create("UICorner", {Parent = progressFill, CornerRadius = UDim.new(1, 0)})
+        local metricsLabel = Utility:Create("TextLabel", {
+            Name = "Metrics", Parent = hudFrame, BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(11, 86), Size = UDim2.new(1, -22, 0, 15),
+            Text = tostring(hudOptions.Metrics or ""), TextColor3 = Library.Theme.SubText,
+            Font = Enum.Font.Gotham, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 501
+        })
+        Utility:RegisterProperty(metricsLabel, "TextColor3", "SubText")
+        Utility:MakeDraggable(hudHeader, hudFrame)
+
+        local hud = {Holder = hudFrame, Collapsed = false, Status = "Idle"}
+        local statusKeys = {active = "Success", waiting = "Warn", error = "Error", idle = "SubText", success = "Success"}
+        function hud:SetStatus(status, text, detail)
+            local normalized = tostring(status or "Idle"):lower()
+            local colorKey = statusKeys[normalized] or "SubText"
+            self.Status = normalized
+            Library.Registry[statusDot]["BackgroundColor3"] = colorKey
+            Utility:Tween(statusDot, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme[colorKey]})
+            statusLabel.Text = tostring(text or normalized:gsub("^%l", string.upper))
+            if detail ~= nil then detailLabel.Text = tostring(detail) end
+            return self
+        end
+        function hud:SetProgress(value)
+            Utility:Tween(progressFill, TweenInfo.new(0.18), {Size = UDim2.new(math.clamp(tonumber(value) or 0, 0, 1), 0, 1, 0)})
+            return self
+        end
+        function hud:SetMetrics(metrics)
+            if type(metrics) == "table" then
+                local parts = {}
+                for key, value in pairs(metrics) do table.insert(parts, tostring(key) .. ": " .. tostring(value)) end
+                table.sort(parts)
+                metricsLabel.Text = table.concat(parts, "  •  ")
+            else
+                metricsLabel.Text = tostring(metrics or "")
+            end
+            return self
+        end
+        function hud:SetTitle(value) hudTitle.Text = tostring(value or "Automation") return self end
+        function hud:SetDetail(value) detailLabel.Text = tostring(value or "") return self end
+        function hud:SetDock(dock)
+            dock = tostring(dock or "TopRight")
+            local docks = {
+                TopRight = {Vector2.new(1, 0), UDim2.new(1, -14, 0, 76)},
+                TopLeft = {Vector2.new(0, 0), UDim2.new(0, 14, 0, 76)},
+                BottomRight = {Vector2.new(1, 1), UDim2.new(1, -14, 1, -14)},
+                BottomLeft = {Vector2.new(0, 1), UDim2.new(0, 14, 1, -14)}
+            }
+            local target = docks[dock] or docks.TopRight
+            hudFrame.AnchorPoint = target[1]
+            Utility:Tween(hudFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = target[2]})
+            self.Dock = dock
+            return self
+        end
+        function hud:SetCollapsed(value)
+            self.Collapsed = value == true
+            collapse.Text = self.Collapsed and "+" or "−"
+            Utility:Tween(hudFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                Size = UDim2.fromOffset(hudFrame.Size.X.Offset, self.Collapsed and 34 or expandedHeight)
+            })
+            return self
+        end
+        function hud:SetVisible(value) hudFrame.Visible = value == true return self end
+        function hud:Destroy() hudFrame:Destroy() end
+        Library:Connect(collapse.MouseButton1Click, function() hud:SetCollapsed(not hud.Collapsed) end)
+        hud:SetStatus(hudOptions.Status or "Idle", hudOptions.StatusText, hudOptions.Detail)
+        if hudOptions.Dock and not hudOptions.Position then hud:SetDock(hudOptions.Dock) end
+        return hud
+    end
+
+    function Window:CreateQuickActions(actionOptions)
+        actionOptions = actionOptions or {}
+        local actions, actionById, buttons = {}, {}, {}
+        local phone = Library.DeviceMode == "Phone"
+        local buttonWidth = phone and 62 or 82
+        local dock = Utility:Create("Frame", {
+            Name = tostring(actionOptions.Name or "QuickActions"), Parent = ScreenGui,
+            AnchorPoint = Vector2.new(0.5, 1), Position = actionOptions.Position or UDim2.new(0.5, 0, 1, -66),
+            Size = UDim2.fromOffset(24, phone and 48 or 52), BackgroundColor3 = Library.Theme.Secondary,
+            BorderSizePixel = 0, ZIndex = 520
+        })
+        Utility:RegisterProperty(dock, "BackgroundColor3", "Secondary")
+        Utility:RegisterMaterial(dock, 0.08, 0)
+        Utility:Create("UICorner", {Parent = dock, CornerRadius = UDim.new(1, 0)})
+        local dockStroke = Utility:Create("UIStroke", {Parent = dock, Color = Library.Theme.Stroke, Thickness = 1})
+        Utility:RegisterProperty(dockStroke, "Color", "Stroke")
+        Utility:Create("UIPadding", {Parent = dock, PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 7), PaddingBottom = UDim.new(0, 7)})
+        local layout = Utility:Create("UIListLayout", {Parent = dock, FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Center})
+        local controller = {Type = "QuickActions", Holder = dock}
+        local statusColors = {Active = "Success", Waiting = "Warn", Error = "Error", Idle = "SubText"}
+        local function resize()
+            dock.Size = UDim2.fromOffset(math.max(32, #actions * (buttonWidth + 6) + 10), phone and 48 or 52)
+        end
+        function controller:AddAction(value)
+            value = value or {}
+            local id = normalizeActionId(value.Id or value.Name)
+            if actionById[id] then return actionById[id] end
+            local action = {Id = id, Name = tostring(value.Name or id), Callback = value.Callback, Status = tostring(value.Status or "Idle")}
+            table.insert(actions, action)
+            actionById[id] = action
+            local button = Utility:Create("TextButton", {
+                Name = "QuickAction", Parent = dock, BackgroundColor3 = Library.Theme.Surface,
+                Size = UDim2.fromOffset(buttonWidth, phone and 34 or 38), Text = action.Name,
+                TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = phone and 8 or 9,
+                TextTruncate = Enum.TextTruncate.AtEnd, AutoButtonColor = false,
+                LayoutOrder = #actions, BorderSizePixel = 0, ZIndex = 521
+            })
+            Utility:RegisterProperty(button, "BackgroundColor3", "Surface")
+            Utility:RegisterProperty(button, "TextColor3", "Text")
+            Utility:Create("UICorner", {Parent = button, CornerRadius = UDim.new(1, 0)})
+            local dot = Utility:Create("Frame", {Name = "StatusDot", Parent = button, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 4), Size = UDim2.fromOffset(7, 7), BackgroundColor3 = Library.Theme.SubText, BorderSizePixel = 0, Visible = false, ZIndex = 522})
+            Utility:RegisterProperty(dot, "BackgroundColor3", "SubText")
+            Utility:Create("UICorner", {Parent = dot, CornerRadius = UDim.new(1, 0)})
+            buttons[id] = {Button = button, Dot = dot}
+            Window:RegisterCommand({Id = "quick-" .. id, Name = action.Name, Description = value.Description or "Quick action", Category = "Quick actions", Synonyms = value.Synonyms, Requirement = value.Requirement, Callback = function() Utility:SafeCall(action.Callback, action, controller) end})
+            Library:Connect(button.MouseButton1Click, function()
+                local ok, err = Window:ExecuteCommand("quick-" .. id)
+                if not ok then Library:Notify({Title = "Action unavailable", Content = tostring(err), Duration = 3}) end
+            end)
+            Library:Connect(button.MouseEnter, function() Utility:Tween(button, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Hover}) end)
+            Library:Connect(button.MouseLeave, function() Utility:Tween(button, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Surface}) end)
+            resize()
+            self:SetStatus(id, action.Status)
+            return action
+        end
+        function controller:SetStatus(id, status)
+            id = normalizeActionId(id)
+            local action, visual = actionById[id], buttons[id]
+            if not action or not visual then return false end
+            action.Status = tostring(status or "Idle"):gsub("^%l", string.upper)
+            local colorKey = statusColors[action.Status] or "SubText"
+            visual.Dot.Visible = action.Status ~= "Idle"
+            Library.Registry[visual.Dot]["BackgroundColor3"] = colorKey
+            Utility:Tween(visual.Dot, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme[colorKey]})
+            return true
+        end
+        function controller:SetVisible(value) dock.Visible = value == true return self end
+        function controller:GetActions() return actions end
+        function controller:Trigger(id) return Window:ExecuteCommand("quick-" .. normalizeActionId(id)) end
+        function controller:SetDock(position)
+            position = tostring(position or "BottomCenter")
+            local positions = {
+                BottomCenter = {Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -66)},
+                TopCenter = {Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 76)},
+                BottomRight = {Vector2.new(1, 1), UDim2.new(1, -14, 1, -66)}
+            }
+            local target = positions[position] or positions.BottomCenter
+            dock.AnchorPoint = target[1]
+            Utility:Tween(dock, TweenInfo.new(0.2), {Position = target[2]})
+            return self
+        end
+        function controller:Destroy() dock:Destroy() end
+        for _, action in ipairs(actionOptions.Actions or {}) do controller:AddAction(action) end
+        if actionOptions.Dock and not actionOptions.Position then controller:SetDock(actionOptions.Dock) end
+        resize()
+        return controller
+    end
 
     function Window:OnTabChanged(callback)
         if type(callback) == "function" then table.insert(self.NavigationListeners, callback) end
@@ -5674,6 +7692,34 @@ function Library:CreateWindow(options)
         end
         return true
     end
+
+    function Window:GetTab(name)
+        local target = tostring(name or ""):lower()
+        for _, tab in ipairs(self.Tabs) do
+            if tostring(tab.Name):lower() == target then return tab end
+        end
+        return nil
+    end
+
+    function Window:SelectTabByName(name, selectOptions)
+        local tab = self:GetTab(name)
+        if not tab then return false, "Unknown tab: " .. tostring(name) end
+        return self:SelectTab(tab, selectOptions)
+    end
+
+    function Window:CycleTab(direction)
+        local navigable = {}
+        for _, tab in ipairs(self.Tabs) do
+            if not tab.IsSettings and not tab.IsOverview then table.insert(navigable, tab) end
+        end
+        if #navigable == 0 then return false end
+        local currentIndex = table.find(navigable, self.ActiveTab) or 0
+        local nextIndex = ((currentIndex - 1 + (tonumber(direction) or 1)) % #navigable) + 1
+        return navigable[nextIndex]:Activate({ResetScroll = false, Animate = true})
+    end
+
+    function Window:NextTab() return self:CycleTab(1) end
+    function Window:PreviousTab() return self:CycleTab(-1) end
 
     local navigationSelectionToken = 0
     function Window:MoveNavigationSelection(animate)
@@ -5852,8 +7898,9 @@ function Library:CreateWindow(options)
         local layoutViewport = Vector2.new(viewport.X / scale, viewport.Y / scale)
         local mode = getDeviceMode(scale)
         local mobile = mode ~= "Desktop"
-        local horizontalMargin = mobile and 6 or 16
-        local verticalMargin = mobile and 6 or 16
+        local phoneCompact = mode == "Phone" and self.PhoneCompactEnabled
+        local horizontalMargin = phoneCompact and 3 or (mobile and 6 or 16)
+        local verticalMargin = phoneCompact and 3 or (mobile and 6 or 16)
         local maximumWidth = math.max(1, layoutViewport.X - horizontalMargin * 2)
         local maximumHeight = math.max(1, layoutViewport.Y - verticalMargin * 2)
         local width = math.min(mobile and 720 or (options.Width or 880), maximumWidth)
@@ -5863,12 +7910,12 @@ function Library:CreateWindow(options)
             height = maximumHeight
         end
         local navigationExpanded = SidebarMode == "Expanded" or (SidebarMode == "Dynamic" and sidebarHoverExpanded)
-        local sidebarWidth = mobile and (width < 340 and 54 or 60)
+        local sidebarWidth = phoneCompact and 52 or (mobile and (width < 340 and 54 or 60))
             or (navigationExpanded and math.clamp(currentSidebarWidth, 132, math.min(240, width * 0.32)) or 80)
         local shortViewport = mobile and height < 420
         local hideSearch = mobile and height < 300
         local hideProfile = height < 380
-        local topBarHeight = mobile and (hideSearch and 48 or (shortViewport and 74 or 88)) or 60
+        local topBarHeight = mobile and (hideSearch and 48 or (shortViewport and 72 or (phoneCompact and 82 or 88))) or 60
         Window.ContentTopInset = topBarHeight
 
         DeviceMode = mode
@@ -5901,7 +7948,7 @@ function Library:CreateWindow(options)
             Position = UDim2.new(0, 16, 0, mobile and (hideSearch and 9 or 11) or 16),
             Size = UDim2.new(1, -(mobile and 108 or 430), 0, 30)
         }, animateNavigation)
-        TitleLabel.TextSize = mobile and 17 or 19
+        TitleLabel.TextSize = phoneCompact and 15 or (mobile and 17 or 19)
         applyLayout(TopDivider, {
             Position = UDim2.new(0, sidebarWidth, 0, topBarHeight - 1),
             Size = UDim2.new(1, -sidebarWidth, 0, 1)
@@ -5959,8 +8006,9 @@ function Library:CreateWindow(options)
             SearchBox.AnchorPoint = mobile and Vector2.new(0, 0) or Vector2.new(0.5, 0)
             SearchBox.Position = mobile and UDim2.new(0, 8, 0, shortViewport and 41 or 50)
                 or UDim2.new(0.5, 0, 0, 15)
-            SearchBox.Size = mobile and UDim2.new(1, -16, 0, shortViewport and 26 or 30) or UDim2.new(0, 270, 0, 30)
+            SearchBox.Size = mobile and UDim2.new(1, -16, 0, shortViewport and 26 or (phoneCompact and 28 or 30)) or UDim2.new(0, 270, 0, 30)
         end
+        if PaletteOpenButton then PaletteOpenButton.Visible = mode == "Phone" and MainFrame.Visible end
         if dividerLine then
             dividerLine.Visible = not mobile and not isCompact
             dividerLine.Position = UDim2.new(0, sidebarWidth, 0, 0)
@@ -5968,7 +8016,7 @@ function Library:CreateWindow(options)
         for _, tab in ipairs(Window.Tabs) do
             if tab.ApplyNavigationLayout then tab:ApplyNavigationLayout(mobile, isCompact, animateNavigation) end
             if tab.ApplyResponsiveLayout then
-                tab:ApplyResponsiveLayout(singleColumn, topBarHeight)
+                tab:ApplyResponsiveLayout(singleColumn, topBarHeight, phoneCompact)
             end
         end
         for _, category in ipairs(Window.TabCategories) do
@@ -6010,6 +8058,12 @@ function Library:CreateWindow(options)
         SidebarModeLabel.Text = mode == "Expanded" and "Auto" or "Pin"
         self:ApplyResponsiveLayout(false, true)
         return true
+    end
+
+    function Window:SetPhoneCompact(enabled)
+        self.PhoneCompactEnabled = enabled == true
+        self:ApplyResponsiveLayout(false, true)
+        return self
     end
 
     local sidebarHoverToken = 0
@@ -6584,6 +8638,8 @@ self.KeybindManagerRebuild = rebuild
         visibilityToken = visibilityToken + 1
         local token = visibilityToken
         Library.IsMinimized = true
+        self:CloseCommandPalette()
+        if PaletteOpenButton then PaletteOpenButton.Visible = false end
         Library:RefreshMaterialVisibility()
         if IsMobile then
             if MobileToggleBtn then
@@ -6605,6 +8661,7 @@ self.KeybindManagerRebuild = rebuild
         Library:RefreshMaterialVisibility()
         MinimizedIcon.Visible = false
         MainFrame.Visible = true
+        if PaletteOpenButton then PaletteOpenButton.Visible = Library.DeviceMode == "Phone" end
         MainFrame.BackgroundTransparency = 1
         WindowScale.Scale = 0.96
         Utility:Tween(WindowScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1})
@@ -6718,7 +8775,9 @@ if SearchBox then
             for _, section in ipairs(tab.Sections or {}) do
                 for _, element in ipairs(section.Elements or {}) do
                     local holder = element.Holder
-                    local haystack = table.concat({tab.Name or "", section.Name or "", element.Text or element.Name or ""}, " "):lower()
+                    local synonyms = element.Synonyms or element.Aliases or ""
+                    if type(synonyms) == "table" then synonyms = table.concat(synonyms, " ") end
+                    local haystack = table.concat({tab.Name or "", section.Name or "", element.Text or element.Name or "", tostring(synonyms)}, " "):lower()
                     if holder and holder.Parent and haystack:find(query, 1, true) and not seen[holder] then
                         seen[holder] = true
                         table.insert(self.SearchResults, {Tab = tab, Section = section, Element = element, Holder = holder})
@@ -6907,6 +8966,10 @@ end
         }
     end
 
+
+--[[ MODULE: 80_tabs.part.lua ]]
+-- Module fragment: tabs and activation
+-- Generated from the working V7 baseline; edit this feature in isolation.
     --// TABS
     function Window:CreateTabCategory(name)
         self.NextNavOrder = self.NextNavOrder + 1
@@ -7055,6 +9118,65 @@ end
             Tab.TabStroke = settingsStroke
         end
 
+        local TabStatusDot = Utility:Create("Frame", {
+            Name = "StatusDot", Parent = Tab.TabBtn, AnchorPoint = Vector2.new(1, 0),
+            Position = UDim2.new(1, -4, 0, 4), Size = UDim2.fromOffset(8, 8),
+            BackgroundColor3 = Library.Theme.SubText, Visible = false,
+            BorderSizePixel = 0, ZIndex = 9
+        })
+        Utility:RegisterProperty(TabStatusDot, "BackgroundColor3", "SubText")
+        Utility:Create("UICorner", {Parent = TabStatusDot, CornerRadius = UDim.new(1, 0)})
+        local tabStatusStroke = Utility:Create("UIStroke", {Parent = TabStatusDot, Color = Library.Theme.Main, Thickness = 1})
+        Utility:RegisterProperty(tabStatusStroke, "Color", "Main")
+        Tab.StatusDot = TabStatusDot
+        Tab.Status = "Idle"
+        Tab.StatusDetail = ""
+        local TabBadge = Utility:Create("TextLabel", {
+            Name = "Badge", Parent = Tab.TabBtn, AnchorPoint = Vector2.new(1, 1),
+            Position = UDim2.new(1, -3, 1, -3), Size = UDim2.fromOffset(17, 17),
+            BackgroundColor3 = Library.Theme.Accent, Text = "", TextColor3 = Library.Theme.Text,
+            Font = Enum.Font.GothamBold, TextSize = 8, Visible = false,
+            BorderSizePixel = 0, ZIndex = 9
+        })
+        Utility:RegisterProperty(TabBadge, "BackgroundColor3", "Accent")
+        Utility:RegisterProperty(TabBadge, "TextColor3", "Text")
+        Utility:Create("UICorner", {Parent = TabBadge, CornerRadius = UDim.new(1, 0)})
+        Tab.Badge = TabBadge
+
+        function Tab:SetStatus(status, detail)
+            local normalized = tostring(status or "Idle"):lower()
+            local colorKeys = {active = "Success", waiting = "Warn", error = "Error", success = "Success"}
+            local colorKey = colorKeys[normalized]
+            self.Status = normalized
+            self.StatusDetail = tostring(detail or "")
+            TabStatusDot.Visible = colorKey ~= nil
+            if colorKey then
+                Library.Registry[TabStatusDot]["BackgroundColor3"] = colorKey
+                Utility:Tween(TabStatusDot, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme[colorKey]})
+            end
+            if self._StatusTooltip then
+                self._StatusTooltip:Set(self.Name .. "  •  " .. (self.StatusDetail ~= "" and self.StatusDetail or normalized))
+            end
+            return self
+        end
+
+        function Tab:SetBadge(value, colorKey)
+            local numberValue = tonumber(value)
+            local text = value == nil and "" or tostring(value)
+            if numberValue and numberValue > 99 then text = "99+" end
+            TabBadge.Text = text
+            TabBadge.Visible = text ~= "" and text ~= "0"
+            colorKey = Library.Theme[colorKey] and colorKey or "Accent"
+            Library.Registry[TabBadge]["BackgroundColor3"] = colorKey
+            TabBadge.BackgroundColor3 = Library.Theme[colorKey]
+            self.BadgeValue = value
+            return self
+        end
+
+        Tab._StatusTooltip = Window:AttachTooltip(Tab.TabBtn, Name .. "  •  idle")
+        if options.Status then Tab:SetStatus(options.Status, options.StatusDetail or options.StatusText) end
+        if options.Badge ~= nil then Tab:SetBadge(options.Badge, options.BadgeColor) end
+
         function Tab:ApplyNavigationLayout(mobile, compact, animated)
             if self.IsSettings or self.IsOverview or not self.TabBtn then return end
             local iconOnly = mobile or compact
@@ -7095,7 +9217,7 @@ end
             Name = "Left",
             Parent = Page,
             BackgroundTransparency = 1,
-            Size = useSingleColumn and UDim2.new(1, 0, 1, 0) or UDim2.new(0.5, -6, 1, 0),
+            Size = useSingleColumn and UDim2.new(1, 0, 1, 0) or UDim2.new(0.5, -4, 1, 0),
             Position = UDim2.new(0, 0, 0, 0),
             ZIndex = 2,
             BorderSizePixel = 0
@@ -7104,8 +9226,8 @@ end
             Name = "Right",
             Parent = Page,
             BackgroundTransparency = 1,
-            Size = UDim2.new(0.5, -6, 1, 0),
-            Position = UDim2.new(0.5, 6, 0, 0),
+            Size = UDim2.new(0.5, -4, 1, 0),
+            Position = UDim2.new(0.5, 4, 0, 0),
             Visible = not useSingleColumn,
             ZIndex = 2,
             BorderSizePixel = 0
@@ -7113,34 +9235,35 @@ end
         local LeftLayout = Utility:Create("UIListLayout", {
             Parent = LeftColumn,
             SortOrder = Enum.SortOrder.LayoutOrder,
-            Padding = UDim.new(0, useSingleColumn and 10 or 12)
+            Padding = UDim.new(0, 8)
         })
         local RightLayout = Utility:Create("UIListLayout", {
             Parent = RightColumn,
             SortOrder = Enum.SortOrder.LayoutOrder,
-            Padding = UDim.new(0, 12)
+            Padding = UDim.new(0, 8)
         })
 
         local function UpdateCanvas()
             local LeftH = LeftLayout.AbsoluteContentSize.Y
             local RightH = useSingleColumn and 0 or RightLayout.AbsoluteContentSize.Y
-            Page.CanvasSize = UDim2.new(0, 0, 0, Tab.HeaderHeight + math.max(LeftH, RightH) + 20)
+            Page.CanvasSize = UDim2.new(0, 0, 0, Tab.HeaderHeight + math.max(LeftH, RightH) + 14)
         end
         Library:Connect(LeftLayout:GetPropertyChangedSignal("AbsoluteContentSize"), UpdateCanvas)
         Library:Connect(RightLayout:GetPropertyChangedSignal("AbsoluteContentSize"), UpdateCanvas)
 
-        function Tab:ApplyResponsiveLayout(mobile, topInset)
+        function Tab:ApplyResponsiveLayout(mobile, topInset, phoneCompact)
             useSingleColumn = mobile
             local pageTop = mobile and ((topInset or 88) + 4) or 70
-            Page.Position = UDim2.new(0, mobile and 8 or 20, 0, pageTop)
-            Page.Size = UDim2.new(1, mobile and -16 or -40, 1, -(pageTop + 10))
+            local pageMargin = phoneCompact and 5 or (mobile and 8 or 14)
+            Page.Position = UDim2.new(0, pageMargin, 0, pageTop)
+            Page.Size = UDim2.new(1, -pageMargin * 2, 1, -(pageTop + (phoneCompact and 6 or 10)))
             Page.ScrollBarThickness = mobile and 3 or 2
-            LeftColumn.Size = mobile and UDim2.new(1, 0, 1, 0) or UDim2.new(0.5, -6, 1, 0)
+            LeftColumn.Size = mobile and UDim2.new(1, 0, 1, 0) or UDim2.new(0.5, -4, 1, 0)
             LeftColumn.Position = UDim2.new(0, 0, 0, Tab.HeaderHeight)
-            RightColumn.Size = UDim2.new(0.5, -6, 1, 0)
-            RightColumn.Position = UDim2.new(0.5, 6, 0, Tab.HeaderHeight)
+            RightColumn.Size = UDim2.new(0.5, -4, 1, 0)
+            RightColumn.Position = UDim2.new(0.5, 4, 0, Tab.HeaderHeight)
             RightColumn.Visible = not mobile
-            LeftLayout.Padding = UDim.new(0, mobile and 10 or 12)
+            LeftLayout.Padding = UDim.new(0, mobile and 7 or 8)
             for _, section in ipairs(Tab.Sections) do
                 if mobile then
                     section.SectionFrame.Parent = LeftColumn
@@ -7220,11 +9343,23 @@ end
         end
 
         table.insert(Window.Tabs, Tab)
+        if not IsSettings and not IsOverview then
+            Window:RegisterCommand({
+                Id = "tab-" .. Name, Name = "Go to " .. Name,
+                Description = "Open the " .. Name .. " tab.", Category = "Navigation",
+                Synonyms = options.Synonyms or {Name, "open " .. Name, "show " .. Name},
+                Callback = function() Tab:Activate({ResetScroll = false, Animate = true}) end
+            })
+        end
         Tab:ApplyResponsiveLayout(IsMobile, Window.ContentTopInset)
         if not IsSettings and not IsOverview and not Window.ActiveTab then
             Tab:Activate()
         end
 
+
+--[[ MODULE: 81_sections.part.lua ]]
+-- Module fragment: section composition and controller contracts
+-- Generated from the working V7 baseline; edit this feature in isolation.
         --// SECTIONS
         function Tab:CreateSection(options)
             options = options or {}
@@ -7249,29 +9384,31 @@ end
             local SectionFrame = Utility:Create("Frame", {
                 Name = SectionName,
                 Parent = ParentCol,
-                BackgroundColor3 = Library.Theme.Surface,
+                BackgroundColor3 = Library.Theme.Secondary,
                 Size = UDim2.new(1, 0, 0, 50),
                 -- Allow expanded controls to render above the section frame.
                 ClipsDescendants = false,
                 ZIndex = 3,
                 BorderSizePixel = 0
             })
-            Utility:RegisterProperty(SectionFrame, "BackgroundColor3", "Surface")
-            Utility:RegisterMaterial(SectionFrame, 0.24, 0)
-            Utility:Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = SectionFrame})
+            Utility:RegisterProperty(SectionFrame, "BackgroundColor3", "Secondary")
+            Utility:RegisterMaterial(SectionFrame, 0.16, 0)
+            Utility:Create("UICorner", {CornerRadius = UDim.new(0, 9), Parent = SectionFrame})
             local sectionStroke = Utility:Create("UIStroke", {
                 Parent = SectionFrame,
                 Color = Library.Theme.Stroke,
-                Thickness = 1
+                Thickness = 1,
+                Transparency = 0.72,
+                Enabled = options.Outline == true
             })
             Utility:RegisterProperty(sectionStroke, "Color", "Stroke")
             local sectionGradient = Utility:Create("UIGradient", {Parent = SectionFrame, Rotation = 105})
-            Utility:RegisterGradient(sectionGradient, "SurfaceAlt", "Surface")
+            Utility:RegisterGradient(sectionGradient, "Surface", "Secondary")
             local sectionAccent = Utility:Create("Frame", {
                 Parent = SectionFrame,
                 BackgroundColor3 = Library.Theme.Accent,
-                Position = UDim2.fromOffset(12, 12),
-                Size = UDim2.fromOffset(3, 16),
+                Position = UDim2.fromOffset(10, 11),
+                Size = UDim2.fromOffset(3, 14),
                 BorderSizePixel = 0,
                 ZIndex = 5
             })
@@ -7281,7 +9418,7 @@ end
                 sectionAccent.Visible = false
                 local sectionIcon = Utility:Create("ImageLabel", {
                     Parent = SectionFrame, BackgroundTransparency = 1,
-                    Position = UDim2.fromOffset(10, 9), Size = UDim2.fromOffset(20, 20),
+                    Position = UDim2.fromOffset(9, 8), Size = UDim2.fromOffset(19, 19),
                     Image = SectionIcon, ImageColor3 = Library.Theme.Accent,
                     ScaleType = Enum.ScaleType.Fit, ZIndex = 5
                 })
@@ -7292,12 +9429,12 @@ end
             local Head = Utility:Create("TextLabel", {
                 Parent = SectionFrame,
                 BackgroundTransparency = 1,
-                Position = UDim2.new(0, SectionIcon and 38 or 22, 0, 10),
-                Size = UDim2.new(1, SectionIcon and -50 or -34, 0, 20),
+                Position = UDim2.new(0, SectionIcon and 35 or 20, 0, 8),
+                Size = UDim2.new(1, SectionIcon and -45 or -30, 0, 20),
                 Font = Enum.Font.GothamBold,
                 Text = SectionName,
                 TextColor3 = Library.Theme.Text,
-                TextSize = IsMobile and 12 or 13,
+                TextSize = IsMobile and 11 or 12,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 ZIndex = 4
             })
@@ -7305,40 +9442,52 @@ end
 
             local ContentContainer = Utility:Create("Frame", {
                 Parent = SectionFrame,
-                BackgroundColor3 = Library.Theme.Main,
-                BackgroundTransparency = 0.12,
-                Position = UDim2.new(0, 8, 0, IsMobile and 34 or 36),
-                Size = UDim2.new(1, -16, 0, 0),
+                BackgroundColor3 = Library.Theme.Secondary,
+                BackgroundTransparency = 1,
+                Position = UDim2.new(0, 10, 0, IsMobile and 31 or 32),
+                Size = UDim2.new(1, -20, 0, 0),
                 ZIndex = 4,
                 BorderSizePixel = 0
             })
-            Utility:RegisterProperty(ContentContainer, "BackgroundColor3", "Main")
-            Utility:RegisterMaterial(ContentContainer, 0.4, 0.12)
-            Utility:Create("UICorner", {CornerRadius = UDim.new(0, 9), Parent = ContentContainer})
-            local contentStroke = Utility:Create("UIStroke", {Parent = ContentContainer, Color = Library.Theme.Divider, Thickness = 1, Transparency = 0.2})
-            Utility:RegisterProperty(contentStroke, "Color", "Divider")
+            Utility:RegisterProperty(ContentContainer, "BackgroundColor3", "Secondary")
             Utility:Create("UIPadding", {
                 Parent = ContentContainer,
-                PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8),
-                PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8)
+                PaddingLeft = UDim.new(0, 0), PaddingRight = UDim.new(0, 0),
+                PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 8)
             })
             Section.ContentContainer = ContentContainer
 
             local ContentLayout = Utility:Create("UIListLayout", {
                 Parent = ContentContainer,
                 SortOrder = Enum.SortOrder.LayoutOrder,
-                Padding = UDim.new(0, IsMobile and 6 or 8)
+                Padding = UDim.new(0, IsMobile and math.min(4, Window.ContentSpacing) or Window.ContentSpacing)
             })
 
             local function RefreshLayout()
-                ContentContainer.Size = UDim2.new(1, -16, 0, ContentLayout.AbsoluteContentSize.Y + 16)
-                SectionFrame.Size = UDim2.new(1, 0, 0, ContentLayout.AbsoluteContentSize.Y + (IsMobile and 58 or 60))
+                ContentContainer.Size = UDim2.new(1, -20, 0, ContentLayout.AbsoluteContentSize.Y + 10)
+                SectionFrame.Size = UDim2.new(1, 0, 0, ContentLayout.AbsoluteContentSize.Y + (IsMobile and 43 or 44))
+            end
+
+            Section.ContentLayout = ContentLayout
+            Section.Outline = sectionStroke
+            function Section:SetSpacing(value)
+                ContentLayout.Padding = UDim.new(0, math.clamp(tonumber(value) or 5, 0, 24))
+                RefreshLayout()
+                return self
+            end
+            function Section:SetOutlineVisible(value)
+                sectionStroke.Enabled = value == true
+                return self
+            end
+            function Section:SetSurfaceTransparency(value)
+                SectionFrame.BackgroundTransparency = math.clamp(tonumber(value) or 0, 0, 1)
+                return self
             end
 
             Library:Connect(ContentLayout:GetPropertyChangedSignal("AbsoluteContentSize"), function()
-                ContentContainer.Size = UDim2.new(1, -16, 0, ContentLayout.AbsoluteContentSize.Y + 16)
+                ContentContainer.Size = UDim2.new(1, -20, 0, ContentLayout.AbsoluteContentSize.Y + 10)
                 Utility:Tween(SectionFrame, TweenInfo.new(0.2), {
-                    Size = UDim2.new(1, 0, 0, ContentLayout.AbsoluteContentSize.Y + (IsMobile and 58 or 60))
+                    Size = UDim2.new(1, 0, 0, ContentLayout.AbsoluteContentSize.Y + (IsMobile and 43 or 44))
                 })
             end)
 
@@ -7353,6 +9502,24 @@ end
                         if not Library.Unloaded then Window:RefreshSearch(Window.SearchQuery) end
                     end)
                 end
+            end
+
+            local function createBadge(parent, text, colorKey, layoutOrder)
+                text = tostring(text or "")
+                if text == "" then return nil end
+                colorKey = Library.Theme[colorKey] and colorKey or "Accent"
+                local width = math.clamp(TextService:GetTextSize(text, 9, Enum.Font.GothamBold, Vector2.new(96, 18)).X + 14, 34, 96)
+                local badge = Utility:Create("TextLabel", {
+                    Name = "Badge", Parent = parent, BackgroundColor3 = Library.Theme[colorKey],
+                    BackgroundTransparency = 0.78, Size = UDim2.fromOffset(width, 18),
+                    Text = text, TextColor3 = Library.Theme[colorKey], Font = Enum.Font.GothamBold,
+                    TextSize = 9, TextTruncate = Enum.TextTruncate.AtEnd,
+                    LayoutOrder = layoutOrder or 0, BorderSizePixel = 0, ZIndex = (parent.ZIndex or 5) + 1
+                })
+                Utility:RegisterProperty(badge, "BackgroundColor3", colorKey)
+                Utility:RegisterProperty(badge, "TextColor3", colorKey)
+                Utility:Create("UICorner", {Parent = badge, CornerRadius = UDim.new(1, 0)})
+                return badge
             end
 
             local function finishController(controller, holder, name, tooltip)
@@ -7503,6 +9670,10 @@ end
                 return controller
             end
 
+
+--[[ MODULE: 82_input.part.lua ]]
+-- Module fragment: text input control
+-- Generated from the working V7 baseline; edit this feature in isolation.
             -- TEXT INPUT
             function Section:CreateInput(options)
                 options = options or {}
@@ -7571,7 +9742,7 @@ end
                     Get = function() return Library.Flags[flag] end,
                     OnChanged = function(self, fn) table.insert(listeners, fn) end
                 }, container, name, options.Tooltip)
-                Library:RegisterOption(flag, controller)
+                Library:RegisterOption(flag, controller, options.Numeric and tonumber(options.Default) or tostring(options.Default or ""))
                 addElement({Holder = container, Text = name})
                 return controller
             end
@@ -7697,6 +9868,10 @@ end
                 return finishController({}, container, text or "Divider")
             end
 
+
+--[[ MODULE: 83_button.part.lua ]]
+-- Module fragment: button control
+-- Generated from the working V7 baseline; edit this feature in isolation.
             -- BUTTON
             function Section:CreateButton(options)
                 options = options or {}
@@ -7704,6 +9879,7 @@ end
                 local Callback = options.Callback or function() end
                 local Description = tostring(options.Description or "")
                 local ButtonIconAsset = Utility:NormalizeAssetId(options.Icon)
+                local ButtonActionId = normalizeActionId(options.Id or (Tab.Name .. "-" .. SectionName .. "-" .. Name))
 
                 local btnHeight = Description ~= "" and (IsMobile and 56 or 54) or (IsMobile and 44 or 42)
                 local ButtonContainer = Utility:Create("Frame", {
@@ -7807,9 +9983,16 @@ end
                             Utility:Tween(ButtonContainer, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.Surface})
                         end)
                     end
-                    Utility:SafeCall(Callback)
+                    local ok, err = Window:ExecuteCommand(ButtonActionId)
+                    if not ok then Library:Notify({Title = "Action unavailable", Content = tostring(err), Duration = 3}) end
                 end)
-                addElement({Holder = ButtonContainer, Text = Name .. " " .. Description})
+                Window:RegisterCommand({
+                    Id = ButtonActionId, Name = Name, Description = Description,
+                    Category = options.Category or (Tab.Name .. " / " .. SectionName),
+                    Synonyms = options.Synonyms or options.Aliases,
+                    Requirement = options.Requirement, Icon = options.Icon, Callback = Callback
+                })
+                addElement({Holder = ButtonContainer, Text = Name .. " " .. Description, Synonyms = options.Synonyms or options.Aliases})
                 return finishController({
                     SetText = function(self, text) ButtonTitle.Text = tostring(text) end,
                     SetDescription = function(self, text)
@@ -7818,6 +10001,10 @@ end
                 }, ButtonContainer, Name, options.Tooltip)
             end
 
+
+--[[ MODULE: 84_toggle.part.lua ]]
+-- Module fragment: toggle control
+-- Generated from the working V7 baseline; edit this feature in isolation.
             -- TOGGLE
             function Section:CreateToggle(options)
                 options = options or {}
@@ -7931,10 +10118,14 @@ end
                     end
                 }
                 finishController(toggleObj, ToggleContainer, Name, options.Tooltip)
-                Library:RegisterOption(Flag, toggleObj)
+                Library:RegisterOption(Flag, toggleObj, Default)
                 return toggleObj
             end
 
+
+--[[ MODULE: 85_slider.part.lua ]]
+-- Module fragment: slider control
+-- Generated from the working V7 baseline; edit this feature in isolation.
             -- SLIDER
             function Section:CreateSlider(options)
                 options = options or {}
@@ -8076,10 +10267,14 @@ end
                     Get = function() return Value end
                 }
                 finishController(sliderObj, SliderContainer, Name, options.Tooltip)
-                Library:RegisterOption(Flag, sliderObj)
+                Library:RegisterOption(Flag, sliderObj, Default)
                 return sliderObj
             end
 
+
+--[[ MODULE: 86_dropdown.part.lua ]]
+-- Module fragment: dropdown controls
+-- Generated from the working V7 baseline; edit this feature in isolation.
             -- DROPDOWN
             function Section:CreateDropdown(options)
                 options = options or {}
@@ -8354,7 +10549,7 @@ end
                     SetExpanded = function(self, open) SetExpanded(open) end
                 }
                 finishController(dropObj, DropdownContainer, Name, options.Tooltip)
-                Library:RegisterOption(Flag, dropObj)
+                Library:RegisterOption(Flag, dropObj, Default)
                 return dropObj
             end
 
@@ -8364,6 +10559,10 @@ end
                 return self:CreateDropdown(options)
             end
 
+
+--[[ MODULE: 87_content.part.lua ]]
+-- Module fragment: labels, dependency boxes, warnings, images
+-- Generated from the working V7 baseline; edit this feature in isolation.
             -- LABEL
             function Section:CreateLabel(Text)
                 local Container = Utility:Create("Frame", {
@@ -8559,6 +10758,10 @@ end
                 }, container, "Image", options.Tooltip)
             end
 
+
+--[[ MODULE: 88_keybind.part.lua ]]
+-- Module fragment: keybind picker
+-- Generated from the working V7 baseline; edit this feature in isolation.
             -- KEYBIND PICKER
             function Section:CreateKeyPicker(options)
                 options = options or {}
@@ -8735,11 +10938,15 @@ end
                     GetState = function() return toggled end
                 }, container, name, options.Tooltip)
                 Library.Flags[flag] = currentKey
-                Library:RegisterOption(flag, controller)
+                Library:RegisterOption(flag, controller, defaultKey)
                 keybindEntry.controller = controller
                 return controller
             end
 
+
+--[[ MODULE: 89_colorpicker.part.lua ]]
+-- Module fragment: color picker
+-- Generated from the working V7 baseline; edit this feature in isolation.
             -- COLOR PICKER (touch-friendly HSV editor)
             function Section:CreateColorPicker(options)
                 options = options or {}
@@ -8931,8 +11138,7 @@ end
                     setExpanded(not expanded)
                 end)
                 Library:Connect(colorDisplay.MouseButton1Click, function()
-                    if type(setclipboard) == "function" then
-                        setclipboard(colorDisplay.Text)
+                    if Capabilities:SetClipboard(colorDisplay.Text) then
                         Library:Notify({Title = "Color copied", Content = colorDisplay.Text, Duration = 2})
                     end
                 end)
@@ -8946,7 +11152,7 @@ end
                     OnChanged = function(self, fn) table.insert(listeners, fn) end,
                     SetExpanded = function(self, open) if expanded ~= (open == true) then setExpanded(open) end end
                 }, container, name, options.Tooltip)
-                Library:RegisterOption(flag, controller)
+                Library:RegisterOption(flag, controller, defaultColor)
                 return controller
             end
 
@@ -9039,6 +11245,16 @@ end
                 function group:CreatePlayerList(value) return attach("CreatePlayerList", value) end
                 function group:CreateLogConsole(value) return attach("CreateLogConsole", value) end
                 function group:CreateSkeleton(value) return attach("CreateSkeleton", value) end
+                function group:CreateCatalog(value) return attach("CreateCatalog", value) end
+                function group:CreateBossCard(value) return attach("CreateBossCard", value) end
+                function group:CreateIslandCard(value) return attach("CreateIslandCard", value) end
+                function group:CreateESPPresets(value) return attach("CreateESPPresets", value) end
+                function group:CreateESPControls(value) return attach("CreateESPControls", value) end
+                function group:CreateWorkflowPresets(value) return attach("CreateWorkflowPresets", value) end
+                function group:CreateStrategyProfiles(value) return attach("CreateStrategyProfiles", value) end
+                function group:CreateProgressCard(value) return attach("CreateProgressCard", value) end
+                function group:CreateActivityFeed(value) return attach("CreateActivityFeed", value) end
+                function group:CreateChecklist(value) return attach("CreateChecklist", value) end
                 Library:Connect(header.MouseButton1Click, function() group:Toggle() end)
                 task.defer(refresh)
                 return group
@@ -9286,6 +11502,729 @@ end
                 return controller
             end
 
+            -- Search-first action catalog with ownership/cost/requirement badges,
+            -- favorites, recent actions, and command-palette registration.
+            function Section:CreateCatalog(options)
+                options = options or {}
+                local name = tostring(options.Name or "Item catalog")
+                local items = type(options.Items) == "table" and options.Items or {}
+                local query, filter = "", tostring(options.DefaultFilter or "All")
+                local itemById = {}
+                local height = tonumber(options.Height) or (Library.DeviceMode == "Phone" and 292 or 340)
+                local container = Utility:Create("Frame", {
+                    Name = "Catalog_" .. name, Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Secondary, Size = UDim2.new(1, 0, 0, height),
+                    ClipsDescendants = true, BorderSizePixel = 0, ZIndex = 5
+                })
+                Utility:RegisterProperty(container, "BackgroundColor3", "Secondary")
+                Utility:RegisterMaterial(container, 0.34, 0.04)
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 9)})
+                local catalogStroke = Utility:Create("UIStroke", {Parent = container, Color = Library.Theme.Divider, Thickness = 1})
+                Utility:RegisterProperty(catalogStroke, "Color", "Divider")
+                local search = Utility:Create("TextBox", {
+                    Name = "CatalogSearch", Parent = container, BackgroundColor3 = Library.Theme.Surface,
+                    Position = UDim2.fromOffset(8, 8), Size = UDim2.new(1, -16, 0, Library.DeviceMode == "Phone" and 34 or 38),
+                    ClearTextOnFocus = false, PlaceholderText = tostring(options.Placeholder or "Search items, requirements, or aliases…"),
+                    Text = "", TextColor3 = Library.Theme.Text, PlaceholderColor3 = Library.Theme.SubText,
+                    Font = Enum.Font.Gotham, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
+                    BorderSizePixel = 0, ZIndex = 7
+                })
+                Utility:RegisterProperty(search, "BackgroundColor3", "Surface")
+                Utility:RegisterProperty(search, "TextColor3", "Text")
+                Utility:RegisterProperty(search, "PlaceholderColor3", "SubText")
+                Utility:Create("UICorner", {Parent = search, CornerRadius = UDim.new(0, 7)})
+                Utility:Create("UIPadding", {Parent = search, PaddingLeft = UDim.new(0, 11), PaddingRight = UDim.new(0, 11)})
+                local filterBar = Utility:Create("Frame", {
+                    Parent = container, BackgroundTransparency = 1,
+                    Position = UDim2.fromOffset(8, Library.DeviceMode == "Phone" and 48 or 52),
+                    Size = UDim2.new(1, -16, 0, 26), ZIndex = 7
+                })
+                local filterLayout = Utility:Create("UIListLayout", {
+                    Parent = filterBar, FillDirection = Enum.FillDirection.Horizontal,
+                    Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder
+                })
+                local filterButtons = {}
+                local resultsTop = Library.DeviceMode == "Phone" and 80 or 84
+                local results = Utility:Create("ScrollingFrame", {
+                    Name = "CatalogResults", Parent = container, BackgroundTransparency = 1,
+                    Position = UDim2.fromOffset(8, resultsTop), Size = UDim2.new(1, -16, 1, -(resultsTop + 8)),
+                    CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                    ScrollBarThickness = 2, ScrollBarImageColor3 = Library.Theme.Accent,
+                    BorderSizePixel = 0, ZIndex = 6
+                })
+                Utility:RegisterProperty(results, "ScrollBarImageColor3", "Accent")
+                Utility:Create("UIListLayout", {Parent = results, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 7)})
+                local empty = Utility:Create("TextLabel", {
+                    Name = "CatalogEmpty", Parent = results, BackgroundTransparency = 1,
+                    Size = UDim2.new(1, -4, 0, 64), Text = "No catalog items match this view",
+                    TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham,
+                    TextSize = 11, Visible = false, ZIndex = 7
+                })
+                Utility:RegisterProperty(empty, "TextColor3", "SubText")
+
+                local controller
+                local catalogId = normalizeActionId(options.Id or name)
+                local function itemId(item, index)
+                    return catalogId .. "-" .. normalizeActionId(item.Id or item.Name or tostring(index))
+                end
+                local function itemTerms(item)
+                    local aliases = item.Synonyms or item.Aliases or item.Tags or {}
+                    if type(aliases) == "table" then aliases = table.concat(aliases, " ") end
+                    local requirement = type(item.Requirement) == "function" and "dynamic requirement" or item.Requirement
+                    return table.concat({
+                        tostring(item.Name or ""), tostring(item.Description or ""),
+                        tostring(item.Category or ""), tostring(item.Cost or ""),
+                        tostring(requirement or ""), tostring(aliases or "")
+                    }, " "):lower()
+                end
+                local function resolveOwned(item)
+                    if type(item.Owned) == "function" then
+                        local ok, value = pcall(item.Owned, item)
+                        return ok and value == true
+                    end
+                    return item.Owned == true
+                end
+                local function requirementState(item)
+                    if type(item.Requirement) == "function" then
+                        local ok, allowed, reason = pcall(item.Requirement, item)
+                        if not ok then return false, "Requirement error" end
+                        return allowed ~= false, tostring(reason or (allowed == false and "Locked" or "Ready"))
+                    end
+                    if item.Requirement == false then return false, "Locked" end
+                    return true, type(item.Requirement) == "string" and item.Requirement or ""
+                end
+                local function orderedItems()
+                    local ordered = {}
+                    if filter == "Recent" then
+                        for _, recentId in ipairs(Window.RecentActions) do
+                            if itemById[recentId] then table.insert(ordered, itemById[recentId]) end
+                        end
+                    else
+                        for _, item in ipairs(items) do
+                            local id = item._RenCatalogId
+                            local include = filter == "All"
+                                or (filter == "Favorites" and Window.Favorites[id])
+                                or (filter == "Owned" and resolveOwned(item))
+                            if include then table.insert(ordered, item) end
+                        end
+                    end
+                    return ordered
+                end
+                local function refreshFilterVisuals()
+                    for label, button in pairs(filterButtons) do
+                        button.BackgroundTransparency = label == filter and 0.18 or 0.62
+                    end
+                end
+                local function render()
+                    for _, child in ipairs(results:GetChildren()) do if child.Name == "CatalogItem" then child:Destroy() end end
+                    local shown = 0
+                    for _, item in ipairs(orderedItems()) do
+                        if query == "" or itemTerms(item):find(query, 1, true) then
+                            shown = shown + 1
+                            local id = item._RenCatalogId
+                            local allowed, requirementText = requirementState(item)
+                            local rowHeight = item.Description and tostring(item.Description) ~= "" and 82 or 64
+                            local card = Utility:Create("TextButton", {
+                                Name = "CatalogItem", Parent = results, BackgroundColor3 = Library.Theme.Surface,
+                                Size = UDim2.new(1, -4, 0, rowHeight), Text = "", AutoButtonColor = false,
+                                LayoutOrder = shown, BorderSizePixel = 0, ZIndex = 7
+                            })
+                            card:SetAttribute("CatalogId", id)
+                            Utility:RegisterProperty(card, "BackgroundColor3", "Surface")
+                            Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 7)})
+                            local cardStroke = Utility:Create("UIStroke", {Parent = card, Color = allowed and Library.Theme.Divider or Library.Theme.Error, Thickness = 1, Transparency = 0.18})
+                            Utility:RegisterProperty(cardStroke, "Color", allowed and "Divider" or "Error")
+                            local title = Utility:Create("TextLabel", {
+                                Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(11, 6),
+                                Size = UDim2.new(1, -54, 0, 19), Text = tostring(item.Name or id),
+                                TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold,
+                                TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8
+                            })
+                            Utility:RegisterProperty(title, "TextColor3", "Text")
+                            if item.Description and tostring(item.Description) ~= "" then
+                                local description = Utility:Create("TextLabel", {
+                                    Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(11, 25),
+                                    Size = UDim2.new(1, -54, 0, 18), Text = tostring(item.Description),
+                                    TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 9,
+                                    TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8
+                                })
+                                Utility:RegisterProperty(description, "TextColor3", "SubText")
+                            end
+                            local badges = Utility:Create("Frame", {
+                                Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(10, rowHeight - 25),
+                                Size = UDim2.new(1, -54, 0, 18), ZIndex = 8
+                            })
+                            Utility:Create("UIListLayout", {Parent = badges, FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder})
+                            createBadge(badges, resolveOwned(item) and "OWNED" or (item.Owned ~= nil and "NOT OWNED" or ""), resolveOwned(item) and "Success" or "SubText", 1)
+                            createBadge(badges, item.Cost and ("COST  " .. tostring(item.Cost)) or "", "Warn", 2)
+                            createBadge(badges, requirementText, allowed and "Accent2" or "Error", 3)
+                            local star = Utility:Create("TextButton", {
+                                Parent = card, BackgroundTransparency = 1, Position = UDim2.new(1, -42, 0, 0),
+                                Size = UDim2.fromOffset(42, 42), Text = Window.Favorites[id] and "★" or "☆",
+                                TextColor3 = Library.Theme.Warn, Font = Enum.Font.GothamBold, TextSize = 17, ZIndex = 10
+                            })
+                            Utility:RegisterProperty(star, "TextColor3", "Warn")
+                            Library:Connect(star.MouseButton1Click, function()
+                                Window:ToggleFavorite(id)
+                                render()
+                            end)
+                            Library:Connect(card.MouseButton1Click, function()
+                                local ok, err = Window:ExecuteCommand(id)
+                                if not ok then Library:Notify({Title = "Action unavailable", Content = tostring(err), Duration = 3}) end
+                                render()
+                            end)
+                            Library:Connect(card.MouseEnter, function() Utility:Tween(card, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Hover}) end)
+                            Library:Connect(card.MouseLeave, function() Utility:Tween(card, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Surface}) end)
+                        end
+                    end
+                    empty.Visible = shown == 0
+                    refreshFilterVisuals()
+                    return shown
+                end
+                for order, label in ipairs({"All", "Owned", "Favorites", "Recent"}) do
+                    local button = Utility:Create("TextButton", {
+                        Parent = filterBar, BackgroundColor3 = Library.Theme.Accent,
+                        BackgroundTransparency = label == filter and 0.18 or 0.62,
+                        Size = UDim2.fromOffset(label == "Favorites" and 72 or 54, 24), Text = label,
+                        TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 9,
+                        AutoButtonColor = false, LayoutOrder = order, BorderSizePixel = 0, ZIndex = 8
+                    })
+                    Utility:RegisterProperty(button, "BackgroundColor3", "Accent")
+                    Utility:RegisterProperty(button, "TextColor3", "Text")
+                    Utility:Create("UICorner", {Parent = button, CornerRadius = UDim.new(1, 0)})
+                    filterButtons[label] = button
+                    Library:Connect(button.MouseButton1Click, function() filter = label render() end)
+                end
+                local function indexItems()
+                    table.clear(itemById)
+                    for index, item in ipairs(items) do
+                        item._RenCatalogId = itemId(item, index)
+                        itemById[item._RenCatalogId] = item
+                        Window:RegisterCommand({
+                            Id = item._RenCatalogId, Name = item.Name, Description = item.Description,
+                            Category = item.Category or name, Synonyms = item.Synonyms or item.Aliases or item.Tags,
+                            Icon = item.Icon, Requirement = item.Requirement,
+                            Callback = function() Utility:SafeCall(item.Callback or options.Callback, item, controller) end,
+                            Data = item
+                        })
+                    end
+                end
+                controller = finishController({Type = "Catalog"}, container, name, options.Tooltip)
+                function controller:SetItems(nextItems) items = type(nextItems) == "table" and nextItems or {} indexItems() render() return self end
+                function controller:GetItems() return items end
+                function controller:SetQuery(value) query = tostring(value or ""):lower(); search.Text = tostring(value or ""); render(); return self end
+                function controller:SetFilter(value) filter = tostring(value or "All"); render(); return self end
+                function controller:Refresh() render() return self end
+                function controller:Activate(id) return Window:ExecuteCommand(id) end
+                function controller:SetOwned(id, owned)
+                    local key = tostring(id or "")
+                    local item = itemById[key] or itemById[catalogId .. "-" .. normalizeActionId(key)]
+                    if item then item.Owned = owned == true; render(); return true end
+                    return false
+                end
+                function controller:ToggleFavorite(id) Window:ToggleFavorite(id); render(); return self end
+                function controller:GetFavorites()
+                    local favorites = {}
+                    for _, item in ipairs(items) do if Window.Favorites[item._RenCatalogId] then table.insert(favorites, item) end end
+                    return favorites
+                end
+                function controller:GetRecent()
+                    local recent = {}
+                    for _, id in ipairs(Window.RecentActions) do if itemById[id] then table.insert(recent, itemById[id]) end end
+                    return recent
+                end
+                Library:Connect(search:GetPropertyChangedSignal("Text"), function() query = search.Text:lower(); render() end)
+                indexItems()
+                local allTerms = {}
+                for _, item in ipairs(items) do table.insert(allTerms, itemTerms(item)) end
+                addElement({Holder = container, Text = name .. " " .. table.concat(allTerms, " "), Synonyms = options.Synonyms})
+                render()
+                return controller
+            end
+
+            function Section:CreateBossCard(options)
+                options = options or {}
+                local context = {}
+                for key, value in pairs(options) do context[key] = value end
+                local height = Library.DeviceMode == "Phone" and 112 or 104
+                local card = Utility:Create("Frame", {
+                    Name = "BossCard_" .. tostring(context.Name or "Boss"), Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, height),
+                    BorderSizePixel = 0, ZIndex = 5
+                })
+                Utility:RegisterProperty(card, "BackgroundColor3", "Surface")
+                Utility:RegisterMaterial(card, 0.3, 0)
+                Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 7)})
+                local accent = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.Error, Size = UDim2.new(0, 3, 1, 0), BorderSizePixel = 0, ZIndex = 6})
+                Utility:RegisterProperty(accent, "BackgroundColor3", "Error")
+                local dot = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.Warn, Position = UDim2.fromOffset(12, 12), Size = UDim2.fromOffset(7, 7), BorderSizePixel = 0, ZIndex = 7})
+                Utility:RegisterProperty(dot, "BackgroundColor3", "Warn")
+                Utility:Create("UICorner", {Parent = dot, CornerRadius = UDim.new(1, 0)})
+                local title = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(25, 4), Size = UDim2.new(1, -36, 0, 21), Text = "Boss", TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local subtitle = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 24), Size = UDim2.new(1, -24, 0, 16), Text = "", TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 9, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(subtitle, "TextColor3", "SubText")
+                local badges = Utility:Create("Frame", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 43), Size = UDim2.new(1, -24, 0, 18), ZIndex = 7})
+                Utility:Create("UIListLayout", {Parent = badges, FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder})
+                local primary = Utility:Create("TextButton", {Parent = card, BackgroundColor3 = Library.Theme.Accent, Position = UDim2.new(1, -102, 1, -34), Size = UDim2.fromOffset(90, 24), Text = "Track", TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 9, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 8})
+                Utility:RegisterProperty(primary, "BackgroundColor3", "Accent")
+                Utility:RegisterProperty(primary, "TextColor3", "Text")
+                Utility:Create("UICorner", {Parent = primary, CornerRadius = UDim.new(0, 6)})
+                local secondary = Utility:Create("TextButton", {Parent = card, BackgroundColor3 = Library.Theme.SurfaceAlt, Position = UDim2.fromOffset(12, height - 34), Size = UDim2.fromOffset(76, 24), Text = "Details", TextColor3 = Library.Theme.SubText, Font = Enum.Font.GothamBold, TextSize = 9, AutoButtonColor = false, BorderSizePixel = 0, Visible = false, ZIndex = 8})
+                Utility:RegisterProperty(secondary, "BackgroundColor3", "SurfaceAlt")
+                Utility:RegisterProperty(secondary, "TextColor3", "SubText")
+                Utility:Create("UICorner", {Parent = secondary, CornerRadius = UDim.new(0, 6)})
+                local controller = finishController({Type = "BossCard"}, card, context.Name or "Boss", options.Tooltip)
+                local function refresh()
+                    if type(context.GetContext) == "function" then
+                        local ok, latest = pcall(context.GetContext, context)
+                        if ok and type(latest) == "table" then for key, value in pairs(latest) do context[key] = value end end
+                    end
+                    title.Text = tostring(context.Name or "Boss")
+                    subtitle.Text = tostring(context.Description or context.Location or "No live context")
+                    local state = tostring(context.Status or "Waiting"):lower()
+                    local colorKey = ({active = "Success", waiting = "Warn", error = "Error", defeated = "SubText"})[state] or "Warn"
+                    Library.Registry[dot]["BackgroundColor3"] = colorKey
+                    dot.BackgroundColor3 = Library.Theme[colorKey]
+                    for _, child in ipairs(badges:GetChildren()) do if child.Name == "Badge" then child:Destroy() end end
+                    createBadge(badges, state:upper(), colorKey, 1)
+                    createBadge(badges, context.Level and ("LV. " .. tostring(context.Level)) or "", "Accent2", 2)
+                    createBadge(badges, context.Requirement and tostring(context.Requirement) or "", "Warn", 3)
+                    createBadge(badges, context.Drop and tostring(context.Drop) or "", "Success", 4)
+                    primary.Text = tostring(context.ActionText or "Track")
+                    secondary.Text = tostring(context.SecondaryText or "Details")
+                    secondary.Visible = type(context.SecondaryCallback) == "function"
+                    controller.Name = tostring(context.Name or "Boss")
+                    return controller
+                end
+                function controller:SetContext(values) for key, value in pairs(values or {}) do context[key] = value end return refresh() end
+                function controller:GetContext() return context end
+                function controller:RefreshContext() return refresh() end
+                function controller:SetStatus(value, description) context.Status = value if description ~= nil then context.Description = description end return refresh() end
+                Library:Connect(primary.MouseButton1Click, function() Window:MarkActionUsed(normalizeActionId("boss-" .. tostring(context.Name))); Utility:SafeCall(context.Callback, context, controller) end)
+                Library:Connect(secondary.MouseButton1Click, function() Utility:SafeCall(context.SecondaryCallback, context, controller) end)
+                Window:RegisterCommand({Id = "boss-" .. tostring(context.Name), Name = tostring(context.ActionText or "Track") .. " " .. tostring(context.Name or "boss"), Description = context.Description, Category = "Bosses", Synonyms = context.Synonyms or {"boss", "spawn", "track"}, Callback = function() Utility:SafeCall(context.Callback, context, controller) end})
+                addElement({Holder = card, Text = table.concat({tostring(context.Name or "Boss"), tostring(context.Description or ""), tostring(context.Location or ""), tostring(context.Drop or "")}, " "), Synonyms = context.Synonyms})
+                refresh()
+                return controller
+            end
+
+            function Section:CreateIslandCard(options)
+                options = options or {}
+                local state = {}
+                for key, value in pairs(options) do state[key] = value end
+                local card = Utility:Create("Frame", {Name = "IslandCard_" .. tostring(state.Name or "Island"), Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, Library.DeviceMode == "Phone" and 74 or 68), BorderSizePixel = 0, ZIndex = 5})
+                Utility:RegisterProperty(card, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 7)})
+                local stripe = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.Accent2, Size = UDim2.new(0, 3, 1, 0), BorderSizePixel = 0, ZIndex = 6})
+                Utility:RegisterProperty(stripe, "BackgroundColor3", "Accent2")
+                local title = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 6), Size = UDim2.new(1, -102, 0, 20), Text = "Island", TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local detail = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 27), Size = UDim2.new(1, -104, 0, 27), Text = "", TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 8, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 7})
+                Utility:RegisterProperty(detail, "TextColor3", "SubText")
+                local kindBadge = createBadge(card, "PERMANENT", "Accent2", 1)
+                kindBadge.Position = UDim2.new(1, -88, 0, 6)
+                local action = Utility:Create("TextButton", {Parent = card, BackgroundColor3 = Library.Theme.SurfaceAlt, Position = UDim2.new(1, -88, 1, -29), Size = UDim2.fromOffset(76, 22), Text = "Travel", TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 8, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 8})
+                Utility:RegisterProperty(action, "BackgroundColor3", "SurfaceAlt")
+                Utility:RegisterProperty(action, "TextColor3", "Text")
+                Utility:Create("UICorner", {Parent = action, CornerRadius = UDim.new(0, 6)})
+                local controller = finishController({Type = "IslandCard"}, card, state.Name or "Island", options.Tooltip)
+                local kindColors = {Permanent = "Accent2", Raid = "Warn", Event = "Accent3"}
+                local function refresh()
+                    local kind = tostring(state.Kind or "Permanent")
+                    kind = kind:gsub("^%l", string.upper)
+                    if not kindColors[kind] then kind = "Permanent" end
+                    local colorKey = kindColors[kind]
+                    title.Text = tostring(state.Name or "Island")
+                    detail.Text = tostring(state.Description or state.Requirement or "Always available")
+                    kindBadge.Text = kind:upper()
+                    kindBadge.TextColor3 = Library.Theme[colorKey]
+                    kindBadge.BackgroundColor3 = Library.Theme[colorKey]
+                    Library.Registry[kindBadge]["TextColor3"] = colorKey
+                    Library.Registry[kindBadge]["BackgroundColor3"] = colorKey
+                    Library.Registry[stripe]["BackgroundColor3"] = colorKey
+                    stripe.BackgroundColor3 = Library.Theme[colorKey]
+                    action.Text = tostring(state.ActionText or (kind == "Raid" and "Join" or "Travel"))
+                    return controller
+                end
+                function controller:SetData(values) for key, value in pairs(values or {}) do state[key] = value end return refresh() end
+                function controller:SetKind(value) state.Kind = value return refresh() end
+                function controller:GetData() return state end
+                Library:Connect(action.MouseButton1Click, function() Window:MarkActionUsed(normalizeActionId("island-" .. tostring(state.Name))); Utility:SafeCall(state.Callback, state, controller) end)
+                Window:RegisterCommand({Id = "island-" .. tostring(state.Name), Name = tostring(state.ActionText or "Travel to") .. " " .. tostring(state.Name or "island"), Description = state.Description, Category = "Islands", Synonyms = state.Synonyms or {state.Kind or "permanent", "island", "travel"}, Callback = function() Utility:SafeCall(state.Callback, state, controller) end})
+                addElement({Holder = card, Text = table.concat({tostring(state.Name or "Island"), tostring(state.Kind or "Permanent"), tostring(state.Description or ""), tostring(state.Requirement or "")}, " "), Synonyms = state.Synonyms})
+                refresh()
+                return controller
+            end
+
+            function Section:CreateESPPresets(options)
+                options = options or {}
+                local presets = options.Presets or {
+                    Low = {MaxVisible = 12, UpdateRate = 1 / 20, Skeleton = false, Highlight = false, Description = "20 FPS updates, 12 nearest targets, expensive effects disabled"},
+                    Balanced = {MaxVisible = 32, UpdateRate = 1 / 30, Skeleton = false, Highlight = false, Description = "30 FPS updates and up to 32 targets"},
+                    High = {MaxVisible = 80, UpdateRate = 0, Skeleton = false, Description = "Frame-synced boxes for up to 80 targets"}
+                }
+                local names = {}
+                for presetName in pairs(presets) do table.insert(names, presetName) end
+                table.sort(names)
+                local defaultPreset = options.Default or (presets.Balanced and "Balanced" or names[1])
+                local group = self:CreateGroup({Name = options.Name or "ESP visibility", Expanded = options.Expanded ~= false, Tooltip = options.Tooltip})
+                local function applyPreset(value)
+                    local definition = presets[value]
+                    if options.Engine and definition and options.Engine.SetOptions then options.Engine:SetOptions(definition) end
+                    Utility:SafeCall(options.Callback, value, definition)
+                end
+                local function applyNearest(value)
+                    if options.Engine and options.Engine.SetOption then options.Engine:SetOption("NearestOnly", value) end
+                    Utility:SafeCall(options.NearestCallback, value)
+                end
+                local density = group:CreateDropdown({Name = "Density preset", Values = names, Default = defaultPreset, Flag = options.DensityFlag or "ESPDensity", Callback = applyPreset})
+                local nearest = group:CreateToggle({Name = "Nearest only", Default = options.NearestOnly == true, Flag = options.NearestFlag or "ESPNearestOnly", Callback = applyNearest})
+                local info = group:CreateParagraph({Title = "Preset behavior", Content = presets[defaultPreset] and presets[defaultPreset].Description or ""})
+                density:OnChanged(function(value) if presets[value] then info:SetContent(presets[value].Description or "") end end)
+                local controller = {Type = "ESPPresets", Holder = group.Holder, Group = group, Density = density, NearestOnly = nearest, Engine = options.Engine}
+                function controller:SetPreset(value) density:Set(value) return self end
+                function controller:SetNearestOnly(value) nearest:Set(value) return self end
+                function controller:Get() return {Preset = density:Get(), NearestOnly = nearest:Get(), Definition = presets[density:Get()]} end
+                function controller:Reset() density:Reset(); nearest:Reset(); return true end
+                applyPreset(defaultPreset)
+                applyNearest(options.NearestOnly == true)
+                return controller
+            end
+
+            function Section:CreateESPControls(options)
+                options = options or {}
+                local engine = options.Engine
+                local prefix = tostring(options.FlagPrefix or "RenESP")
+                local defaults = engine and engine.Options or mergeEspTables(ESP_DEFAULTS, options.Defaults)
+                local group = self:CreateGroup({Name = options.Name or "ESP renderer", Expanded = options.Expanded ~= false, Tooltip = options.Tooltip})
+                local controls = {}
+                local function apply(name, value)
+                    if engine and engine.SetOption then engine:SetOption(name, value) end
+                    Utility:SafeCall(options.Callback, name, value, engine)
+                end
+                local function toggle(name, label, default, tooltip)
+                    local control = group:CreateToggle({Name = label, Default = default == true, Flag = prefix .. name, Tooltip = tooltip, Callback = function(value) apply(name, value) end})
+                    controls[name] = control
+                    return control
+                end
+                local function slider(name, label, minimum, maximum, step, default, tooltip, transform)
+                    local control = group:CreateSlider({Name = label, Min = minimum, Max = maximum, Step = step, Default = default, Flag = prefix .. name, Tooltip = tooltip, Callback = function(value) apply(name, transform and transform(value) or value) end})
+                    controls[name] = control
+                    return control
+                end
+                local function color(name, label, default)
+                    local control = group:CreateColorPicker({Name = label, Default = default, Flag = prefix .. name, Callback = function(value) apply(name, value) end})
+                    controls[name] = control
+                    return control
+                end
+
+                controls.Enabled = toggle("Enabled", "ESP enabled", defaults.Enabled, "Master renderer switch")
+                controls.Box = toggle("Box", "Bounding box", defaults.Box, "Works on players, NPCs, models, parts, and attachments")
+                controls.BoxStyle = group:CreateDropdown({Name = "Box style", Values = {"Corners", "Full", "None"}, Default = defaults.BoxStyle or "Corners", Flag = prefix .. "BoxStyle", Callback = function(value) apply("BoxStyle", value) end})
+                controls.HealthSide = group:CreateDropdown({Name = "Health bar side", Values = {"Left", "Right"}, Default = defaults.HealthSide or "Left", Flag = prefix .. "HealthSide", Callback = function(value) apply("HealthSide", value) end})
+                controls.TracerOrigin = group:CreateDropdown({Name = "Tracer origin", Values = {"Bottom", "Center", "Top"}, Default = defaults.TracerOrigin or "Bottom", Flag = prefix .. "TracerOrigin", Callback = function(value) apply("TracerOrigin", value) end})
+                controls.Outline = toggle("Outline", "Box and line outlines", defaults.Outline)
+                controls.ShowName = toggle("ShowName", "Name label", defaults.ShowName)
+                controls.ShowDetails = toggle("ShowDetails", "Detail label", defaults.ShowDetails)
+                controls.ShowDistance = toggle("ShowDistance", "Distance", defaults.ShowDistance)
+                controls.HealthBar = toggle("HealthBar", "Health bar", defaults.HealthBar, "Uses Humanoid health, attributes, or a custom GetHealth callback")
+                controls.HealthText = toggle("HealthText", "Health text", defaults.HealthText)
+                controls.Highlight = toggle("Highlight", "3D highlight", defaults.Highlight)
+                controls.Skeleton = toggle("Skeleton", "Skeleton", defaults.Skeleton, "Optional and only drawn when compatible rig parts or custom joints exist")
+                controls.Tracer = toggle("Tracer", "Tracer line", defaults.Tracer)
+                controls.VisibilityCheck = toggle("VisibilityCheck", "Wall detection", defaults.VisibilityCheck)
+                controls.NearestOnly = toggle("NearestOnly", "Nearest target only", defaults.NearestOnly)
+                controls.BoxThickness = slider("BoxThickness", "Box thickness", 0.5, 5, 0.1, defaults.BoxThickness or 1.5)
+                controls.CornerScale = slider("CornerScale", "Corner length", 0.1, 0.5, 0.01, defaults.CornerScale or 0.26)
+                controls.BoxTransparency = slider("BoxTransparency", "Box transparency", 0, 0.9, 0.05, defaults.BoxTransparency or 0)
+                controls.HiddenTransparency = slider("HiddenTransparency", "Occluded transparency", 0, 0.9, 0.05, defaults.HiddenTransparency or 0.3)
+                controls.OutlineThickness = slider("OutlineThickness", "Outline thickness", 0.5, 5, 0.1, defaults.OutlineThickness or 2)
+                controls.OutlineTransparency = slider("OutlineTransparency", "Outline transparency", 0, 0.95, 0.05, defaults.OutlineTransparency or 0.08)
+                controls.SkeletonThickness = slider("SkeletonThickness", "Skeleton thickness", 0.5, 5, 0.1, defaults.SkeletonThickness or 1.5)
+                controls.TracerThickness = slider("TracerThickness", "Tracer thickness", 0.5, 5, 0.1, defaults.TracerThickness or 1)
+                controls.NameSize = slider("NameSize", "Name text size", 8, 24, 1, defaults.NameSize or 14)
+                controls.DetailsSize = slider("DetailsSize", "Detail text size", 8, 22, 1, defaults.DetailsSize or 11)
+                controls.HealthBarWidth = slider("HealthBarWidth", "Health bar width", 2, 12, 1, defaults.HealthBarWidth or 5)
+                controls.MaxDistance = slider("MaxDistance", "Maximum distance", 25, tonumber(options.MaxDistance) or 10000, 25, defaults.MaxDistance or 2500)
+                controls.SkeletonMaxDistance = slider("SkeletonMaxDistance", "Skeleton distance", 25, tonumber(options.MaxSkeletonDistance) or 2500, 25, defaults.SkeletonMaxDistance or 350)
+                controls.MaxVisible = slider("MaxVisible", "Maximum targets", 1, tonumber(options.MaxTargets) or 200, 1, defaults.MaxVisible or 64)
+                local initialFps = defaults.UpdateRate and defaults.UpdateRate > 0 and math.clamp(math.floor(1 / defaults.UpdateRate + 0.5), 5, 144) or 60
+                controls.UpdateRate = slider("UpdateRate", "Update FPS", 5, 144, 1, initialFps, "60 is smooth; lower values reduce work", function(value) return 1 / math.max(1, value) end)
+                controls.Color = color("Color", "Base color", defaults.Color or ESP_DEFAULTS.Color)
+                controls.SkeletonColor = color("SkeletonColor", "Skeleton color", defaults.SkeletonColor or defaults.Color or ESP_DEFAULTS.Color)
+                controls.HighlightColor = color("HighlightColor", "Highlight color", defaults.HighlightColor or defaults.Color or ESP_DEFAULTS.Color)
+                controls.TracerColor = color("TracerColor", "Tracer color", defaults.TracerColor or defaults.Color or ESP_DEFAULTS.Color)
+                controls.DetailsColor = color("DetailsColor", "Detail text color", defaults.DetailsColor or ESP_DEFAULTS.DetailsColor)
+                controls.NameColor = color("NameColor", "Name text color", defaults.NameColor or defaults.Color or ESP_DEFAULTS.Color)
+                controls.OutlineColor = color("OutlineColor", "Outline color", defaults.OutlineColor or ESP_DEFAULTS.OutlineColor)
+                controls.HealthBackgroundColor = color("HealthBackgroundColor", "Health background", defaults.HealthBackgroundColor or ESP_DEFAULTS.HealthBackgroundColor)
+                controls.TextStrokeColor = color("TextStrokeColor", "Text stroke color", defaults.TextStrokeColor or ESP_DEFAULTS.TextStrokeColor)
+
+                local controller = {Type = "ESPControls", Holder = group.Holder, Group = group, Controls = controls, Engine = engine}
+                function controller:SetEngine(nextEngine) self.Engine = nextEngine engine = nextEngine return self end
+                function controller:Set(name, value)
+                    local control = controls[name]
+                    if control and control.Set then control:Set(value) else apply(name, value) end
+                    return self
+                end
+                function controller:Get(name)
+                    local control = controls[name]
+                    return control and control.Get and control:Get() or (engine and engine.Options[name])
+                end
+                function controller:Reset()
+                    for _, control in pairs(controls) do if control.Reset then control:Reset() end end
+                    return true
+                end
+                return controller
+            end
+
+            function Section:CreateWorkflowPresets(options)
+                options = options or {}
+                for key, definition in pairs(options.Presets or {}) do Library:RegisterWorkflowPreset(key, definition) end
+                local catalogItems = {}
+                for _, entry in ipairs(Library:GetWorkflowPresets()) do
+                    local key, preset = entry.Key, entry.Definition
+                    table.insert(catalogItems, {
+                        Id = "workflow-" .. key, Name = preset.Name or key,
+                        Description = preset.Description or "Apply this workflow strategy.",
+                        Category = "Workflows", Synonyms = preset.Synonyms,
+                        Requirement = preset.Requirement,
+                        Callback = function()
+                            local ok, err = Library:ApplyWorkflowPreset(key)
+                            Utility:SafeCall(options.Callback, key, preset, ok, err)
+                            if options.Notify ~= false then Library:Notify({Title = ok and "Workflow applied" or "Workflow failed", Content = ok and tostring(preset.Name or key) or tostring(err), Duration = 3}) end
+                        end
+                    })
+                end
+                return self:CreateCatalog({Name = options.Name or "Workflow presets", Items = catalogItems, Height = options.Height or (Library.DeviceMode == "Phone" and 270 or 310), Placeholder = "Search leveling, items, raids, performance…", Tooltip = options.Tooltip})
+            end
+
+            function Section:CreateStrategyProfiles(options)
+                options = options or {}
+                local group = self:CreateGroup({Name = options.Name or "Strategy profiles", Expanded = options.Expanded ~= false, Tooltip = options.Tooltip})
+                local nameInput = group:CreateInput({Name = "Profile name", Placeholder = "Example: Fast raid", Default = options.DefaultName or ""})
+                local profiles = Library:GetStrategyProfiles()
+                local selected = profiles[1]
+                local picker = group:CreateDropdown({Name = "Saved profile", Values = profiles, Default = selected, Searchable = true})
+                local function refresh(preferred)
+                    profiles = Library:GetStrategyProfiles()
+                    picker:Refresh(profiles)
+                    if preferred then picker:Set(preferred) end
+                    Utility:SafeCall(options.OnProfilesChanged, profiles)
+                end
+                group:CreateButton({Name = "Save strategy", Description = "Save the selected feature flags under this name.", Callback = function()
+                    local profileName = nameInput:Get()
+                    local ok, err = Library:SaveStrategyProfile(profileName, options.Flags)
+                    if ok then refresh(cleanConfigName(profileName)) end
+                    Library:Notify({Title = ok and "Strategy saved" or "Save failed", Content = ok and cleanConfigName(profileName) or tostring(err), Duration = 3})
+                end})
+                group:CreateButton({Name = "Load selected strategy", Callback = function()
+                    local profileName = picker:Get()
+                    local ok, err = Library:LoadStrategyProfile(profileName)
+                    Library:Notify({Title = ok and "Strategy loaded" or "Load failed", Content = ok and tostring(profileName) or tostring(err), Duration = 3})
+                end})
+                group:CreateButton({Name = "Delete selected strategy", Callback = function()
+                    local profileName = picker:Get()
+                    local ok, err = Library:DeleteStrategyProfile(profileName)
+                    if ok then refresh() end
+                    Library:Notify({Title = ok and "Strategy deleted" or "Delete failed", Content = ok and tostring(profileName) or tostring(err), Duration = 3})
+                end})
+                group.ProfileName = nameInput
+                group.ProfilePicker = picker
+                group.RefreshProfiles = function(self) refresh() return self end
+                return group
+            end
+
+            function Section:CreateProgressCard(options)
+                options = options or {}
+                local name = tostring(options.Name or "Progress")
+                local progress = math.clamp(tonumber(options.Progress) or 0, 0, 1)
+                local status = tostring(options.Status or "Waiting")
+                local card = Utility:Create("Frame", {
+                    Name = "ProgressCard_" .. name, Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, 96),
+                    BorderSizePixel = 0, ZIndex = 5
+                })
+                Utility:RegisterProperty(card, "BackgroundColor3", "Surface")
+                Utility:RegisterMaterial(card, 0.3, 0)
+                Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 7)})
+                local cardStroke = Utility:Create("UIStroke", {Parent = card, Color = Library.Theme.Divider, Thickness = 1, Transparency = 0.72})
+                Utility:RegisterProperty(cardStroke, "Color", "Divider")
+                local dot = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.Warn, Position = UDim2.fromOffset(12, 13), Size = UDim2.fromOffset(8, 8), BorderSizePixel = 0, ZIndex = 7})
+                Utility:RegisterProperty(dot, "BackgroundColor3", "Warn")
+                Utility:Create("UICorner", {Parent = dot, CornerRadius = UDim.new(1, 0)})
+                local title = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(28, 6), Size = UDim2.new(1, -92, 0, 20), Text = name, TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local percent = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.new(1, -64, 0, 6), Size = UDim2.fromOffset(52, 20), Text = tostring(math.floor(progress * 100 + 0.5)) .. "%", TextColor3 = Library.Theme.Accent, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 7})
+                Utility:RegisterProperty(percent, "TextColor3", "Accent")
+                local detail = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 29), Size = UDim2.new(1, -24, 0, 18), Text = tostring(options.Detail or "Waiting to start"), TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 9, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(detail, "TextColor3", "SubText")
+                local track = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.SurfaceAlt, Position = UDim2.fromOffset(12, 51), Size = UDim2.new(1, -24, 0, 5), BorderSizePixel = 0, ZIndex = 7})
+                Utility:RegisterProperty(track, "BackgroundColor3", "SurfaceAlt")
+                Utility:Create("UICorner", {Parent = track, CornerRadius = UDim.new(1, 0)})
+                local fill = Utility:Create("Frame", {Parent = track, BackgroundColor3 = Library.Theme.Accent, Size = UDim2.new(progress, 0, 1, 0), BorderSizePixel = 0, ZIndex = 8})
+                Utility:RegisterProperty(fill, "BackgroundColor3", "Accent")
+                Utility:Create("UICorner", {Parent = fill, CornerRadius = UDim.new(1, 0)})
+                local step = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 61), Size = UDim2.new(0.5, -12, 0, 25), Text = tostring(options.Step or "Step 0 / 0"), TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(step, "TextColor3", "Text")
+                local metrics = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.new(0.5, 0, 0, 61), Size = UDim2.new(0.5, -12, 0, 25), Text = tostring(options.Metrics or ""), TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Right, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 7})
+                Utility:RegisterProperty(metrics, "TextColor3", "SubText")
+                local controller = finishController({Type = "ProgressCard"}, card, name, options.Tooltip)
+                local statusColors = {active = "Success", waiting = "Warn", error = "Error", complete = "Success", paused = "Warn", idle = "SubText"}
+                function controller:SetProgress(value, nextDetail)
+                    progress = math.clamp(tonumber(value) or 0, 0, 1)
+                    percent.Text = tostring(math.floor(progress * 100 + 0.5)) .. "%"
+                    Utility:Tween(fill, TweenInfo.new(0.18), {Size = UDim2.new(progress, 0, 1, 0)})
+                    if nextDetail ~= nil then detail.Text = tostring(nextDetail) end
+                    return self
+                end
+                function controller:SetStatus(value, nextDetail)
+                    status = tostring(value or "Idle")
+                    local colorKey = statusColors[status:lower()] or "SubText"
+                    Library.Registry[dot]["BackgroundColor3"] = colorKey
+                    Utility:Tween(dot, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme[colorKey]})
+                    if nextDetail ~= nil then detail.Text = tostring(nextDetail) end
+                    return self
+                end
+                function controller:SetStep(current, total, label)
+                    step.Text = label and tostring(label) or string.format("Step %s / %s", tostring(current or 0), tostring(total or 0))
+                    return self
+                end
+                function controller:SetMetrics(value)
+                    if type(value) == "table" then
+                        local parts = {}
+                        for key, item in pairs(value) do table.insert(parts, tostring(key) .. ": " .. tostring(item)) end
+                        table.sort(parts)
+                        metrics.Text = table.concat(parts, "  •  ")
+                    else metrics.Text = tostring(value or "") end
+                    return self
+                end
+                function controller:Complete(nextDetail) self:SetProgress(1, nextDetail or "Complete"); self:SetStatus("Complete"); return self end
+                controller:SetStatus(status)
+                addElement({Holder = card, Text = name .. " " .. tostring(options.Detail or ""), Synonyms = options.Synonyms})
+                return controller
+            end
+
+            function Section:CreateActivityFeed(options)
+                options = options or {}
+                local name = tostring(options.Name or "Activity")
+                local maxEntries = math.max(3, tonumber(options.MaxEntries) or 40)
+                local entries = {}
+                local container = Utility:Create("Frame", {Name = "ActivityFeed_" .. name, Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, tonumber(options.Height) or 210), BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5})
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 8)})
+                local title = Utility:Create("TextLabel", {Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -62, 0, 34), Text = name, TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local clear = Utility:Create("TextButton", {Parent = container, BackgroundTransparency = 1, Position = UDim2.new(1, -48, 0, 0), Size = UDim2.fromOffset(44, 34), Text = "Clear", TextColor3 = Library.Theme.SubText, Font = Enum.Font.GothamBold, TextSize = 9, ZIndex = 7})
+                Utility:RegisterProperty(clear, "TextColor3", "SubText")
+                local feed = Utility:Create("ScrollingFrame", {Name = "Entries", Parent = container, BackgroundColor3 = Library.Theme.Secondary, BackgroundTransparency = 0.22, Position = UDim2.fromOffset(8, 34), Size = UDim2.new(1, -16, 1, -42), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 2, ScrollBarImageColor3 = Library.Theme.Accent, BorderSizePixel = 0, ZIndex = 6})
+                Utility:RegisterProperty(feed, "BackgroundColor3", "Secondary")
+                Utility:RegisterProperty(feed, "ScrollBarImageColor3", "Accent")
+                Utility:Create("UICorner", {Parent = feed, CornerRadius = UDim.new(0, 6)})
+                Utility:Create("UIListLayout", {Parent = feed, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 3)})
+                local controller = finishController({Type = "ActivityFeed"}, container, name, options.Tooltip)
+                local colors = {Info = "Accent2", Active = "Success", Success = "Success", Warning = "Warn", Error = "Error", Waiting = "Warn"}
+                local function render()
+                    for _, child in ipairs(feed:GetChildren()) do if child.Name == "ActivityEntry" then child:Destroy() end end
+                    for index, entry in ipairs(entries) do
+                        local row = Utility:Create("Frame", {Name = "ActivityEntry", Parent = feed, BackgroundTransparency = 1, Size = UDim2.new(1, -4, 0, entry.Detail ~= "" and 40 or 28), LayoutOrder = index, ZIndex = 7})
+                        local colorKey = colors[entry.Level] or "Accent2"
+                        local rowDot = Utility:Create("Frame", {Parent = row, BackgroundColor3 = Library.Theme[colorKey], Position = UDim2.fromOffset(7, 10), Size = UDim2.fromOffset(7, 7), BorderSizePixel = 0, ZIndex = 8})
+                        Utility:RegisterProperty(rowDot, "BackgroundColor3", colorKey)
+                        Utility:Create("UICorner", {Parent = rowDot, CornerRadius = UDim.new(1, 0)})
+                        local message = Utility:Create("TextLabel", {Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(22, 3), Size = UDim2.new(1, -82, 0, 19), Text = entry.Message, TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 9, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8})
+                        Utility:RegisterProperty(message, "TextColor3", "Text")
+                        local time = Utility:Create("TextLabel", {Parent = row, BackgroundTransparency = 1, Position = UDim2.new(1, -58, 0, 3), Size = UDim2.fromOffset(50, 19), Text = entry.Time, TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 8})
+                        Utility:RegisterProperty(time, "TextColor3", "SubText")
+                        if entry.Detail ~= "" then
+                            local detail = Utility:Create("TextLabel", {Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(22, 21), Size = UDim2.new(1, -30, 0, 15), Text = entry.Detail, TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 8, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8})
+                            Utility:RegisterProperty(detail, "TextColor3", "SubText")
+                        end
+                    end
+                    task.defer(function() if feed.Parent then feed.CanvasPosition = Vector2.new(0, math.max(0, feed.AbsoluteCanvasSize.Y)) end end)
+                end
+                function controller:Push(message, level, detail)
+                    table.insert(entries, {Message = tostring(message), Level = tostring(level or "Info"), Detail = tostring(detail or ""), Time = string.format("%.1fs", os.clock())})
+                    while #entries > maxEntries do table.remove(entries, 1) end
+                    render()
+                    return self
+                end
+                controller.Add = controller.Push
+                function controller:Clear() table.clear(entries); render(); return self end
+                function controller:GetEntries() return entries end
+                Library:Connect(clear.MouseButton1Click, function() controller:Clear() end)
+                addElement({Holder = container, Text = name .. " activity log timeline", Synonyms = options.Synonyms})
+                for _, entry in ipairs(options.Entries or {}) do controller:Push(entry.Message or entry[1] or entry, entry.Level or entry[2], entry.Detail or entry[3]) end
+                return controller
+            end
+
+            function Section:CreateChecklist(options)
+                options = options or {}
+                local name = tostring(options.Name or "Checklist")
+                local items, itemById = {}, {}
+                for index, raw in ipairs(options.Items or {}) do
+                    local item = type(raw) == "table" and raw or {Name = tostring(raw)}
+                    item.Id = normalizeActionId(item.Id or item.Name or index)
+                    item.Name = tostring(item.Name or item.Id)
+                    item.Status = tostring(item.Status or "Pending")
+                    table.insert(items, item)
+                    itemById[item.Id] = item
+                end
+                local height = 48 + math.max(1, #items) * 34
+                local container = Utility:Create("Frame", {Name = "Checklist_" .. name, Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, height), BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5})
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 8)})
+                local title = Utility:Create("TextLabel", {Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -82, 0, 38), Text = name, TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local progressLabel = Utility:Create("TextLabel", {Parent = container, BackgroundTransparency = 1, Position = UDim2.new(1, -72, 0, 0), Size = UDim2.fromOffset(60, 38), Text = "0 / 0", TextColor3 = Library.Theme.SubText, Font = Enum.Font.GothamBold, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 7})
+                Utility:RegisterProperty(progressLabel, "TextColor3", "SubText")
+                local body = Utility:Create("Frame", {Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(8, 38), Size = UDim2.new(1, -16, 0, math.max(1, #items) * 34), ZIndex = 6})
+                Utility:Create("UIListLayout", {Parent = body, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4)})
+                local controller = finishController({Type = "Checklist"}, container, name, options.Tooltip)
+                local colors = {Pending = "SubText", Active = "Accent2", Done = "Success", Error = "Error", Waiting = "Warn"}
+                local function render()
+                    for _, child in ipairs(body:GetChildren()) do if child.Name == "ChecklistItem" then child:Destroy() end end
+                    local done = 0
+                    for index, item in ipairs(items) do
+                        if item.Status == "Done" then done = done + 1 end
+                        local row = Utility:Create("TextButton", {Name = "ChecklistItem", Parent = body, BackgroundColor3 = Library.Theme.Secondary, BackgroundTransparency = 0.18, Size = UDim2.new(1, 0, 0, 30), Text = "", AutoButtonColor = false, LayoutOrder = index, BorderSizePixel = 0, ZIndex = 7})
+                        Utility:RegisterProperty(row, "BackgroundColor3", "Secondary")
+                        Utility:Create("UICorner", {Parent = row, CornerRadius = UDim.new(0, 6)})
+                        local colorKey = colors[item.Status] or "SubText"
+                        local check = Utility:Create("TextLabel", {Parent = row, BackgroundColor3 = Library.Theme[colorKey], BackgroundTransparency = item.Status == "Done" and 0.1 or 0.72, Position = UDim2.fromOffset(7, 7), Size = UDim2.fromOffset(16, 16), Text = item.Status == "Done" and "✓" or (item.Status == "Error" and "!" or ""), TextColor3 = Library.Theme[colorKey], Font = Enum.Font.GothamBold, TextSize = 9, BorderSizePixel = 0, ZIndex = 8})
+                        Utility:RegisterProperty(check, "BackgroundColor3", colorKey)
+                        Utility:RegisterProperty(check, "TextColor3", colorKey)
+                        Utility:Create("UICorner", {Parent = check, CornerRadius = UDim.new(1, 0)})
+                        local label = Utility:Create("TextLabel", {Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(31, 0), Size = UDim2.new(1, -96, 1, 0), Text = item.Name, TextColor3 = item.Status == "Done" and Library.Theme.SubText or Library.Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 9, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8})
+                        Utility:RegisterProperty(label, "TextColor3", item.Status == "Done" and "SubText" or "Text")
+                        local state = Utility:Create("TextLabel", {Parent = row, BackgroundTransparency = 1, Position = UDim2.new(1, -62, 0, 0), Size = UDim2.fromOffset(54, 30), Text = item.Status, TextColor3 = Library.Theme[colorKey], Font = Enum.Font.GothamBold, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 8})
+                        Utility:RegisterProperty(state, "TextColor3", colorKey)
+                        Library:Connect(row.MouseButton1Click, function() controller:SetItemStatus(item.Id, item.Status == "Done" and "Pending" or "Done") end)
+                    end
+                    progressLabel.Text = string.format("%d / %d", done, #items)
+                    controller.Progress = #items > 0 and done / #items or 0
+                end
+                function controller:SetItemStatus(id, nextStatus)
+                    local item = itemById[normalizeActionId(id)]
+                    if not item then return false end
+                    item.Status = tostring(nextStatus or "Pending"):gsub("^%l", string.upper)
+                    render()
+                    Utility:SafeCall(options.Callback, item, self.Progress)
+                    return true
+                end
+                function controller:GetItems() return items end
+                function controller:GetProgress() return self.Progress or 0 end
+                function controller:Reset() for _, item in ipairs(items) do item.Status = "Pending" end render() return true end
+                addElement({Holder = container, Text = name .. " objectives steps checklist", Synonyms = options.Synonyms})
+                render()
+                return controller
+            end
+
+
+--[[ MODULE: 90_tabbox.part.lua ]]
+-- Module fragment: tabbox and advanced controls
+-- Generated from the working V7 baseline; edit this feature in isolation.
             -- TABBOX (minitabs)
             function Section:CreateTabbox()
                 local tabboxContainer = Utility:Create("Frame", {
@@ -9499,6 +12438,10 @@ end
     end
 
     -- Native Overview is always available directly above UI Settings. It is
+
+--[[ MODULE: 91_native_settings.part.lua ]]
+-- Module fragment: native overview and settings
+-- Generated from the working V7 baseline; edit this feature in isolation.
     -- intentionally created after user-navigation plumbing but outside the
     -- scrollable tab list, so scripts cannot accidentally push it offscreen.
     local NativeOverview = Window:CreateDashboard({
@@ -9508,22 +12451,22 @@ end
         Subtitle = "RenLib session · @" .. Plr.Name,
         Cards = {
             {
-                Name = "RenHub launcher",
+                Name = "RenCore launcher",
                 Side = "Left",
                 Icon = ICONS.Play,
-                Description = "Close this RenLib session and return to the official RenHub script selector.",
+                Description = "Close this RenLib session and return to the official RenCore script selector.",
                 Action = {
-                    Name = "Relaunch RenHub",
-                    Description = "Unload this interface, then start the official RenHub loader.",
+                    Name = "Relaunch RenCore",
+                    Description = "Unload this interface, then start the official RenCore loader.",
                     Icon = ICONS.Restore,
                     Callback = function()
                         Window:Dialog({
-                            Title = "Relaunch RenHub?",
-                            Content = "RenLib will close this interface and start the official RenHub selector.",
+                            Title = "Relaunch RenCore?",
+                            Content = "RenLib will close this interface and start the official RenCore selector.",
                             Actions = {
                                 {Name = "Cancel"},
                                 {Name = "Relaunch", Primary = true, Callback = function()
-                                    Library:RelaunchRenHub(options.BeforeRelaunch)
+                                    Library:RelaunchRenCore(options.BeforeRelaunch)
                                 end}
                             }
                         })
@@ -9576,7 +12519,7 @@ end
             end
         })
     else
-        UISection:CreateLabel("Tap the floating RenHub button to toggle UI")
+        UISection:CreateLabel("Tap the floating RenCore button to toggle UI")
     end
     UISection:CreateButton({ Name = "Minimize UI", Icon = ICONS.Minimize, Callback = function() Window:Minimize() end })
     UISection:CreateButton({ Name = "Close UI", Icon = ICONS.Close, Callback = function() Window:Close() end })
@@ -9668,6 +12611,12 @@ end
     end
 
     local ConfigSection = SettingsTab:CreateSection({ Name = "Configuration", Side = "Left" })
+    ConfigSection:CreateParagraph({
+        Title = Library.PersistenceAvailable and "Persistent storage" or "Session storage",
+        Content = Library.PersistenceAvailable
+            and "Configs are saved to the executor filesystem."
+            or "This executor blocks file APIs. Configs still work, but reset when the Roblox client closes."
+    })
     local configNames = Library:GetConfigList()
     local selectedConfig = configNames[1]
     local desiredConfigName = selectedConfig or "default"
@@ -9721,7 +12670,8 @@ end
     ConfigSection:CreateButton({Name = "Save or overwrite", Callback = function()
         local ok, err = Library:SaveConfig(desiredConfigName)
         if ok then selectedConfig = desiredConfigName; refreshConfigManager(desiredConfigName) end
-        Library:Notify({Title = ok and "Config saved" or "Save unavailable", Content = ok and desiredConfigName or tostring(err), Duration = 3})
+        local savedTitle = Library.PersistenceAvailable and "Config saved" or "Config saved for session"
+        Library:Notify({Title = ok and savedTitle or "Save failed", Content = ok and desiredConfigName or tostring(err), Duration = 3})
     end})
     ConfigSection:CreateButton({Name = "Load selected", Callback = function()
         if not selectedConfig then
@@ -9748,7 +12698,8 @@ end
         end
         local ok, err = Library:SetAutoloadConfig(selectedConfig)
         refreshConfigManager(selectedConfig)
-        Library:Notify({Title = ok and "Autoload set" or "Autoload unavailable", Content = ok and selectedConfig or tostring(err), Duration = 3})
+        local autoloadTitle = Library.PersistenceAvailable and "Autoload set" or "Session autoload set"
+        Library:Notify({Title = ok and autoloadTitle or "Autoload unavailable", Content = ok and selectedConfig or tostring(err), Duration = 3})
     end})
     ConfigSection:CreateButton({Name = "Delete selected", Icon = EMOJIS.Trash, Callback = function()
         if not selectedConfig then
@@ -9784,15 +12735,52 @@ end
         end
     end)
 
+    function Window:SetSectionSpacing(value)
+        local spacing = math.clamp(tonumber(value) or 5, 0, 24)
+        self.ContentSpacing = spacing
+        for _, tab in ipairs(self.Tabs) do
+            for _, section in ipairs(tab.Sections or {}) do
+                if section.SetSpacing then section:SetSpacing(spacing) end
+            end
+        end
+        return self
+    end
+
+    function Window:SetSectionOutlines(value)
+        for _, tab in ipairs(self.Tabs) do
+            for _, section in ipairs(tab.Sections or {}) do
+                if section.SetOutlineVisible then section:SetOutlineVisible(value) end
+            end
+        end
+        return self
+    end
+
+    function Window:SetContentDensity(value)
+        local name = tostring(value or "Compact")
+        local spacing = ({Tight = 2, Compact = 5, Comfortable = 8})[name]
+        if not spacing then return false, "Unknown density: " .. name end
+        self.ContentDensity = name
+        self:SetSectionSpacing(spacing)
+        return true
+    end
+
     Library.Window = Window
     return Window
 end
 
+
+--[[ MODULE: 99_lifecycle.part.lua ]]
+-- Module fragment: unload and startup lifecycle
+-- Generated from the working V7 baseline; edit this feature in isolation.
 --// UNLOAD
 function Library:Unload(reason)
     if self.Unloaded then return end
     self.Unloaded = true
     self.ScalePreview = nil
+    for index = #self.ESPManagers, 1, -1 do
+        local manager = self.ESPManagers[index]
+        if manager and manager.Destroy then manager:Destroy() end
+    end
     for index = #self.AddonOrder, 1, -1 do
         self:UnregisterAddon(self.AddonOrder[index])
     end
@@ -9822,6 +12810,7 @@ function Library:Unload(reason)
     table.clear(self.KeybindList)
     table.clear(self.KeybindDefaults)
     table.clear(self.PendingAutoloadFlags)
+    table.clear(self.ESPManagers)
     table.clear(self.LayoutTweens)
     table.clear(self.VisibilityTweens)
     self.Window = nil
@@ -9832,16 +12821,38 @@ function Library:Unload(reason)
 end
 
 --// TOGGLE KEY (PC only)
-Library:Connect(UserInputService.InputBegan, function(input, gpe)
-    if gpe then return end
-    if input.KeyCode == Library.ToggleKey then
-        if Library.Window then Library.Window:Toggle() end
-    end
+local inputOk, inputErr = pcall(function()
+    Library:Connect(UserInputService.InputBegan, function(input, gpe)
+        if gpe then return end
+        if input.KeyCode == Library.ToggleKey then
+            if input.KeyCode == Enum.KeyCode.K
+                and (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)) then return end
+            if Library.Window then Library.Window:Toggle() end
+        end
+    end)
 end)
+if not inputOk then
+    warn("[RenLib] Input initialization failed: " .. tostring(inputErr))
+end
 
-RuntimeEnvironment[RUNTIME_KEY] = Library
-ensureConfigFolders()
-Library:PrepareAutoloadConfig()
+local runtimeOk, runtimeErr = pcall(function()
+    RuntimeEnvironment[RUNTIME_KEY] = Library
+end)
+if not runtimeOk then
+    warn("[RenLib] Runtime registration failed: " .. tostring(runtimeErr))
+end
+
+local filesystemOk, filesystemReady = pcall(ensureConfigFolders)
+if not filesystemOk then
+    warn("[RenLib] Filesystem initialization failed: " .. tostring(filesystemReady))
+elseif filesystemReady then
+    local autoloadOk, autoloadErr = pcall(function()
+        Library:PrepareAutoloadConfig()
+    end)
+    if not autoloadOk then
+        warn("[RenLib] Autoload initialization failed: " .. tostring(autoloadErr))
+    end
+end
 
 print("[RenLib] Loaded - Version " .. Library.Version .. " (" .. Library.DeviceMode .. ")")
 
@@ -9900,6 +12911,11 @@ return Library
     local ServerStatus = StatusTab:CreateSection({Name = "Server", Side = "Right"})
     local StatusServer = ServerStatus:CreateParagraph({Title = "Current server", Content = game.JobId})
     ServerStatus:CreateButton({Name = "Copy server JobId", Callback = function() if type(setclipboard) == "function" then pcall(setclipboard, game.JobId) end end})
+    ServerStatus:CreateInput({Name = "Server Job ID", Default = Settings.JoinJobId, Flag = "JoinJobId", Finished = true, Callback = function(value) API.Set("JoinJobId", value) end})
+    ServerStatus:CreateButton({Name = "Join server by Job ID", Callback = function()
+        local ok, err = joinServerJobId(Settings.JoinJobId)
+        if not ok then RenLib:Notify({Title = "Join failed", Content = tostring(err), Duration = 5}) end
+    end})
     ServerStatus:CreateButton({Name = "Rejoin server", Callback = function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end})
     ServerStatus:CreateButton({Name = "Hop to lowest players", Callback = function() local ok, err = hopServer(false); if not ok then RenLib:Notify({Title = "Server hop failed", Content = tostring(err), Duration = 5}) end end})
     ServerStatus:CreateButton({Name = "Hop to lowest ping", Callback = function() local ok, err = hopServer(true); if not ok then RenLib:Notify({Title = "Server hop failed", Content = tostring(err), Duration = 5}) end end})
@@ -10083,6 +13099,8 @@ return Library
     Runtime.IslandDropdown = IslandTravel:CreateDropdown({Name = "Choose island", Values = islandValues, Default = Settings.SelectedIsland, Flag = "SelectedIsland", Searchable = true, Callback = function(value) API.Set("SelectedIsland", value) end})
     IslandTravel:CreateButton({Name = "Tween to selected island", Callback = function() if not travelToSelectedIsland(false) then RenLib:Notify({Title = "Island unavailable", Content = "Refresh after the location is replicated.", Duration = 4}) end end})
     IslandTravel:CreateButton({Name = "Instant teleport to island", Callback = function() if not travelToSelectedIsland(true) then RenLib:Notify({Title = "Island unavailable", Content = "Refresh after the location is replicated.", Duration = 4}) end end})
+    IslandTravel:CreateButton({Name = "Resume automation movement", Callback = resumeAutomationMovement})
+    IslandTravel:CreateParagraph({Title = "Travel control", Content = "Manual island travel temporarily owns movement so farm and pickup loops cannot pull you back. Resume automation here, or enable a farming mode again."})
     IslandTravel:CreateButton({Name = "Refresh island list", Callback = function() Runtime.IslandDropdown:Refresh(currentIslandNames()) end})
 
     local Shops = Window:CreateTab({Name = "Shop", Icon = "6031260781"})
@@ -10292,7 +13310,9 @@ end
 
 Environment.BloxFruitScript = API
 if Settings.CreateUI then
+    Runtime.UIHydrating = true
     local ok, err = pcall(makeRenLibUI)
+    Runtime.UIHydrating = false
     if not ok then warn("BloxFruitScript UI:", err) end
 end
 return API
