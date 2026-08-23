@@ -218,7 +218,63 @@ local MATERIAL_LISTS = {
 -- Exact current metadata defect, repaired only at the public selection boundary.
 local BOSS_ALIASES = { ["Cursed Captain"] = "Cursed Captaim" }
 
+-- Stable, sea-specific travel catalog. Live _WorldOrigin markers are merged
+-- into this list, but are not required for the dropdown or chest scanner.
+local ISLAND_DATA = {
+    [1] = {
+        {Name="Pirate Starter", CFrame=CFrame.new(1059, 20, 1552)},
+        {Name="Marine Starter", CFrame=CFrame.new(-2709, 28, 2105)},
+        {Name="Middle Town", CFrame=CFrame.new(-690, 15, 1583)},
+        {Name="Jungle", CFrame=CFrame.new(-1598, 42, 153)},
+        {Name="Pirate Village", CFrame=CFrame.new(-1141, 12, 3832)},
+        {Name="Desert", CFrame=CFrame.new(895, 14, 4392)},
+        {Name="Frozen Village", CFrame=CFrame.new(1387, 95, -1295)},
+        {Name="Marine Fortress", CFrame=CFrame.new(-5040, 35, 4325)},
+        {Name="Lower Skylands", CFrame=CFrame.new(-4840, 724, -2619)},
+        {Name="Prison", CFrame=CFrame.new(5309, 10, 475)},
+        {Name="Colosseum", CFrame=CFrame.new(-1580, 14, -2986)},
+        {Name="Magma Village", CFrame=CFrame.new(-5313, 19, 8515)},
+        {Name="Underwater City", CFrame=CFrame.new(61123, 26, 1569)},
+        {Name="Upper Skylands", CFrame=CFrame.new(-7907, 5643, -1412)},
+        {Name="Fountain City", CFrame=CFrame.new(5260, 45, 4050)},
+    },
+    [2] = {
+        {Name="Kingdom of Rose", CFrame=CFrame.new(-430, 80, 1836)},
+        {Name="Cafe", CFrame=CFrame.new(-386, 80, 297)},
+        {Name="Second Sea Colosseum", CFrame=CFrame.new(-1836, 52, 1360)},
+        {Name="Factory", CFrame=CFrame.new(633, 81, 919)},
+        {Name="Green Zone", CFrame=CFrame.new(-2441, 80, -3216)},
+        {Name="Graveyard", CFrame=CFrame.new(-5497, 56, -795)},
+        {Name="Snow Mountain", CFrame=CFrame.new(610, 408, -5372)},
+        {Name="Hot and Cold", CFrame=CFrame.new(-5428, 24, -5299)},
+        {Name="Cursed Ship", CFrame=CFrame.new(1038, 133, 32912)},
+        {Name="Ice Castle", CFrame=CFrame.new(5668, 35, -6486)},
+        {Name="Forgotten Island", CFrame=CFrame.new(-3054, 244, -10143)},
+        {Name="Dark Arena", CFrame=CFrame.new(3677, 70, -3145)},
+    },
+    [3] = {
+        {Name="Port Town", CFrame=CFrame.new(-713, 107, 5712)},
+        {Name="Hydra Island", CFrame=CFrame.new(5229, 604, 345)},
+        {Name="Great Tree", CFrame=CFrame.new(2180, 37, -6740)},
+        {Name="Floating Turtle", CFrame=CFrame.new(-12680, 398, -9902)},
+        {Name="Mansion", CFrame=CFrame.new(-12548, 345, -7482)},
+        {Name="Castle on the Sea", CFrame=CFrame.new(-5073, 323, -3152)},
+        {Name="Haunted Castle", CFrame=CFrame.new(-9479, 149, 5566)},
+        {Name="Peanut Land", CFrame=CFrame.new(-2104, 46, -10194)},
+        {Name="Ice Cream Land", CFrame=CFrame.new(-821, 74, -10966)},
+        {Name="Cake Land", CFrame=CFrame.new(-2021, 46, -12029)},
+        {Name="Chocolate Land", CFrame=CFrame.new(233, 38, -12201)},
+        {Name="Candy Land", CFrame=CFrame.new(-1150, 28, -14446)},
+        {Name="Tiki Outpost", CFrame=CFrame.new(-16549, 64, -173)},
+        {Name="Submerged Island", CFrame=CFrame.new(10882, -2078, 10034)},
+    },
+}
+
+local ISLAND_LOOKUP = {}
+for _, island in ipairs(ISLAND_DATA[Sea] or {}) do ISLAND_LOOKUP[island.Name] = island end
+
 local Settings = {
+    ProfileVersion = 2,
     AutoFarmLevel = false,
     AutoFarmNearest = false,
     AutoKillMob = false,
@@ -279,7 +335,7 @@ local Settings = {
     TargetRadius = 60,
     HitboxSize = 60,
     HitboxTransparency = 1,
-    AttackMode = "Fast Attack",
+    AttackMode = "Instant",
     StatsValue = 2,
     AutoMelee = false,
     AutoDefense = false,
@@ -340,6 +396,7 @@ local function loadPersistentSettings()
             if Settings[key] ~= nil and type(value) == type(Settings[key]) then Settings[key] = value end
         end
     end
+    return type(saved) == "table" and (tonumber(saved.ProfileVersion) or 0) or 0
 end
 
 local SettingsSaveGeneration = 0
@@ -360,13 +417,19 @@ local function savePersistentSettings(immediate)
     if immediate then write() else task.delay(0.6, write) end
 end
 
-loadPersistentSettings()
+local loadedProfileVersion = loadPersistentSettings()
+if loadedProfileVersion < 2 then
+    -- Existing profiles predate the requested instant-by-default cadence.
+    Settings.AttackMode = "Instant"
+    Settings.ProfileVersion = 2
+    savePersistentSettings(true)
+end
 
 local ATTACK_DELAYS = {
     ["Normal Attack"] = 0.3,
     ["Fast Attack"] = 0.2,
     ["Super Fast Attack"] = 0.1,
-    ["Instant"] = 0.05,
+    ["Instant"] = 0.03,
 }
 
 local Runtime = {
@@ -412,6 +475,8 @@ local Runtime = {
     ChestSweepIndex = 1,
     ChestSweepArrivedAt = nil,
     ChestSweepNextAt = 0,
+    ChestStreamRequestBusy = false,
+    ChestStreamRequestSupported = true,
     AllBossIndex = 1,
     AllBossArrivedAt = nil,
     ESPObjects = setmetatable({}, { __mode = "k" }),
@@ -428,6 +493,7 @@ local Runtime = {
     BossDropdown = nil,
     IslandDropdown = nil,
     PlayerDropdown = nil,
+    StaticIslandParts = {},
     StatusCards = {},
     VisualState = setmetatable({}, { __mode = "k" }),
     FPSWorldState = nil,
@@ -436,6 +502,7 @@ local Runtime = {
     OriginalCameraSubject = nil,
     SkillAimbotHookInstalled = false,
     SoruClosures = nil,
+    LastFruitSpinResult = nil,
 }
 
 local function connect(signal, callback)
@@ -680,8 +747,8 @@ local LegacyRigController = ReplicatedStorage:FindFirstChild("RigControllerEvent
 
 local function invokeComm(...)
     if not CommF then return false end
-    local ok = pcall(CommF.InvokeServer, CommF, ...)
-    return ok
+    local ok, result = pcall(CommF.InvokeServer, CommF, ...)
+    return ok, result
 end
 
 local function fireComm(...)
@@ -1770,6 +1837,10 @@ local function buildChestSweepQueue(playerRoot)
         end
     end
 
+    for _, island in ipairs(ISLAND_DATA[Sea] or {}) do
+        addWaypoint(island.CFrame, nil, island.Name)
+    end
+
     -- Streaming can hide both distant chests and distant location markers.
     -- Current quest/boss metadata therefore supplies a complete sea-wide
     -- fallback route instead of silently degrading to nearby-only collection.
@@ -1793,6 +1864,7 @@ end
 local function tickChestSweep(playerRoot)
     if not Settings.AutoCollectChest or not Settings.WholeSeaChestSweep then return false end
     local now = os.clock()
+    if Runtime.ChestStreamRequestBusy then return false end
     if now < Runtime.ChestSweepNextAt then return false end
     local queue = Runtime.ChestSweepQueue
     if not queue then queue = buildChestSweepQueue(playerRoot) end
@@ -1805,8 +1877,32 @@ local function tickChestSweep(playerRoot)
         Runtime.ChestSweepQueue = nil
         Runtime.ChestSweepIndex = 1
         Runtime.ChestSweepArrivedAt = nil
-        Runtime.ChestSweepNextAt = now + 45
+        Runtime.ChestSweepNextAt = now + 20
         finishPickupOverlay()
+        return false
+    end
+
+
+    -- Ask Roblox streaming for the distant sector without moving the player.
+    -- Autofarm continues during the request; any replicated _ChestTagged
+    -- instances are picked up immediately by the normal nearest-chest loop.
+    if Runtime.ChestStreamRequestSupported then
+        local requestedIndex = Runtime.ChestSweepIndex
+        Runtime.ChestStreamRequestBusy = true
+        task.spawn(function()
+            local ok = pcall(function()
+                LocalPlayer:RequestStreamAroundAsync(entry.CFrame.Position, 2)
+            end)
+            Runtime.ChestStreamRequestBusy = false
+            if not Runtime.Alive or not Settings.AutoCollectChest then return end
+            if ok then
+                if Runtime.ChestSweepIndex == requestedIndex then Runtime.ChestSweepIndex += 1 end
+                Runtime.ChestSweepNextAt = os.clock() + 0.35
+            else
+                Runtime.ChestStreamRequestSupported = false
+                Runtime.ChestSweepNextAt = 0
+            end
+        end)
         return false
     end
 
@@ -1826,7 +1922,7 @@ local function tickChestSweep(playerRoot)
         -- Release movement back to the selected farm between map sectors.
         -- This keeps chest collection an overlay instead of turning farming off
         -- or monopolising movement for a full-sea pass.
-        Runtime.ChestSweepNextAt = now + 8
+        Runtime.ChestSweepNextAt = now + 2
         finishPickupOverlay()
         return false
     end
@@ -2045,7 +2141,8 @@ end)
 
 local function featureReady(key, interval)
     local now = os.clock()
-    if now - (Runtime.FeatureLastRun[key] or 0) < interval then return false end
+    local previous = Runtime.FeatureLastRun[key]
+    if previous ~= nil and now - previous < interval then return false end
     Runtime.FeatureLastRun[key] = now
     return true
 end
@@ -2069,6 +2166,12 @@ local function storeHeldFruits()
     end
     scan(character())
     scan(LocalPlayer:FindFirstChildOfClass("Backpack"))
+end
+
+local function spinRandomFruit()
+    local ok, result = invokeComm("Cousin", "Buy")
+    Runtime.LastFruitSpinResult = ok and (result == nil and "request sent" or tostring(result)) or "remote unavailable"
+    return ok, result
 end
 
 local function findOwnedTool(name)
@@ -2140,6 +2243,10 @@ end
 
 local function currentIslandNames()
     local values, seen = {}, {}
+    for _, island in ipairs(ISLAND_DATA[Sea] or {}) do
+        seen[island.Name] = true
+        values[#values + 1] = island.Name
+    end
     for island in pairs(Runtime.Islands) do
         if island and island.Parent and not seen[island.Name] then
             seen[island.Name] = true
@@ -2150,15 +2257,18 @@ local function currentIslandNames()
     return values
 end
 
-local function selectedIslandObject()
+local function selectedIslandDestination()
+    local static = ISLAND_LOOKUP[Settings.SelectedIsland]
+    if static then return static.CFrame end
     for island in pairs(Runtime.Islands) do
-        if island and island.Parent and island.Name == Settings.SelectedIsland then return island end
+        if island and island.Parent and island.Name == Settings.SelectedIsland then
+            return island:IsA("BasePart") and island.CFrame or island:GetPivot()
+        end
     end
 end
 
 local function travelToSelectedIsland(instant)
-    local island = selectedIslandObject()
-    local destination = island and (island:IsA("BasePart") and island.CFrame or island:GetPivot())
+    local destination = selectedIslandDestination()
     if not destination then return false end
     destination = destination * CFrame.new(0, 8, 0)
     if instant then
@@ -2253,8 +2363,8 @@ local function setESP(instance, enabled, color, displayName, useHighlight)
             highlight = Instance.new("Highlight")
             highlight.Name = "BloxFruitESP"
             highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            highlight.FillTransparency = 0.78
-            highlight.OutlineTransparency = 0.08
+            highlight.FillTransparency = 0.88
+            highlight.OutlineTransparency = 0.22
             highlight.Parent = adornee
             existing.Highlight = highlight
         end
@@ -2273,8 +2383,8 @@ local function setESP(instance, enabled, color, displayName, useHighlight)
         billboard.AlwaysOnTop = true
         billboard.LightInfluence = 0
         billboard.MaxDistance = 25000
-        billboard.Size = UDim2.fromOffset(150, 22)
-        billboard.StudsOffset = Vector3.new(0, 2.4, 0)
+        billboard.Size = UDim2.fromOffset(132, 18)
+        billboard.StudsOffset = Vector3.new(0, 2, 0)
         billboard.Enabled = false
         billboard.Parent = part
         existing.Billboard = billboard
@@ -2282,14 +2392,20 @@ local function setESP(instance, enabled, color, displayName, useHighlight)
         local label = Instance.new("TextLabel")
         label.Name = "Label"
         label.BackgroundColor3 = Color3.fromRGB(8, 10, 14)
-        label.BackgroundTransparency = 0.28
+        label.BackgroundTransparency = 0.16
         label.Size = UDim2.fromScale(1, 1)
-        label.Font = Enum.Font.GothamBold
+        label.Font = Enum.Font.GothamMedium
         label.TextScaled = false
-        label.TextSize = 11
-        label.TextStrokeTransparency = 0.6
+        label.TextSize = 10
+        label.TextStrokeTransparency = 0.82
+        label.TextTruncate = Enum.TextTruncate.AtEnd
         label.Parent = billboard
-        Instance.new("UICorner", label).CornerRadius = UDim.new(0, 5)
+        Instance.new("UICorner", label).CornerRadius = UDim.new(0, 4)
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = color
+        stroke.Transparency = 0.55
+        stroke.Thickness = 1
+        stroke.Parent = label
         existing.Label = label
     end
     billboard.Adornee = part
@@ -2298,11 +2414,41 @@ local function setESP(instance, enabled, color, displayName, useHighlight)
     local label = existing.Label or billboard:FindFirstChild("Label")
     if label then
         label.TextColor3 = color
-        label.Text = string.format("%s%s", displayName or instance.Name, distance and string.format(" [%dm]", distance) or "")
+        label.Text = string.format(" %s%s ", displayName or instance.Name, distance and string.format(" · %dm", distance) or "")
+        local stroke = label:FindFirstChildOfClass("UIStroke")
+        if stroke then stroke.Color = color end
     end
     existing.Part = part
     existing.Distance = distance or math.huge
     return existing
+end
+
+local function clearStaticIslandParts()
+    for _, part in pairs(Runtime.StaticIslandParts) do
+        if part and part.Parent then
+            destroyESPEntry(part)
+            pcall(part.Destroy, part)
+        end
+    end
+    table.clear(Runtime.StaticIslandParts)
+end
+
+local function staticIslandPart(island)
+    local part = Runtime.StaticIslandParts[island.Name]
+    if part and part.Parent then part.CFrame = island.CFrame; return part end
+    part = Instance.new("Part")
+    part.Name = "BloxFruitIslandMarker"
+    part.Size = Vector3.new(1, 1, 1)
+    part.Anchored = true
+    part.CanCollide = false
+    part.CanTouch = false
+    part.CanQuery = false
+    part.Transparency = 1
+    part.CFrame = island.CFrame
+    part:SetAttribute("BloxFruitOwned", true)
+    part.Parent = workspace
+    Runtime.StaticIslandParts[island.Name] = part
+    return part
 end
 
 local function updateESPs()
@@ -2318,28 +2464,46 @@ local function updateESPs()
         end
     end
     for fruit in pairs(WorldFruits) do
-        add(fruit, Settings.FruitESP, Color3.fromRGB(255, 95, 220), fruitIdentity(fruit) or fruit.Name, true, "Fruit", 8000)
+        add(fruit, Settings.FruitESP, Color3.fromRGB(255, 95, 220), "FRUIT  " .. (fruitIdentity(fruit) or fruit.Name), true, "Fruit", 8000)
     end
     for chest in pairs(Runtime.Chests) do
-        add(chest, Settings.ChestESP, Color3.fromRGB(255, 210, 70), chest.Name, true, "Chest", 6000)
+        add(chest, Settings.ChestESP, Color3.fromRGB(255, 210, 70), "CHEST  " .. chest.Name, true, "Chest", 6000)
     end
     for berry in pairs(Runtime.Berries) do
-        add(berry, Settings.BerryESP, Color3.fromRGB(80, 175, 255), berry.Name, true, "Berry", 5000)
+        add(berry, Settings.BerryESP, Color3.fromRGB(80, 175, 255), "BERRY  " .. berry.Name, true, "Berry", 5000)
+    end
+    local islandNames = {}
+    if Settings.IslandESP then
+        for _, island in ipairs(ISLAND_DATA[Sea] or {}) do
+            islandNames[island.Name] = true
+            add(staticIslandPart(island), true, Color3.fromRGB(110, 255, 165), "ISLAND  " .. island.Name, false, "Island", 20000)
+        end
+    else
+        clearStaticIslandParts()
     end
     for island in pairs(Runtime.Islands) do
-        add(island, Settings.IslandESP, Color3.fromRGB(110, 255, 165), island.Name, false, "Island", 16000)
+        if not islandNames[island.Name] then
+            add(island, Settings.IslandESP, Color3.fromRGB(110, 255, 165), "ISLAND  " .. island.Name, false, "Island", 20000)
+        end
     end
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
-            add(player.Character, Settings.PlayerESP, Color3.fromRGB(255, 120, 120), player.DisplayName, true, "Player", 10000)
+            add(player.Character, Settings.PlayerESP, Color3.fromRGB(255, 120, 120), "PLAYER  " .. player.DisplayName, true, "Player", 10000)
         end
     end
 
     table.sort(candidates, function(a, b) return a.Entry.Distance < b.Entry.Distance end)
     local camera = workspace.CurrentCamera
+    if not camera then
+        for _, candidate in ipairs(candidates) do
+            if candidate.Entry.Billboard then candidate.Entry.Billboard.Enabled = false end
+            if candidate.Entry.Highlight then candidate.Entry.Highlight.Enabled = false end
+        end
+        return
+    end
     local occupied, categoryCount, highlightCount, shown = {}, {}, {}, 0
-    local categoryLimit = {Island = 4, Fruit = 14, Chest = 18, Berry = 12, Player = 10}
-    local highlightLimit = {Island = 0, Fruit = 30, Chest = 40, Berry = 24, Player = 16}
+    local categoryLimit = {Island = 5, Fruit = 8, Chest = 8, Berry = 6, Player = 6}
+    local highlightLimit = {Island = 0, Fruit = 16, Chest = 20, Berry = 12, Player = 10}
     for _, candidate in ipairs(candidates) do
         local entry = candidate.Entry
         local point, onScreen = camera:WorldToViewportPoint(entry.Part.Position)
@@ -2347,14 +2511,14 @@ local function updateESPs()
         local clear = true
         if onScreen and point.Z > 0 then
             for _, position in ipairs(occupied) do
-                if math.abs(point.X - position.X) < 92 and math.abs(point.Y - position.Y) < 25 then
+                if math.abs(point.X - position.X) < 132 and math.abs(point.Y - position.Y) < 22 then
                     clear = false
                     break
                 end
             end
         end
         local labelVisible = onScreen and point.Z > 0 and entry.Distance <= candidate.MaxDistance
-            and shown < 24 and count < (categoryLimit[candidate.Category] or 8) and clear
+            and shown < 14 and count < (categoryLimit[candidate.Category] or 6) and clear
         if labelVisible then
             occupied[#occupied + 1] = Vector2.new(point.X, point.Y)
             categoryCount[candidate.Category] = count + 1
@@ -2713,8 +2877,8 @@ task.spawn(function()
             local model = character()
             if model and not model:FindFirstChild("HasBuso") then pcall(invokeComm, "Buso") end
         end
-        if Settings.AutoRandomFruit and featureReady("RandomFruit", 60) then
-            pcall(invokeComm, "Cousin", "Buy")
+        if Settings.AutoRandomFruit and featureReady("RandomFruit", 2) then
+            spinRandomFruit()
         end
         if Settings.AutoStoreFruit and featureReady("StoreFruit", 1) then pcall(storeHeldFruits) end
         if Settings.AutoBuyStockFruit and featureReady("StockFruit", 4) then
@@ -2763,15 +2927,27 @@ task.spawn(function()
 end)
 
 local function restoreCharacterPhysics()
+    local released = next(Runtime.CollisionState) ~= nil
     for part, original in pairs(Runtime.CollisionState) do
         if part and part.Parent then pcall(function() part.CanCollide = original end) end
         Runtime.CollisionState[part] = nil
     end
-    local _, _, root = characterParts()
-    local bodyClip = root and root:FindFirstChild("BodyClip")
-    if bodyClip and Runtime.OwnedBodyMovers[bodyClip] then
-        Runtime.OwnedBodyMovers[bodyClip] = nil
-        pcall(bodyClip.Destroy, bodyClip)
+    for body in pairs(Runtime.OwnedBodyMovers) do
+        if body and body.Name == "BodyClip" then
+            released = true
+            Runtime.OwnedBodyMovers[body] = nil
+            if body.Parent then pcall(body.Destroy, body) end
+        end
+    end
+    local _, humanoid, root = characterParts()
+    if released and root then
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    end
+    if released and humanoid then
+        humanoid.PlatformStand = false
+        humanoid.AutoRotate = true
+        pcall(humanoid.ChangeState, humanoid, Enum.HumanoidStateType.Freefall)
     end
 end
 
@@ -2806,7 +2982,7 @@ connect(RunService.Heartbeat, function(delta)
                     end
                 end
             end
-        elseif next(Runtime.CollisionState) ~= nil then
+        else
             restoreCharacterPhysics()
         end
     end
@@ -2822,7 +2998,10 @@ API.MaterialData = MATERIAL_DATA
 API.MaterialLists = MATERIAL_LISTS
 
 function API.Set(name, value)
-    assert(Settings[name] ~= nil, "Unknown BloxFruitScript setting: " .. tostring(name))
+    if type(name) ~= "string" or Settings[name] == nil then
+        warn("BloxFruitScript ignored unknown UI setting:", tostring(name))
+        return nil
+    end
     if name == "Height" then value = math.max(16, tonumber(value) or 20) end
     if name == "TweenSpeed" then value = math.clamp(tonumber(value) or 300, 5, 600) end
     if name == "StatsValue" then value = math.clamp(math.floor(tonumber(value) or 2), 1, 1000) end
@@ -2853,6 +3032,7 @@ function API.Set(name, value)
         end
     end
     Settings[name] = value
+    if name == "AutoRandomFruit" and value == true then Runtime.FeatureLastRun.RandomFruit = nil end
     if name == "AggressiveFPSBoost" then
         if value == true then applyAggressiveFPSBoost() else restoreAggressiveFPSBoost() end
     end
@@ -2865,6 +3045,11 @@ function API.Set(name, value)
         Runtime.CurrentTarget = nil
         if name == "AutoFarmAllBoss" then Runtime.AllBossIndex = 1; Runtime.AllBossArrivedAt = nil end
         clearFarmAnchor(true)
+        if exclusive[name] and value == false and not farmEnabled() then
+            Movement:Cancel()
+            finishPickupOverlay()
+            restoreCharacterPhysics()
+        end
     elseif name == "BringMobs" and value == false then
         restoreEnemies()
     elseif (name == "FruitESP" or name == "ChestESP" or name == "BerryESP" or name == "IslandESP" or name == "PlayerESP") and value == false then
@@ -2873,6 +3058,8 @@ function API.Set(name, value)
         Runtime.ChestSweepQueue = nil
         Runtime.ChestSweepIndex = 1
         Runtime.ChestSweepArrivedAt = nil
+        Runtime.ChestStreamRequestBusy = false
+        Runtime.ChestStreamRequestSupported = true
         Runtime.ChestSweepNextAt = value and 0 or math.huge
         if value == false and not Settings.AutoCollectFruit and not Settings.AutoCollectBerries then
             finishPickupOverlay()
@@ -9833,7 +10020,15 @@ return Library
     local FruitSection = Fruits:CreateSection({Name = "Fruit automation", Side = "Left"})
     toggle(FruitSection, "Auto collect spawned fruits", "AutoCollectFruit", "Physically travels to every replicated fruit as a temporary pickup overlay, then resumes the previous farm.")
     toggle(FruitSection, "Auto store held fruits", "AutoStoreFruit")
-    toggle(FruitSection, "Auto buy random fruit", "AutoRandomFruit", "Requests the fruit cousin once per minute.")
+    toggle(FruitSection, "Auto buy random fruit", "AutoRandomFruit", "Calls the exact Cousin/Buy transport immediately, then retries every two seconds while enabled; the server still controls price and cooldown.")
+    FruitSection:CreateButton({Name = "Spin random fruit now", Callback = spinRandomFruit})
+    local FruitSpinStatus = FruitSection:CreateParagraph({Title = "Fruit spin transport", Content = "Waiting for a request"})
+    task.spawn(function()
+        while Runtime.Alive do
+            pcall(FruitSpinStatus.SetContent, FruitSpinStatus, Runtime.LastFruitSpinResult or "Waiting for a request")
+            task.wait(0.5)
+        end
+    end)
     local FruitStock = Fruits:CreateSection({Name = "Fruit stock", Side = "Right"})
     FruitStock:CreateDropdown({
         Name = "Selected stock fruit",
@@ -9848,7 +10043,7 @@ return Library
     local Items = Window:CreateTab({Name = "Get Items & Mastery", Icon = "6031225818"})
     local ChestSection = Items:CreateSection({Name = "Chests", Side = "Left"})
     toggle(ChestSection, "Auto collect every chest", "AutoCollectChest", "Collects every tagged chest and resumes the enabled farm after each pickup route.")
-    toggle(ChestSection, "Search the whole sea", "WholeSeaChestSweep", "When no chest is streamed, checks one island/map sector, releases movement back to autofarm for 8 seconds, then continues the sea-wide route. Distant streaming can no longer reduce collection to nearby chests.")
+    toggle(ChestSection, "Search the whole sea", "WholeSeaChestSweep", "Requests every named map sector through Roblox streaming without interrupting autofarm. If streaming requests are unavailable, it falls back to short physical sector visits.")
     local BerrySection = Items:CreateSection({Name = "Berries", Side = "Left"})
     toggle(BerrySection, "Auto collect berries", "AutoCollectBerries", "Uses BerryBush tags plus direct berry instances, sweeps every replicated bush, and returns to farming.")
     if Sea >= 2 then
@@ -9873,7 +10068,7 @@ return Library
 
     local ESPTab = Window:CreateTab({Name = "ESP", Icon = "6031075938"})
     local WorldESP = ESPTab:CreateSection({Name = "World ESP", Side = "Left"})
-    toggle(WorldESP, "Island ESP", "IslandESP", "Labels current _WorldOrigin/Locations entries with live distance.")
+    toggle(WorldESP, "Island ESP", "IslandESP", "Uses the complete sea catalog plus extra live _WorldOrigin markers, with compact collision-managed labels.")
     toggle(WorldESP, "Fruit ESP", "FruitESP", "Labels and highlights every replicated world fruit.")
     toggle(WorldESP, "Chest ESP", "ChestESP", "Labels and highlights every cached chest, not only the current pickup.")
     toggle(WorldESP, "Berry ESP", "BerryESP", "Decluttered labels for BerryBush-tagged objects and direct berry instances.")
@@ -9913,7 +10108,7 @@ return Library
     Abilities:CreateButton({Name = "Buy Flash Step", Callback = function() invokeComm("BuyHaki", "Soru") end})
     Abilities:CreateButton({Name = "Buy Observation", Callback = function() invokeComm("KenTalk", "Buy") end})
     local Services = Shops:CreateSection({Name = "Currency services", Side = "Left"})
-    Services:CreateButton({Name = "Buy random fruit", Callback = function() invokeComm("Cousin", "Buy") end})
+    Services:CreateButton({Name = "Buy random fruit", Callback = spinRandomFruit})
     Services:CreateButton({Name = "Race reroll", Callback = function() invokeComm("BlackbeardReward", "Reroll", "1") end})
     Services:CreateButton({Name = "Stat refund", Callback = function() invokeComm("BlackbeardReward", "Refund", "1") end})
 
@@ -10088,6 +10283,7 @@ function API.Destroy()
     end
     for instance in pairs(Runtime.ESPObjects) do destroyESPEntry(instance) end
     table.clear(Runtime.ESPObjects)
+    clearStaticIslandParts()
     restoreCharacterPhysics()
     if Runtime.Gui then pcall(Runtime.Gui.Destroy, Runtime.Gui) end
     if Runtime.RenLib then pcall(Runtime.RenLib.Unload, Runtime.RenLib) end
