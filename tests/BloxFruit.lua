@@ -1,5 +1,7 @@
 -- RenBanana Farming Runtime
 -- Reconstructed from Gravity Hub / Banana MainV2 (commit 1970c5ed..., 2026-08-21).
+-- Expanded from Nana TV selector commit 63b19e32... and pinned V1/V2 payloads
+-- 3324daf2... / 7dfc3af7... (inspected 2026-08-23; protected payloads were not executed).
 -- Self-contained: no mutable HTTP dependencies. The old 2024 validator remote is not used.
 -- The recovered current Fast Attack path contains target collection but no observable
 -- damage remote. This build uses close-range normal M1 input unless the caller supplies
@@ -17,6 +19,7 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local Lighting = game:GetService("Lighting")
 local TeleportService = game:GetService("TeleportService")
 local CoreGui = game:GetService("CoreGui")
+local CollectionService = game:GetService("CollectionService")
 local LocalPlayer = Players.LocalPlayer
 local Environment = (getgenv and getgenv()) or _G
 
@@ -184,6 +187,38 @@ local BOSS_LISTS = {
     [3] = { "Stone", "Hydra Leader", "Kilo Admiral", "Captain Elephant", "Beautiful Pirate", "Cake Queen", "Dough King", "Longma", "Soul Reaper", "rip_indra True Form", "Tyrant of the Skies" },
 }
 
+local MATERIAL_DATA = {
+    [1] = {
+        ["Angel Wings"] = { Enemies={"God's Guard"}, CFrame=CFrame.new(-4721.36377, 848.927002, -1935.25195, -0.38518405, 0.194819495, 0.902041435, 0.134163186, 0.978899539, -0.154129535, -0.913035393, 0.0616525188, -0.40319407) },
+        ["Leather + Scrap Metal"] = { Enemies={"Brute", "Pirate"}, CFrame=CFrame.new(-1150.06604, 58.0500031, 4164.63477, -0.156446099, 0, 0.987686574, 0, 1, 0, -0.987686574, 0, -0.156446099) },
+        ["Magma Ore"] = { Enemies={"Military Soldier", "Military Spy", "Magma Admiral"}, CFrame=CFrame.new(-5514.16504, 61.553009, 8577.87207, 0.819155693, -0.0000823268638, -0.573571265, 0.0000823268638, 1, -0.000025957268, 0.573571265, -0.000025957268, 0.819155693) },
+        ["Fish Tail"] = { Enemies={"Fishman Warrior"}, CFrame=CFrame.new(60874.8242, 17.2460022, 1342.86206, 0.786440969, -0.0395703204, 0.616396666, 0.0789907277, 0.99619478, -0.0368298516, -0.61259377, 0.0776541233, 0.786574006) },
+    },
+    [2] = {
+        ["Leather + Scrap Metal"] = { Enemies={"Marine Captain"}, CFrame=CFrame.new(-2010, 73, -3326) },
+        ["Magma Ore"] = { Enemies={"Magma Ninja", "Lava Pirate"}, CFrame=CFrame.new(-5428, 78, -5959) },
+        ["Ectoplasm"] = { Enemies={"Ship Deckhand", "Ship Engineer", "Ship Steward", "Ship Officer"}, CFrame=CFrame.new(911, 125, 33159) },
+        ["Mystic Droplet"] = { Enemies={"Water Fighter"}, CFrame=CFrame.new(-3385, 239, -10542) },
+        ["Radioactive Material"] = { Enemies={"Factory Staff"}, CFrame=CFrame.new(295, 73, -56) },
+        ["Vampire Fang"] = { Enemies={"Vampire"}, CFrame=CFrame.new(-6033, 7, -1317) },
+    },
+    [3] = {
+        ["Scrap Metal"] = { Enemies={"Jungle Pirate", "Forest Pirate"}, CFrame=CFrame.new(-11975, 331, -10620) },
+        ["Fish Tail"] = { Enemies={"Fishman Raider", "Fishman Captain"}, CFrame=CFrame.new(-10993, 332, -8940) },
+        ["Conjured Cocoa"] = { Enemies={"Chocolate Bar Battler", "Cocoa Warrior"}, CFrame=CFrame.new(620, 78, -12581) },
+        ["Dragon Scale"] = { Enemies={"Dragon Crew Archer", "Dragon Crew Warrior"}, CFrame=CFrame.new(6594, 383, 139) },
+        ["Gunpowder"] = { Enemies={"Pistol Billionaire"}, CFrame=CFrame.new(-85, 85, 6132) },
+        ["Mini Tusk"] = { Enemies={"Mythological Pirate"}, CFrame=CFrame.new(-13545, 470, -6917) },
+        ["Demonic Wisp"] = { Enemies={"Demonic Soul"}, CFrame=CFrame.new(-9495, 453, 5977) },
+    },
+}
+
+local MATERIAL_LISTS = {
+    [1] = { "Angel Wings", "Leather + Scrap Metal", "Magma Ore", "Fish Tail" },
+    [2] = { "Leather + Scrap Metal", "Magma Ore", "Ectoplasm", "Mystic Droplet", "Radioactive Material", "Vampire Fang" },
+    [3] = { "Scrap Metal", "Fish Tail", "Conjured Cocoa", "Dragon Scale", "Gunpowder", "Mini Tusk", "Demonic Wisp" },
+}
+
 -- Exact current metadata defect, repaired only at the public selection boundary.
 local BOSS_ALIASES = { ["Cursed Captain"] = "Cursed Captaim" }
 
@@ -193,6 +228,10 @@ local Settings = {
     AutoKillMob = false,
     AutoFarmBoss = false,
     AutoFarmAllBoss = false,
+    AutoFarmMaterial = false,
+    AutoEliteHunter = false,
+    AutoCollectChest = false,
+    AutoRaid = false,
     AutoEventEnemy = false,
     AcceptLevelQuests = true,
     AcceptBossQuests = true,
@@ -201,6 +240,10 @@ local Settings = {
     ActivateTool = true,
     SelectedMob = "Bandit",
     SelectedBoss = BOSS_LISTS[Sea][1],
+    SelectedMaterial = MATERIAL_LISTS[Sea][1],
+    SelectedRaidChip = "Flame",
+    SelectedStockFruit = "Light-Light",
+    RedeemCode = "",
     SelectedEventEnemy = "Terrorshark",
     WeaponCategory = "Melee",
     ExactToolName = nil,
@@ -220,12 +263,21 @@ local Settings = {
     AutoRandomFruit = false,
     AutoCollectFruit = false,
     AutoStoreFruit = false,
+    AutoBuyStockFruit = false,
+    FruitESP = false,
+    ChestESP = false,
     AutoRaceV3 = false,
     AutoRaceV4 = false,
     AutoSeaBeast = false,
     AutoShark = false,
     AutoPiranha = false,
     AutoTerrorShark = false,
+    AutoCombatSkills = false,
+    AutoSkillZ = true,
+    AutoSkillX = true,
+    AutoSkillC = true,
+    AutoSkillV = true,
+    AutoSkillF = false,
     AutoBuso = true,
     AntiAFK = true,
     FullBright = false,
@@ -263,6 +315,9 @@ local Runtime = {
     CollisionState = setmetatable({}, { __mode = "k" }),
     EnemyMutationState = setmetatable({}, { __mode = "k" }),
     FeatureLastRun = {},
+    Chests = setmetatable({}, { __mode = "k" }),
+    ESPObjects = setmetatable({}, { __mode = "k" }),
+    RaidSummonAttempt = 0,
     UIControls = {},
     AttackAttempts = 0,
     DamageRegistrations = 0,
@@ -349,9 +404,30 @@ for _, instance in ipairs(workspace:GetDescendants()) do trackWorldFruit(instanc
 connect(workspace.DescendantAdded, trackWorldFruit)
 connect(workspace.DescendantRemoving, function(instance) WorldFruits[instance] = nil end)
 
+local function chestCandidate(instance)
+    if not (instance:IsA("Model") or instance:IsA("BasePart")) then return false end
+    local name = string.lower(instance.Name)
+    return string.find(name, "chest", 1, true) ~= nil
+        or CollectionService:HasTag(instance, "_ChestTagged")
+end
+
+local function trackChest(instance)
+    if chestCandidate(instance) then Runtime.Chests[instance] = true end
+end
+
+for _, instance in ipairs(workspace:GetDescendants()) do trackChest(instance) end
+connect(workspace.DescendantAdded, trackChest)
+connect(workspace.DescendantRemoving, function(instance)
+    Runtime.Chests[instance] = nil
+    local highlight = Runtime.ESPObjects[instance]
+    if highlight then pcall(highlight.Destroy, highlight) end
+    Runtime.ESPObjects[instance] = nil
+end)
+
 local Remotes = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:WaitForChild("Remotes", 15)
 local CommF = Remotes and (Remotes:FindFirstChild("CommF_") or Remotes:WaitForChild("CommF_", 10))
 local CommE = Remotes and Remotes:FindFirstChild("CommE")
+local RedeemRemote = Remotes and Remotes:FindFirstChild("Redeem")
 local Modules = ReplicatedStorage:FindFirstChild("Modules")
 local Net = Modules and Modules:FindFirstChild("Net")
 local RegisterAttack = Net and Net:FindFirstChild("RE/RegisterAttack")
@@ -482,7 +558,12 @@ else
 end
 
 local function activeFarmMode()
+    if Settings.AutoRaid then return "Raid" end
+    if Settings.AutoSeaBeast then return "SeaBeast" end
     if Settings.AutoEventEnemy then return "Event" end
+    if Settings.AutoEliteHunter then return "Elite" end
+    if Settings.AutoFarmMaterial then return "Material" end
+    if Settings.AutoCollectChest then return "Chest" end
     if Settings.AutoFarmBoss then return "Boss" end
     if Settings.AutoFarmAllBoss then return "AllBoss" end
     if Settings.AutoKillMob then return "Mob" end
@@ -581,6 +662,17 @@ local function findNearestEnemy(playerRoot)
                     nearest, nearestDistance = model, distance
                 end
             end
+        end
+    end
+    return nearest, nearestDistance
+end
+
+local function findNearestFromNames(names, playerRoot)
+    local nearest, nearestDistance
+    for _, name in ipairs(names or {}) do
+        local model, distance = findNearestByName(name, playerRoot)
+        if model and (not nearestDistance or distance < nearestDistance) then
+            nearest, nearestDistance = model, distance
         end
     end
     return nearest, nearestDistance
@@ -835,6 +927,7 @@ local function collectFastTargets()
                 then
                     Runtime.FastTargets[#Runtime.FastTargets + 1] = beast
                     Runtime.HitParts[#Runtime.HitParts + 1] = root
+                    if not Runtime.PrimaryTarget then Runtime.PrimaryTarget = root end
                 end
             end
         end
@@ -925,6 +1018,7 @@ Runtime.AttackTransport = defaultAttackTransport
 
 local function attackTick()
     if not Settings.FastAttack then return end
+    if activeFarmMode() == "Chest" then return end
     collectFastTargets()
     if not farmEnabled() or not Runtime.PrimaryTarget then return end
     for _, target in ipairs(Runtime.FastTargets) do
@@ -1106,7 +1200,164 @@ local function tickAllBoss(playerRoot)
     if target then combatTarget(target, "AllBoss:" .. target.Name) end
 end
 
-local MODE_INTERVALS = { Level = 0.2, Mob = 0.03, Nearest = 0.05, Boss = 0.2, AllBoss = 0.1, Event = 0.06 }
+local function tickMaterial(playerRoot)
+    local metadata = MATERIAL_DATA[Sea][Settings.SelectedMaterial]
+    if not metadata then return end
+    local target = Runtime.CurrentTarget
+    local targetHumanoid = target and aliveModel(target)
+    if not targetHumanoid or not table.find(metadata.Enemies, target.Name) then
+        target = findNearestFromNames(metadata.Enemies, playerRoot)
+        Runtime.CurrentTarget = nil
+    end
+    if target then
+        combatTarget(target, "Material:" .. Settings.SelectedMaterial, metadata.CFrame)
+    elseif metadata.CFrame then
+        local anchor = ensureFarmAnchor("Material:" .. Settings.SelectedMaterial, metadata.CFrame)
+        Movement:Go(anchor * CFrame.new(0, tonumber(Settings.Height) or 20, 0))
+    end
+end
+
+local ELITE_NAMES = {"Diablo", "Deandre", "Urban"}
+local function tickElite(playerRoot)
+    local visible, title = getQuestState()
+    local hasEliteQuest = visible and (
+        questMatches(title, "Diablo")
+        or questMatches(title, "Deandre")
+        or questMatches(title, "Urban")
+    )
+    if not hasEliteQuest and questRemoteReady(2) then invokeComm("EliteHunter") end
+
+    local target = findNearestFromNames(ELITE_NAMES, playerRoot)
+    if target then
+        combatTarget(target, "Elite:" .. target.Name)
+        return
+    end
+    Runtime.CurrentTarget = nil
+    for _, name in ipairs(ELITE_NAMES) do
+        local template = ReplicatedStorage:FindFirstChild(name)
+        local root = template and template:FindFirstChild("HumanoidRootPart")
+        if root then Movement:Go(root.CFrame * CFrame.new(0, 25, 0)); return end
+    end
+end
+
+local function objectPart(instance)
+    if not instance or not instance.Parent then return nil end
+    if instance:IsA("BasePart") then return instance end
+    if instance:IsA("Model") then
+        return instance.PrimaryPart or instance:FindFirstChildWhichIsA("BasePart", true)
+    end
+end
+
+local function findNearestChest(playerRoot)
+    local nearest, nearestPart, nearestDistance
+    for chest in pairs(Runtime.Chests) do
+        local part = objectPart(chest)
+        if part and part.Parent then
+            local distance = (part.Position - playerRoot.Position).Magnitude
+            if not nearestDistance or distance < nearestDistance then
+                nearest, nearestPart, nearestDistance = chest, part, distance
+            end
+        else
+            Runtime.Chests[chest] = nil
+        end
+    end
+    return nearest, nearestPart, nearestDistance
+end
+
+local function tickChest(playerRoot)
+    Runtime.CurrentTarget = nil
+    local chest, part, distance = findNearestChest(playerRoot)
+    if not chest or not part then return end
+    if distance > 7 then
+        Movement:Go(part.CFrame * CFrame.new(0, 3, 0))
+        return
+    end
+    Movement:Cancel()
+    if type(firetouchinterest) == "function" then
+        pcall(firetouchinterest, playerRoot, part, 0)
+        pcall(firetouchinterest, playerRoot, part, 1)
+    else
+        pcall(function() playerRoot.CFrame = part.CFrame * CFrame.new(0, 2, 0) end)
+    end
+end
+
+local function raidIslandCFrame()
+    local origin = workspace:FindFirstChild("_WorldOrigin")
+    local locations = origin and origin:FindFirstChild("Locations")
+    local bestIndex, bestCFrame
+    if not locations then return nil end
+    for _, location in ipairs(locations:GetChildren()) do
+        local index = tonumber(string.match(location.Name, "Island%s*(%d+)"))
+        local destination = location:IsA("BasePart") and location.CFrame
+            or (location:IsA("Model") and location:GetPivot())
+        if index and destination and (not bestIndex or index > bestIndex) then
+            bestIndex, bestCFrame = index, destination
+        end
+    end
+    return bestCFrame
+end
+
+local function tryStartRaid()
+    if os.clock() - Runtime.RaidSummonAttempt < 5 then return end
+    Runtime.RaidSummonAttempt = os.clock()
+    invokeComm("RaidsNpc", "Select", Settings.SelectedRaidChip)
+    if type(fireclickdetector) ~= "function" then return end
+    for _, instance in ipairs(workspace:GetDescendants()) do
+        if instance:IsA("ClickDetector") then
+            local ancestor = instance:FindFirstAncestor("RaidSummon")
+                or instance:FindFirstAncestor("RaidSummon2")
+            local fullName = string.lower(instance:GetFullName())
+            if ancestor or string.find(fullName, "raidsummon", 1, true) then
+                pcall(fireclickdetector, instance)
+                return
+            end
+        end
+    end
+end
+
+local function tickRaid(playerRoot)
+    local island = raidIslandCFrame()
+    if not island then
+        Runtime.CurrentTarget = nil
+        tryStartRaid()
+        return
+    end
+    local target = findNearestEnemy(playerRoot)
+    if target then
+        combatTarget(target, "Raid:" .. target.Name)
+        return
+    end
+    Runtime.CurrentTarget = nil
+    Movement:Go(island * CFrame.new(0, 25, 0))
+end
+
+local function findSeaBeast(playerRoot)
+    local folder = workspace:FindFirstChild("SeaBeasts")
+    local nearest, nearestRoot, nearestDistance
+    if not folder then return nil end
+    for _, beast in ipairs(folder:GetChildren()) do
+        local health = beast:FindFirstChild("Health")
+        local root = beast:FindFirstChild("HumanoidRootPart", true)
+        if health and root and tonumber(health.Value) and health.Value > 0 then
+            local distance = (root.Position - playerRoot.Position).Magnitude
+            if not nearestDistance or distance < nearestDistance then
+                nearest, nearestRoot, nearestDistance = beast, root, distance
+            end
+        end
+    end
+    return nearest, nearestRoot, nearestDistance
+end
+
+local function tickSeaBeast(playerRoot)
+    Runtime.CurrentTarget = nil
+    local beast, root = findSeaBeast(playerRoot)
+    Runtime.SeaTarget = beast
+    if not beast or not root then return end
+    equipWeapon()
+    Movement:Go(root.CFrame * CFrame.new(0, math.max(30, tonumber(Settings.Height) or 20), 20))
+end
+
+local MODE_INTERVALS = { Level = 0.2, Mob = 0.03, Nearest = 0.05, Boss = 0.2, AllBoss = 0.1, Material = 0.06, Elite = 0.12, Chest = 0.1, Raid = 0.08, SeaBeast = 0.12, Event = 0.06 }
 
 task.spawn(function()
     local lastMode, lastRun = nil, 0
@@ -1130,6 +1381,11 @@ task.spawn(function()
                     elseif mode == "Nearest" then tickNearest(playerRoot)
                     elseif mode == "Boss" then tickBoss(playerRoot)
                     elseif mode == "AllBoss" then tickAllBoss(playerRoot)
+                    elseif mode == "Material" then tickMaterial(playerRoot)
+                    elseif mode == "Elite" then tickElite(playerRoot)
+                    elseif mode == "Chest" then tickChest(playerRoot)
+                    elseif mode == "Raid" then tickRaid(playerRoot)
+                    elseif mode == "SeaBeast" then tickSeaBeast(playerRoot)
                     elseif mode == "Event" then tickEvent(playerRoot) end
                 end)
                 if not ok then warn("RenBanana farm tick:", err) end
@@ -1185,6 +1441,62 @@ local function storeHeldFruits()
     end
     scan(character())
     scan(LocalPlayer:FindFirstChildOfClass("Backpack"))
+end
+
+local function sendCombatKey(keyName)
+    local keyCode = Enum.KeyCode[keyName]
+    if not keyCode then return end
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+        task.wait(0.045)
+        VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+    end)
+end
+
+local function castEnabledSkills()
+    if not Settings.AutoCombatSkills or not farmEnabled() then return end
+    local targetReady = Runtime.PrimaryTarget ~= nil
+        or (Settings.AutoSeaBeast and Runtime.SeaTarget ~= nil)
+    if not targetReady then return end
+    for _, keyName in ipairs({"Z", "X", "C", "V", "F"}) do
+        if Settings["AutoSkill" .. keyName] then sendCombatKey(keyName) end
+    end
+end
+
+local function espAdornee(instance)
+    if not instance or not instance.Parent then return nil end
+    if instance:IsA("Tool") then
+        return instance:FindFirstChild("Handle") or instance:FindFirstChildWhichIsA("BasePart")
+    end
+    if instance:IsA("Model") or instance:IsA("BasePart") then return instance end
+end
+
+local function setESP(instance, enabled, color)
+    local existing = Runtime.ESPObjects[instance]
+    if not enabled then
+        if existing then pcall(existing.Destroy, existing) end
+        Runtime.ESPObjects[instance] = nil
+        return
+    end
+    local adornee = espAdornee(instance)
+    if not adornee then return end
+    if not existing or not existing.Parent then
+        existing = Instance.new("Highlight")
+        existing.Name = "RenBananaESP"
+        existing.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        existing.FillTransparency = 0.72
+        existing.OutlineTransparency = 0.08
+        existing.Parent = adornee
+        Runtime.ESPObjects[instance] = existing
+    end
+    existing.Adornee = adornee
+    existing.FillColor = color
+    existing.OutlineColor = color
+end
+
+local function updateESPs()
+    for fruit in pairs(WorldFruits) do setESP(fruit, Settings.FruitESP, Color3.fromRGB(255, 80, 220)) end
+    for chest in pairs(Runtime.Chests) do setESP(chest, Settings.ChestESP, Color3.fromRGB(255, 210, 70)) end
 end
 
 local function optimizeVisualInstance(instance)
@@ -1272,8 +1584,13 @@ task.spawn(function()
         end
         if Settings.AutoCollectFruit and featureReady("CollectFruit", 0.35) then pcall(collectWorldFruits) end
         if Settings.AutoStoreFruit and featureReady("StoreFruit", 1) then pcall(storeHeldFruits) end
+        if Settings.AutoBuyStockFruit and featureReady("StockFruit", 4) then
+            pcall(invokeComm, "PurchaseRawFruit", Settings.SelectedStockFruit)
+        end
         if Settings.AutoRaceV3 and featureReady("RaceV3", 2) then pcall(fireComm, "ActivateAbility") end
         if Settings.AutoRaceV4 and featureReady("RaceV4", 2) then pcall(fireComm, "ActivateAbility") end
+        if Settings.AutoCombatSkills and featureReady("CombatSkills", 0.7) then pcall(castEnabledSkills) end
+        if featureReady("ESP", 0.75) then pcall(updateESPs) end
         task.wait(0.12)
     end
 end)
@@ -1334,6 +1651,8 @@ API.Runtime = Runtime
 API.LevelData = LEVEL_DATA
 API.BossData = BOSS_DATA
 API.BossLists = BOSS_LISTS
+API.MaterialData = MATERIAL_DATA
+API.MaterialLists = MATERIAL_LISTS
 
 function API.Set(name, value)
     assert(Settings[name] ~= nil, "Unknown RenBanana setting: " .. tostring(name))
@@ -1344,6 +1663,11 @@ function API.Set(name, value)
         AutoKillMob = true,
         AutoFarmBoss = true,
         AutoFarmAllBoss = true,
+        AutoFarmMaterial = true,
+        AutoEliteHunter = true,
+        AutoCollectChest = true,
+        AutoRaid = true,
+        AutoSeaBeast = true,
         AutoEventEnemy = true,
     }
     if value == true and exclusive[name] then
@@ -1359,12 +1683,14 @@ function API.Set(name, value)
     Settings[name] = value
     if name == "AggressiveFPSBoost" and value == true then applyAggressiveFPSBoost() end
     if exclusive[name] or name == "SelectedMob" or name == "SelectedBoss"
-        or name == "SelectedEventEnemy"
+        or name == "SelectedMaterial" or name == "SelectedEventEnemy"
     then
         Runtime.CurrentTarget = nil
         clearFarmAnchor(true)
     elseif name == "BringMobs" and value == false then
         restoreEnemies()
+    elseif (name == "FruitESP" or name == "ChestESP") and value == false then
+        updateESPs()
     end
     return value
 end
@@ -8246,6 +8572,25 @@ return Library
         end,
     })
 
+    local Skills = Farming:CreateSection({Name = "Nana combat skills", Side = "Right"})
+    toggle(Skills, "Use Z/X/C/V/F skills", "AutoCombatSkills", "Rotates only the enabled keys while an automation has a live target.")
+    toggle(Skills, "Skill Z", "AutoSkillZ")
+    toggle(Skills, "Skill X", "AutoSkillX")
+    toggle(Skills, "Skill C", "AutoSkillC")
+    toggle(Skills, "Skill V", "AutoSkillV")
+    toggle(Skills, "Skill F", "AutoSkillF")
+
+    local Material = Farming:CreateSection({Name = "Material farming", Side = "Right"})
+    Material:CreateDropdown({
+        Name = "Selected material",
+        Values = MATERIAL_LISTS[Sea],
+        Default = Settings.SelectedMaterial,
+        Flag = "SelectedMaterial",
+        Callback = function(value) API.Set("SelectedMaterial", value) end,
+    })
+    toggle(Material, "Auto farm material", "AutoFarmMaterial", "Uses the current material-to-enemy map and the same fixed-anchor combat path.")
+    if Sea == 3 then toggle(Material, "Auto Elite Hunter", "AutoEliteHunter", "Accepts Elite Hunter quests and farms Diablo, Deandre, or Urban when replicated.") end
+
     local Stats = Window:CreateTab({Name = "Stats", Icon = "6031260800"})
     local StatsSection = Stats:CreateSection({Name = "Automatic stat allocation", Side = "Left"})
     StatsSection:CreateSlider({Name = "Points per request", Min = 1, Max = 1000, Step = 1, Default = Settings.StatsValue, Flag = "StatsValue", Callback = function(value) API.Set("StatsValue", value) end})
@@ -8260,6 +8605,71 @@ return Library
     toggle(FruitSection, "Auto collect nearby fruits", "AutoCollectFruit", "Uses touch interest when available, with a local proximity fallback.")
     toggle(FruitSection, "Auto store held fruits", "AutoStoreFruit")
     toggle(FruitSection, "Auto buy random fruit", "AutoRandomFruit", "Requests the fruit cousin once per minute.")
+    toggle(FruitSection, "Fruit ESP", "FruitESP", "Adds lightweight client Highlights to replicated world fruit tools.")
+    local FruitStock = Fruits:CreateSection({Name = "Fruit stock", Side = "Right"})
+    FruitStock:CreateDropdown({
+        Name = "Selected stock fruit",
+        Values = {"Rocket-Rocket", "Spin-Spin", "Chop-Chop", "Spring-Spring", "Bomb-Bomb", "Smoke-Smoke", "Spike-Spike", "Flame-Flame", "Falcon-Falcon", "Ice-Ice", "Sand-Sand", "Dark-Dark", "Diamond-Diamond", "Light-Light", "Rubber-Rubber", "Barrier-Barrier", "Ghost-Ghost", "Magma-Magma", "Quake-Quake", "Buddha-Buddha", "Love-Love", "Spider-Spider", "Sound-Sound", "Phoenix-Phoenix", "Portal-Portal", "Rumble-Rumble", "Pain-Pain", "Blizzard-Blizzard", "Gravity-Gravity", "Mammoth-Mammoth", "T-Rex-T-Rex", "Dough-Dough", "Shadow-Shadow", "Venom-Venom", "Control-Control", "Spirit-Spirit", "Dragon-Dragon", "Leopard-Leopard", "Kitsune-Kitsune"},
+        Default = Settings.SelectedStockFruit,
+        Flag = "SelectedStockFruit",
+        Searchable = true,
+        Callback = function(value) API.Set("SelectedStockFruit", value) end,
+    })
+    toggle(FruitStock, "Auto buy selected stock fruit", "AutoBuyStockFruit", "Uses PurchaseRawFruit every four seconds; the server decides stock and affordability.")
+
+    local Items = Window:CreateTab({Name = "Items & raids", Icon = "6031225818"})
+    local ChestSection = Items:CreateSection({Name = "Chests", Side = "Left"})
+    toggle(ChestSection, "Auto collect chests", "AutoCollectChest", "Uses an event-maintained chest cache; no full-workspace scan loop.")
+    toggle(ChestSection, "Chest ESP", "ChestESP")
+    if Sea >= 2 then
+        local RaidSection = Items:CreateSection({Name = "Raids", Side = "Right"})
+        RaidSection:CreateDropdown({
+            Name = "Raid chip",
+            Values = {"Flame", "Ice", "Sand", "Dark", "Light", "Magma", "Quake", "Buddha", "Spider", "Rumble", "Phoenix", "Dough"},
+            Default = Settings.SelectedRaidChip,
+            Flag = "SelectedRaidChip",
+            Callback = function(value) API.Set("SelectedRaidChip", value) end,
+        })
+        toggle(RaidSection, "Auto raid", "AutoRaid", "Selects the chip, uses replicated raid summon controls, follows the highest active island, and farms raid enemies.")
+    end
+
+    local Shops = Window:CreateTab({Name = "Shops & travel", Icon = "6031260781"})
+    local Styles = Shops:CreateSection({Name = "Fighting styles", Side = "Left"})
+    local function buyButton(section, label, command)
+        section:CreateButton({Name = label, Callback = function() invokeComm(command) end})
+    end
+    buyButton(Styles, "Buy Dark Step", "BuyBlackLeg")
+    buyButton(Styles, "Buy Electric", "BuyElectro")
+    buyButton(Styles, "Buy Water Kung Fu", "BuyFishmanKarate")
+    buyButton(Styles, "Buy Superhuman", "BuySuperhuman")
+    buyButton(Styles, "Buy Death Step", "BuyDeathStep")
+    buyButton(Styles, "Buy Sharkman Karate", "BuySharkmanKarate")
+    buyButton(Styles, "Buy Electric Claw", "BuyElectricClaw")
+    buyButton(Styles, "Buy Dragon Talon", "BuyDragonTalon")
+    buyButton(Styles, "Buy Godhuman", "BuyGodhuman")
+    buyButton(Styles, "Buy Sanguine Art", "BuySanguineArt")
+
+    local Abilities = Shops:CreateSection({Name = "Abilities", Side = "Right"})
+    Abilities:CreateButton({Name = "Buy Aura / Buso", Callback = function() invokeComm("BuyHaki", "Buso") end})
+    Abilities:CreateButton({Name = "Buy Skyjump", Callback = function() invokeComm("BuyHaki", "Geppo") end})
+    Abilities:CreateButton({Name = "Buy Flash Step", Callback = function() invokeComm("BuyHaki", "Soru") end})
+    Abilities:CreateButton({Name = "Buy Observation", Callback = function() invokeComm("KenTalk", "Buy") end})
+
+    local Travel = Shops:CreateSection({Name = "World travel", Side = "Left"})
+    Travel:CreateButton({Name = "Travel to Sea 1", Callback = function() invokeComm("TravelMain") end})
+    Travel:CreateButton({Name = "Travel to Sea 2", Callback = function() invokeComm("TravelDressrosa") end})
+    Travel:CreateButton({Name = "Travel to Sea 3", Callback = function() invokeComm("TravelZou") end})
+
+    local Codes = Shops:CreateSection({Name = "Codes", Side = "Right"})
+    Codes:CreateInput({Name = "Code", Default = Settings.RedeemCode, Flag = "RedeemCode", Callback = function(value) API.Set("RedeemCode", value) end})
+    Codes:CreateButton({
+        Name = "Redeem code",
+        Callback = function()
+            if RedeemRemote and Settings.RedeemCode ~= "" then
+                pcall(RedeemRemote.InvokeServer, RedeemRemote, Settings.RedeemCode)
+            end
+        end,
+    })
 
     if Sea >= 2 then
         local Race = Window:CreateTab({Name = Sea == 3 and "Race & trials" or "Race", Icon = "6034287594"})
@@ -8297,7 +8707,8 @@ return Library
             Callback = function(value) API.Set("SelectedEventEnemy", value) end,
         })
         toggle(Entity, "Auto farm event enemy", "AutoEventEnemy")
-        Entity:CreateParagraph({Title = "Sea 3 scope", Content = "This path handles humanoid event enemies. Sea beasts and Leviathan use different health/boat workflows and are intentionally not treated as ordinary mobs."})
+        toggle(Entity, "Auto position at Sea Beast", "AutoSeaBeast", "Uses the non-Humanoid Health/root model and works best with Blox Fruit plus Nana combat skills.")
+        Entity:CreateParagraph({Title = "Sea 3 scope", Content = "Humanoid event enemies keep fixed-anchor farming. Sea Beasts use separate positioning and skill casting; Leviathan boat/gate progression remains a distinct encounter."})
     elseif Sea == 2 then
         local Events = Window:CreateTab({Name = "Sea 2 events", Icon = "6031094678"})
         local Factory = Events:CreateSection({Name = "Factory enemies", Side = "Left"})
@@ -8356,6 +8767,10 @@ function API.Destroy()
     for body in pairs(Runtime.OwnedBodyMovers) do
         if body and body.Parent then pcall(body.Destroy, body) end
     end
+    for _, highlight in pairs(Runtime.ESPObjects) do
+        if highlight and highlight.Parent then pcall(highlight.Destroy, highlight) end
+    end
+    table.clear(Runtime.ESPObjects)
     restoreCharacterPhysics()
     if Runtime.Gui then pcall(Runtime.Gui.Destroy, Runtime.Gui) end
     if Runtime.RenLib then pcall(Runtime.RenLib.Unload, Runtime.RenLib) end
