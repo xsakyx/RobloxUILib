@@ -4,7 +4,7 @@
 --[[ MODULE: 00_runtime.part.lua ]]
 -- Module fragment: runtime, services, constants, root state
 -- Generated from the working V7 baseline; edit this feature in isolation.
--- RenLib V8.0.0 modular compatibility bundle
+-- RenLib V8.1.0 beta modular compatibility bundle
 -- Responsive Roblox UI framework with centralized navigation, non-destructive
 -- search, mobile-first input, live theming, addons, and deterministic cleanup.
 
@@ -132,7 +132,7 @@ local ICONS = {
 
 --// ROOT LIBRARY
 local Library = {}
-Library.Version = "8.0.0"
+Library.Version = "8.1.0-beta"
 Library.Architecture = "modular-bundle"
 Library.Title = "RenLib"
 Library.Connections = {}
@@ -175,6 +175,36 @@ Library.BrandIcon = BRAND_ICON_ASSET_ID
 Library.BrandIconTint = nil
 Library.BrandMarks = {}
 Library.Icons = ICONS
+Library.WorkflowPresets = {
+    Leveling = {
+        Name = "Leveling",
+        Description = "Prioritize repeatable progression and experience actions.",
+        Synonyms = {"level", "levels", "xp", "grind", "farm"},
+        Flags = {}
+    },
+    Items = {
+        Name = "Items",
+        Description = "Prioritize item collection, ownership checks, and upgrades.",
+        Synonyms = {"item", "items", "loot", "collect", "inventory"},
+        Flags = {}
+    },
+    Raids = {
+        Name = "Raids",
+        Description = "Prioritize raid preparation, islands, and boss actions.",
+        Synonyms = {"raid", "raids", "boss", "event", "island"},
+        Flags = {}
+    },
+    LowEnd = {
+        Name = "Low-end devices",
+        Description = "Reduce motion and expensive material effects for a lighter UI.",
+        Synonyms = {"low end", "performance", "fps", "mobile", "potato"},
+        Flags = {},
+        ReducedMotion = true,
+        MotionScale = 0.5,
+        MaterialMode = "Solid"
+    }
+}
+Library.StrategyProfilePrefix = "strategy_"
 
 -- Theme (can be changed at runtime)
 Library.Theme = {
@@ -1378,8 +1408,24 @@ end
 --[[ MODULE: 50_extensions.part.lua ]]
 -- Module fragment: options, icons, addons, relaunch helpers
 -- Generated from the working V7 baseline; edit this feature in isolation.
-function Library:RegisterOption(flag, controller)
+local function cloneFeatureValue(value)
+    if type(value) ~= "table" then return value end
+    local cloned = {}
+    for key, item in pairs(value) do cloned[key] = cloneFeatureValue(item) end
+    return cloned
+end
+
+function Library:RegisterOption(flag, controller, defaultValue)
     self.Options[flag] = controller
+    controller.Flag = flag
+    controller.Default = cloneFeatureValue(defaultValue)
+    function controller:Reset()
+        if self.Default == nil or type(self.Set) ~= "function" then
+            return false, "This feature has no reset value"
+        end
+        self:Set(cloneFeatureValue(self.Default))
+        return true
+    end
     if self.PendingAutoloadFlags[flag] ~= nil and controller and controller.Set then
         local value = self.PendingAutoloadFlags[flag]
         self.PendingAutoloadFlags[flag] = nil
@@ -1390,6 +1436,120 @@ function Library:RegisterOption(flag, controller)
         end)
     end
     return controller
+end
+
+function Library:ResetFeature(flag)
+    local controller = self.Options[flag]
+    if not controller then return false, "Unknown feature: " .. tostring(flag) end
+    if type(controller.Reset) ~= "function" then return false, "Feature cannot be reset" end
+    return controller:Reset()
+end
+
+function Library:ResetFeatures(flags)
+    local reset, failures = {}, {}
+    local requested = flags
+    if type(requested) ~= "table" then
+        requested = {}
+        for flag in pairs(self.Options) do table.insert(requested, flag) end
+    end
+    for key, value in pairs(requested) do
+        local flag = type(key) == "number" and value or key
+        if value ~= false then
+            local ok, err = self:ResetFeature(flag)
+            if ok then table.insert(reset, flag) else failures[flag] = err end
+        end
+    end
+    return next(failures) == nil, reset, failures
+end
+
+function Library:RegisterWorkflowPreset(name, definition)
+    assert(type(definition) == "table", "[RenLib] RegisterWorkflowPreset requires a table")
+    local key = tostring(name or definition.Name or ""):match("^%s*(.-)%s*$")
+    assert(key ~= "", "[RenLib] RegisterWorkflowPreset requires a name")
+    definition.Name = definition.Name or key
+    self.WorkflowPresets[key] = definition
+    return definition
+end
+
+function Library:GetWorkflowPresets()
+    local presets = {}
+    for key, definition in pairs(self.WorkflowPresets) do
+        table.insert(presets, {Key = key, Definition = definition})
+    end
+    table.sort(presets, function(a, b)
+        return tostring(a.Definition.Name or a.Key):lower() < tostring(b.Definition.Name or b.Key):lower()
+    end)
+    return presets
+end
+
+function Library:ApplyWorkflowPreset(name)
+    local preset = type(name) == "table" and name or self.WorkflowPresets[tostring(name)]
+    if type(preset) ~= "table" then return false, "Unknown workflow preset: " .. tostring(name) end
+    local applied = {}
+    for flag, value in pairs(preset.Flags or {}) do
+        local controller = self.Options[flag]
+        if controller and type(controller.Set) == "function" then
+            controller:Set(cloneFeatureValue(value))
+        else
+            self.Flags[flag] = cloneFeatureValue(value)
+        end
+        table.insert(applied, flag)
+    end
+    if preset.ReducedMotion ~= nil then self:SetReducedMotion(preset.ReducedMotion) end
+    if preset.MotionScale ~= nil then self:SetMotionScale(preset.MotionScale) end
+    if preset.MaterialMode ~= nil then self:SetMaterialMode(preset.MaterialMode) end
+    if preset.MaterialIntensity ~= nil then self:SetMaterialIntensity(preset.MaterialIntensity) end
+    if preset.DPIScale ~= nil then self:SetDPIScale(preset.DPIScale) end
+    Utility:SafeCall(preset.Callback, preset, applied)
+    return true, applied
+end
+
+function Library:SaveStrategyProfile(name, flags)
+    local profileName = cleanConfigName(name)
+    local selected = {}
+    if type(flags) == "table" then
+        for key, value in pairs(flags) do
+            local flag = type(key) == "number" and value or key
+            if value ~= false and self.Flags[flag] ~= nil then selected[flag] = encodeValue(self.Flags[flag]) end
+        end
+    else
+        for flag, value in pairs(self.Flags) do
+            if not CONFIG_MANAGER_FLAGS[flag] then selected[flag] = encodeValue(value) end
+        end
+    end
+    return Storage:Save(self.StrategyProfilePrefix .. profileName, {
+        version = self.Version,
+        kind = "strategy",
+        displayName = profileName,
+        flags = selected
+    })
+end
+
+function Library:GetStrategyProfiles()
+    local profiles = {}
+    local prefix = self.StrategyProfilePrefix
+    for _, storedName in ipairs(Storage:List()) do
+        if storedName:sub(1, #prefix) == prefix then
+            table.insert(profiles, storedName:sub(#prefix + 1))
+        end
+    end
+    table.sort(profiles, function(a, b) return a:lower() < b:lower() end)
+    return profiles
+end
+
+function Library:LoadStrategyProfile(name)
+    local ok, payload = Storage:Load(self.StrategyProfilePrefix .. cleanConfigName(name))
+    if not ok or type(payload) ~= "table" then return false, payload end
+    for flag, rawValue in pairs(payload.flags or {}) do
+        local value = decodeValue(rawValue)
+        local controller = self.Options[flag]
+        if controller and type(controller.Set) == "function" then controller:Set(value) else self.Flags[flag] = value end
+    end
+    return true
+end
+
+function Library:DeleteStrategyProfile(name)
+    return Storage:Delete(self.StrategyProfilePrefix .. cleanConfigName(name))
 end
 
 function Library:RegisterIcon(name, asset)
@@ -1815,6 +1975,7 @@ function Library:CreateWindow(options)
     local SettingsIcon = Utility:NormalizeAssetId(options.SettingsIcon, ICONS.Settings)
     local ShowUserProfile = options.ShowUserProfile == nil and true or options.ShowUserProfile
     local RequestedMaterialMode = options.MaterialMode or self.MaterialMode or "Solid"
+    local EnableCommandPalette = options.EnableCommandPalette == nil and true or options.EnableCommandPalette
 
     local brandLoadStarted = false
     local function createWindowMark(parent, textSize, zIndex)
@@ -2703,8 +2864,399 @@ function Library:CreateWindow(options)
         NavigationListeners = {},
         NavigationRevision = 0,
         SearchResults = {},
-        SearchQuery = ""
+        SearchQuery = "",
+        Commands = {},
+        CommandOrder = {},
+        Favorites = cloneFeatureValue(Library.Flags.__RenLibFavorites or {}),
+        RecentActions = cloneFeatureValue(Library.Flags.__RenLibRecentActions or {}),
+        MaxRecentActions = math.max(1, tonumber(options.MaxRecentActions) or 8),
+        PhoneCompactEnabled = options.PhoneCompact == nil and true or options.PhoneCompact == true,
+        CommandPaletteEnabled = EnableCommandPalette
     }
+
+    local commandPalette, commandSearch, commandResults, commandEmpty
+    local function normalizeActionId(value)
+        local id = tostring(value or ""):lower():gsub("[^%w]+", "-"):gsub("^%-+", ""):gsub("%-+$", "")
+        return id ~= "" and id or ("action-" .. tostring(#Window.CommandOrder + 1))
+    end
+
+    function Window:MarkActionUsed(id)
+        id = normalizeActionId(id)
+        for index = #self.RecentActions, 1, -1 do
+            if self.RecentActions[index] == id then table.remove(self.RecentActions, index) end
+        end
+        table.insert(self.RecentActions, 1, id)
+        while #self.RecentActions > self.MaxRecentActions do table.remove(self.RecentActions) end
+        Library.Flags.__RenLibRecentActions = cloneFeatureValue(self.RecentActions)
+        return self.RecentActions
+    end
+
+    function Window:SetFavorite(id, favorite)
+        id = normalizeActionId(id)
+        self.Favorites[id] = favorite == true or nil
+        Library.Flags.__RenLibFavorites = cloneFeatureValue(self.Favorites)
+        return self.Favorites[id] == true
+    end
+
+    function Window:ToggleFavorite(id)
+        return self:SetFavorite(id, not self.Favorites[normalizeActionId(id)])
+    end
+
+    function Window:GetFavoriteActions()
+        local actions = {}
+        for _, id in ipairs(self.CommandOrder) do
+            if self.Favorites[id] and self.Commands[id] then table.insert(actions, self.Commands[id]) end
+        end
+        return actions
+    end
+
+    function Window:GetRecentActions()
+        local actions = {}
+        for _, id in ipairs(self.RecentActions) do
+            if self.Commands[id] then table.insert(actions, self.Commands[id]) end
+        end
+        return actions
+    end
+
+    function Window:RegisterCommand(commandOptions)
+        commandOptions = commandOptions or {}
+        local id = normalizeActionId(commandOptions.Id or commandOptions.Name)
+        local command = self.Commands[id]
+        if not command then
+            command = {Id = id}
+            self.Commands[id] = command
+            table.insert(self.CommandOrder, id)
+        end
+        command.Name = tostring(commandOptions.Name or command.Name or id)
+        command.Description = tostring(commandOptions.Description or command.Description or "")
+        command.Category = tostring(commandOptions.Category or command.Category or "Actions")
+        command.Synonyms = commandOptions.Synonyms or commandOptions.Aliases or command.Synonyms or {}
+        command.Callback = commandOptions.Callback or command.Callback
+        command.Requirement = commandOptions.Requirement
+        command.Icon = Utility:NormalizeAssetId(commandOptions.Icon or command.Icon)
+        command.Data = commandOptions.Data or command.Data
+        return command
+    end
+
+    Window.RegisterAction = Window.RegisterCommand
+
+    function Window:ExecuteCommand(idOrCommand)
+        local command = type(idOrCommand) == "table" and idOrCommand or self.Commands[normalizeActionId(idOrCommand)]
+        if not command then return false, "Unknown command" end
+        local requirement = command.Requirement
+        if type(requirement) == "function" then
+            local ok, allowed, reason = pcall(requirement, command.Data or command, command)
+            if not ok then return false, allowed end
+            if allowed == false then return false, reason or "Requirements are not met" end
+        elseif requirement == false then
+            return false, "Requirements are not met"
+        end
+        self:MarkActionUsed(command.Id)
+        local ok, err = Utility:SafeCall(command.Callback, command)
+        return ok, err
+    end
+
+    local function commandHaystack(command)
+        local synonyms = command.Synonyms
+        if type(synonyms) == "table" then synonyms = table.concat(synonyms, " ") end
+        return table.concat({command.Name or "", command.Description or "", command.Category or "", tostring(synonyms or "")}, " "):lower()
+    end
+
+    local function ensureCommandPalette()
+        if commandPalette or not EnableCommandPalette then return commandPalette end
+        commandPalette = Utility:Create("Frame", {
+            Name = "CommandPalette", Parent = MainFrame, AnchorPoint = Vector2.new(0.5, 0),
+            Position = UDim2.new(0.5, 0, 0, IsMobile and 48 or 72),
+            Size = UDim2.new(1, IsMobile and -18 or -160, 0, IsMobile and 310 or 360),
+            BackgroundColor3 = Library.Theme.Secondary, Visible = false,
+            ClipsDescendants = true, BorderSizePixel = 0, ZIndex = 410
+        })
+        Utility:RegisterProperty(commandPalette, "BackgroundColor3", "Secondary")
+        Utility:RegisterMaterial(commandPalette, 0.08, 0)
+        Utility:Create("UICorner", {Parent = commandPalette, CornerRadius = UDim.new(0, 12)})
+        local paletteStroke = Utility:Create("UIStroke", {Parent = commandPalette, Color = Library.Theme.Accent, Thickness = 1.5, Transparency = 0.08})
+        Utility:RegisterProperty(paletteStroke, "Color", "Accent")
+
+        local header = Utility:Create("Frame", {
+            Parent = commandPalette, BackgroundColor3 = Library.Theme.Surface,
+            Size = UDim2.new(1, 0, 0, 52), BorderSizePixel = 0, ZIndex = 411
+        })
+        Utility:RegisterProperty(header, "BackgroundColor3", "Surface")
+        commandSearch = Utility:Create("TextBox", {
+            Name = "Search", Parent = header, BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(16, 0), Size = UDim2.new(1, -62, 1, 0),
+            ClearTextOnFocus = false, PlaceholderText = "Search actions, features, or synonyms…",
+            Text = "", TextColor3 = Library.Theme.Text, PlaceholderColor3 = Library.Theme.SubText,
+            Font = Enum.Font.Gotham, TextSize = IsMobile and 13 or 14,
+            TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 412
+        })
+        Utility:RegisterProperty(commandSearch, "TextColor3", "Text")
+        Utility:RegisterProperty(commandSearch, "PlaceholderColor3", "SubText")
+        local closePalette = Utility:Create("TextButton", {
+            Parent = header, BackgroundTransparency = 1, Position = UDim2.new(1, -44, 0, 0),
+            Size = UDim2.fromOffset(44, 52), Text = "×", TextColor3 = Library.Theme.SubText,
+            Font = Enum.Font.GothamBold, TextSize = 22, ZIndex = 412
+        })
+        Utility:RegisterProperty(closePalette, "TextColor3", "SubText")
+        commandResults = Utility:Create("ScrollingFrame", {
+            Name = "Results", Parent = commandPalette, BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(8, 60), Size = UDim2.new(1, -16, 1, -68),
+            CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            ScrollBarThickness = 2, ScrollBarImageColor3 = Library.Theme.Accent,
+            BorderSizePixel = 0, ZIndex = 411
+        })
+        Utility:RegisterProperty(commandResults, "ScrollBarImageColor3", "Accent")
+        Utility:Create("UIListLayout", {Parent = commandResults, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6)})
+        commandEmpty = Utility:Create("TextLabel", {
+            Name = "Empty", Parent = commandResults, BackgroundTransparency = 1,
+            Size = UDim2.new(1, 0, 0, 56), Text = "No matching actions",
+            TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham,
+            TextSize = 12, Visible = false, ZIndex = 412
+        })
+        Utility:RegisterProperty(commandEmpty, "TextColor3", "SubText")
+        Library:Connect(closePalette.MouseButton1Click, function() Window:CloseCommandPalette() end)
+        Library:Connect(commandSearch:GetPropertyChangedSignal("Text"), function() Window:RefreshCommandPalette(commandSearch.Text) end)
+        Library:Connect(commandSearch.FocusLost, function(enterPressed)
+            if not enterPressed then return end
+            local first = commandResults and commandResults:FindFirstChild("CommandResult")
+            if first then Window:ExecuteCommand(first:GetAttribute("CommandId")); Window:CloseCommandPalette() end
+        end)
+        return commandPalette
+    end
+
+    function Window:RefreshCommandPalette(query)
+        if not ensureCommandPalette() then return {} end
+        query = tostring(query or ""):lower():match("^%s*(.-)%s*$") or ""
+        for _, child in ipairs(commandResults:GetChildren()) do
+            if child.Name == "CommandResult" then child:Destroy() end
+        end
+        local matches = {}
+        for _, id in ipairs(self.CommandOrder) do
+            local command = self.Commands[id]
+            if command and (query == "" or commandHaystack(command):find(query, 1, true)) then table.insert(matches, command) end
+        end
+        table.sort(matches, function(a, b)
+            local af, bf = self.Favorites[a.Id] == true, self.Favorites[b.Id] == true
+            if af ~= bf then return af end
+            return a.Name:lower() < b.Name:lower()
+        end)
+        local limit = IsMobile and 5 or 7
+        for index, command in ipairs(matches) do
+            if index > limit then break end
+            local row = Utility:Create("TextButton", {
+                Name = "CommandResult", Parent = commandResults, BackgroundColor3 = Library.Theme.Surface,
+                Size = UDim2.new(1, -4, 0, IsMobile and 44 or 48), Text = "", AutoButtonColor = false,
+                LayoutOrder = index, BorderSizePixel = 0, ZIndex = 412
+            })
+            row:SetAttribute("CommandId", command.Id)
+            Utility:RegisterProperty(row, "BackgroundColor3", "Surface")
+            Utility:Create("UICorner", {Parent = row, CornerRadius = UDim.new(0, 7)})
+            local label = Utility:Create("TextLabel", {
+                Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 5),
+                Size = UDim2.new(1, -54, 0, 19), Text = command.Name,
+                TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamMedium,
+                TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 413
+            })
+            Utility:RegisterProperty(label, "TextColor3", "Text")
+            local detail = Utility:Create("TextLabel", {
+                Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 23),
+                Size = UDim2.new(1, -54, 0, 16), Text = command.Category .. (command.Description ~= "" and ("  •  " .. command.Description) or ""),
+                TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 10,
+                TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 413
+            })
+            Utility:RegisterProperty(detail, "TextColor3", "SubText")
+            local star = Utility:Create("TextButton", {
+                Parent = row, BackgroundTransparency = 1, Position = UDim2.new(1, -42, 0, 0),
+                Size = UDim2.fromOffset(42, IsMobile and 44 or 48), Text = self.Favorites[command.Id] and "★" or "☆",
+                TextColor3 = Library.Theme.Warn, Font = Enum.Font.GothamBold, TextSize = 17, ZIndex = 414
+            })
+            Utility:RegisterProperty(star, "TextColor3", "Warn")
+            Library:Connect(star.MouseButton1Click, function()
+                Window:ToggleFavorite(command.Id)
+                Window:RefreshCommandPalette(query)
+            end)
+            Library:Connect(row.MouseButton1Click, function()
+                local ok, err = Window:ExecuteCommand(command)
+                if not ok then Library:Notify({Title = "Action unavailable", Content = tostring(err), Duration = 3}) end
+                Window:CloseCommandPalette()
+            end)
+            Library:Connect(row.MouseEnter, function() Utility:Tween(row, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Hover}) end)
+            Library:Connect(row.MouseLeave, function() Utility:Tween(row, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Surface}) end)
+        end
+        commandEmpty.Visible = #matches == 0
+        return matches
+    end
+
+    function Window:OpenCommandPalette(query)
+        if not self.CommandPaletteEnabled or not ensureCommandPalette() then return false end
+        commandPalette.Position = UDim2.new(0.5, 0, 0, Library.DeviceMode == "Phone" and 42 or 72)
+        commandPalette.Size = UDim2.new(1, Library.DeviceMode == "Phone" and -14 or -160, 0, Library.DeviceMode == "Phone" and 292 or 360)
+        commandPalette.Visible = true
+        commandSearch.Text = tostring(query or "")
+        self:RefreshCommandPalette(commandSearch.Text)
+        task.defer(function() if commandSearch and commandSearch.Parent then commandSearch:CaptureFocus() end end)
+        return true
+    end
+
+    function Window:CloseCommandPalette()
+        if commandPalette then commandPalette.Visible = false end
+        if commandSearch then commandSearch:ReleaseFocus() end
+        return self
+    end
+
+    function Window:ToggleCommandPalette()
+        if commandPalette and commandPalette.Visible then return self:CloseCommandPalette() end
+        self:OpenCommandPalette("")
+        return self
+    end
+
+    local PaletteOpenButton
+    if EnableCommandPalette then
+        PaletteOpenButton = Utility:Create("TextButton", {
+            Name = "PhoneCommandPalette", Parent = ScreenGui, AnchorPoint = Vector2.new(1, 1),
+            Position = UDim2.new(1, -12, 1, -12), Size = UDim2.fromOffset(42, 42),
+            BackgroundColor3 = Library.Theme.Accent, Text = "⌘", TextColor3 = Library.Theme.Text,
+            Font = Enum.Font.GothamBold, TextSize = 18, AutoButtonColor = false,
+            Visible = DeviceMode == "Phone", BorderSizePixel = 0, ZIndex = 405
+        })
+        Utility:RegisterProperty(PaletteOpenButton, "BackgroundColor3", "Accent")
+        Utility:RegisterProperty(PaletteOpenButton, "TextColor3", "Text")
+        Utility:Create("UICorner", {Parent = PaletteOpenButton, CornerRadius = UDim.new(1, 0)})
+        Library:Connect(PaletteOpenButton.MouseButton1Click, function() Window:ToggleCommandPalette() end)
+        Library:Connect(UserInputService.InputBegan, function(input, processed)
+            if input.KeyCode == Enum.KeyCode.Escape and commandPalette and commandPalette.Visible then
+                Window:CloseCommandPalette()
+            elseif not processed and input.KeyCode == Enum.KeyCode.K
+                and (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)) then
+                Window:ToggleCommandPalette()
+            end
+        end)
+    end
+
+    function Window:CreateAutomationHUD(hudOptions)
+        hudOptions = hudOptions or {}
+        local phone = Library.DeviceMode == "Phone"
+        local expandedHeight = phone and 112 or 126
+        local hudFrame = Utility:Create("Frame", {
+            Name = tostring(hudOptions.Name or "AutomationHUD"), Parent = ScreenGui,
+            AnchorPoint = Vector2.new(1, 0), Position = hudOptions.Position or UDim2.new(1, -12, 0, 12),
+            Size = UDim2.fromOffset(phone and 226 or 270, expandedHeight),
+            BackgroundColor3 = Library.Theme.Secondary, ClipsDescendants = true,
+            BorderSizePixel = 0, ZIndex = 500
+        })
+        Utility:RegisterProperty(hudFrame, "BackgroundColor3", "Secondary")
+        Utility:RegisterMaterial(hudFrame, 0.1, 0)
+        Utility:Create("UICorner", {Parent = hudFrame, CornerRadius = UDim.new(0, 11)})
+        local hudStroke = Utility:Create("UIStroke", {Parent = hudFrame, Color = Library.Theme.Stroke, Thickness = 1})
+        Utility:RegisterProperty(hudStroke, "Color", "Stroke")
+        local hudHeader = Utility:Create("Frame", {
+            Parent = hudFrame, BackgroundColor3 = Library.Theme.Surface,
+            Size = UDim2.new(1, 0, 0, 38), BorderSizePixel = 0, ZIndex = 501
+        })
+        Utility:RegisterProperty(hudHeader, "BackgroundColor3", "Surface")
+        local statusDot = Utility:Create("Frame", {
+            Name = "StatusDot", Parent = hudHeader, BackgroundColor3 = Library.Theme.SubText,
+            Position = UDim2.fromOffset(12, 15), Size = UDim2.fromOffset(8, 8),
+            BorderSizePixel = 0, ZIndex = 503
+        })
+        Utility:RegisterProperty(statusDot, "BackgroundColor3", "SubText")
+        Utility:Create("UICorner", {Parent = statusDot, CornerRadius = UDim.new(1, 0)})
+        local hudTitle = Utility:Create("TextLabel", {
+            Parent = hudHeader, BackgroundTransparency = 1, Position = UDim2.fromOffset(28, 0),
+            Size = UDim2.new(1, -70, 1, 0), Text = tostring(hudOptions.Title or "Automation"),
+            TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 12,
+            TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 502
+        })
+        Utility:RegisterProperty(hudTitle, "TextColor3", "Text")
+        local collapse = Utility:Create("TextButton", {
+            Parent = hudHeader, BackgroundTransparency = 1, Position = UDim2.new(1, -38, 0, 0),
+            Size = UDim2.fromOffset(38, 38), Text = "−", TextColor3 = Library.Theme.SubText,
+            Font = Enum.Font.GothamBold, TextSize = 17, ZIndex = 503
+        })
+        Utility:RegisterProperty(collapse, "TextColor3", "SubText")
+        local statusLabel = Utility:Create("TextLabel", {
+            Name = "Status", Parent = hudFrame, BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(12, 45), Size = UDim2.new(1, -24, 0, 18),
+            Text = tostring(hudOptions.StatusText or "Idle"), TextColor3 = Library.Theme.Text,
+            Font = Enum.Font.GothamMedium, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 501
+        })
+        Utility:RegisterProperty(statusLabel, "TextColor3", "Text")
+        local detailLabel = Utility:Create("TextLabel", {
+            Name = "Detail", Parent = hudFrame, BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(12, 64), Size = UDim2.new(1, -24, 0, 17),
+            Text = tostring(hudOptions.Detail or "No active workflow"), TextColor3 = Library.Theme.SubText,
+            Font = Enum.Font.Gotham, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 501
+        })
+        Utility:RegisterProperty(detailLabel, "TextColor3", "SubText")
+        local progressTrack = Utility:Create("Frame", {
+            Name = "Progress", Parent = hudFrame, BackgroundColor3 = Library.Theme.SurfaceAlt,
+            Position = UDim2.fromOffset(12, 88), Size = UDim2.new(1, -24, 0, 5),
+            BorderSizePixel = 0, ZIndex = 501
+        })
+        Utility:RegisterProperty(progressTrack, "BackgroundColor3", "SurfaceAlt")
+        Utility:Create("UICorner", {Parent = progressTrack, CornerRadius = UDim.new(1, 0)})
+        local progressFill = Utility:Create("Frame", {
+            Parent = progressTrack, BackgroundColor3 = Library.Theme.Accent,
+            Size = UDim2.new(math.clamp(tonumber(hudOptions.Progress) or 0, 0, 1), 0, 1, 0),
+            BorderSizePixel = 0, ZIndex = 502
+        })
+        Utility:RegisterProperty(progressFill, "BackgroundColor3", "Accent")
+        Utility:Create("UICorner", {Parent = progressFill, CornerRadius = UDim.new(1, 0)})
+        local metricsLabel = Utility:Create("TextLabel", {
+            Name = "Metrics", Parent = hudFrame, BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(12, 99), Size = UDim2.new(1, -24, 0, 17),
+            Text = tostring(hudOptions.Metrics or ""), TextColor3 = Library.Theme.SubText,
+            Font = Enum.Font.Gotham, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 501
+        })
+        Utility:RegisterProperty(metricsLabel, "TextColor3", "SubText")
+        Utility:MakeDraggable(hudHeader, hudFrame)
+
+        local hud = {Holder = hudFrame, Collapsed = false, Status = "Idle"}
+        local statusKeys = {active = "Success", waiting = "Warn", error = "Error", idle = "SubText", success = "Success"}
+        function hud:SetStatus(status, text, detail)
+            local normalized = tostring(status or "Idle"):lower()
+            local colorKey = statusKeys[normalized] or "SubText"
+            self.Status = normalized
+            Library.Registry[statusDot]["BackgroundColor3"] = colorKey
+            Utility:Tween(statusDot, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme[colorKey]})
+            statusLabel.Text = tostring(text or normalized:gsub("^%l", string.upper))
+            if detail ~= nil then detailLabel.Text = tostring(detail) end
+            return self
+        end
+        function hud:SetProgress(value)
+            Utility:Tween(progressFill, TweenInfo.new(0.18), {Size = UDim2.new(math.clamp(tonumber(value) or 0, 0, 1), 0, 1, 0)})
+            return self
+        end
+        function hud:SetMetrics(metrics)
+            if type(metrics) == "table" then
+                local parts = {}
+                for key, value in pairs(metrics) do table.insert(parts, tostring(key) .. ": " .. tostring(value)) end
+                table.sort(parts)
+                metricsLabel.Text = table.concat(parts, "  •  ")
+            else
+                metricsLabel.Text = tostring(metrics or "")
+            end
+            return self
+        end
+        function hud:SetTitle(value) hudTitle.Text = tostring(value or "Automation") return self end
+        function hud:SetDetail(value) detailLabel.Text = tostring(value or "") return self end
+        function hud:SetCollapsed(value)
+            self.Collapsed = value == true
+            collapse.Text = self.Collapsed and "+" or "−"
+            Utility:Tween(hudFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                Size = UDim2.fromOffset(hudFrame.Size.X.Offset, self.Collapsed and 38 or expandedHeight)
+            })
+            return self
+        end
+        function hud:SetVisible(value) hudFrame.Visible = value == true return self end
+        function hud:Destroy() hudFrame:Destroy() end
+        Library:Connect(collapse.MouseButton1Click, function() hud:SetCollapsed(not hud.Collapsed) end)
+        hud:SetStatus(hudOptions.Status or "Idle", hudOptions.StatusText, hudOptions.Detail)
+        return hud
+    end
 
     function Window:OnTabChanged(callback)
         if type(callback) == "function" then table.insert(self.NavigationListeners, callback) end
@@ -2929,8 +3481,9 @@ function Library:CreateWindow(options)
         local layoutViewport = Vector2.new(viewport.X / scale, viewport.Y / scale)
         local mode = getDeviceMode(scale)
         local mobile = mode ~= "Desktop"
-        local horizontalMargin = mobile and 6 or 16
-        local verticalMargin = mobile and 6 or 16
+        local phoneCompact = mode == "Phone" and self.PhoneCompactEnabled
+        local horizontalMargin = phoneCompact and 3 or (mobile and 6 or 16)
+        local verticalMargin = phoneCompact and 3 or (mobile and 6 or 16)
         local maximumWidth = math.max(1, layoutViewport.X - horizontalMargin * 2)
         local maximumHeight = math.max(1, layoutViewport.Y - verticalMargin * 2)
         local width = math.min(mobile and 720 or (options.Width or 880), maximumWidth)
@@ -2940,12 +3493,12 @@ function Library:CreateWindow(options)
             height = maximumHeight
         end
         local navigationExpanded = SidebarMode == "Expanded" or (SidebarMode == "Dynamic" and sidebarHoverExpanded)
-        local sidebarWidth = mobile and (width < 340 and 54 or 60)
+        local sidebarWidth = phoneCompact and 52 or (mobile and (width < 340 and 54 or 60))
             or (navigationExpanded and math.clamp(currentSidebarWidth, 132, math.min(240, width * 0.32)) or 80)
         local shortViewport = mobile and height < 420
         local hideSearch = mobile and height < 300
         local hideProfile = height < 380
-        local topBarHeight = mobile and (hideSearch and 48 or (shortViewport and 74 or 88)) or 60
+        local topBarHeight = mobile and (hideSearch and 48 or (shortViewport and 72 or (phoneCompact and 82 or 88))) or 60
         Window.ContentTopInset = topBarHeight
 
         DeviceMode = mode
@@ -2978,7 +3531,7 @@ function Library:CreateWindow(options)
             Position = UDim2.new(0, 16, 0, mobile and (hideSearch and 9 or 11) or 16),
             Size = UDim2.new(1, -(mobile and 108 or 430), 0, 30)
         }, animateNavigation)
-        TitleLabel.TextSize = mobile and 17 or 19
+        TitleLabel.TextSize = phoneCompact and 15 or (mobile and 17 or 19)
         applyLayout(TopDivider, {
             Position = UDim2.new(0, sidebarWidth, 0, topBarHeight - 1),
             Size = UDim2.new(1, -sidebarWidth, 0, 1)
@@ -3036,8 +3589,9 @@ function Library:CreateWindow(options)
             SearchBox.AnchorPoint = mobile and Vector2.new(0, 0) or Vector2.new(0.5, 0)
             SearchBox.Position = mobile and UDim2.new(0, 8, 0, shortViewport and 41 or 50)
                 or UDim2.new(0.5, 0, 0, 15)
-            SearchBox.Size = mobile and UDim2.new(1, -16, 0, shortViewport and 26 or 30) or UDim2.new(0, 270, 0, 30)
+            SearchBox.Size = mobile and UDim2.new(1, -16, 0, shortViewport and 26 or (phoneCompact and 28 or 30)) or UDim2.new(0, 270, 0, 30)
         end
+        if PaletteOpenButton then PaletteOpenButton.Visible = mode == "Phone" and MainFrame.Visible end
         if dividerLine then
             dividerLine.Visible = not mobile and not isCompact
             dividerLine.Position = UDim2.new(0, sidebarWidth, 0, 0)
@@ -3045,7 +3599,7 @@ function Library:CreateWindow(options)
         for _, tab in ipairs(Window.Tabs) do
             if tab.ApplyNavigationLayout then tab:ApplyNavigationLayout(mobile, isCompact, animateNavigation) end
             if tab.ApplyResponsiveLayout then
-                tab:ApplyResponsiveLayout(singleColumn, topBarHeight)
+                tab:ApplyResponsiveLayout(singleColumn, topBarHeight, phoneCompact)
             end
         end
         for _, category in ipairs(Window.TabCategories) do
@@ -3087,6 +3641,12 @@ function Library:CreateWindow(options)
         SidebarModeLabel.Text = mode == "Expanded" and "Auto" or "Pin"
         self:ApplyResponsiveLayout(false, true)
         return true
+    end
+
+    function Window:SetPhoneCompact(enabled)
+        self.PhoneCompactEnabled = enabled == true
+        self:ApplyResponsiveLayout(false, true)
+        return self
     end
 
     local sidebarHoverToken = 0
@@ -3661,6 +4221,8 @@ self.KeybindManagerRebuild = rebuild
         visibilityToken = visibilityToken + 1
         local token = visibilityToken
         Library.IsMinimized = true
+        self:CloseCommandPalette()
+        if PaletteOpenButton then PaletteOpenButton.Visible = false end
         Library:RefreshMaterialVisibility()
         if IsMobile then
             if MobileToggleBtn then
@@ -3682,6 +4244,7 @@ self.KeybindManagerRebuild = rebuild
         Library:RefreshMaterialVisibility()
         MinimizedIcon.Visible = false
         MainFrame.Visible = true
+        if PaletteOpenButton then PaletteOpenButton.Visible = Library.DeviceMode == "Phone" end
         MainFrame.BackgroundTransparency = 1
         WindowScale.Scale = 0.96
         Utility:Tween(WindowScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1})
@@ -3795,7 +4358,9 @@ if SearchBox then
             for _, section in ipairs(tab.Sections or {}) do
                 for _, element in ipairs(section.Elements or {}) do
                     local holder = element.Holder
-                    local haystack = table.concat({tab.Name or "", section.Name or "", element.Text or element.Name or ""}, " "):lower()
+                    local synonyms = element.Synonyms or element.Aliases or ""
+                    if type(synonyms) == "table" then synonyms = table.concat(synonyms, " ") end
+                    local haystack = table.concat({tab.Name or "", section.Name or "", element.Text or element.Name or "", tostring(synonyms)}, " "):lower()
                     if holder and holder.Parent and haystack:find(query, 1, true) and not seen[holder] then
                         seen[holder] = true
                         table.insert(self.SearchResults, {Tab = tab, Section = section, Element = element, Holder = holder})
@@ -4136,6 +4701,38 @@ end
             Tab.TabStroke = settingsStroke
         end
 
+        local TabStatusDot = Utility:Create("Frame", {
+            Name = "StatusDot", Parent = Tab.TabBtn, AnchorPoint = Vector2.new(1, 0),
+            Position = UDim2.new(1, -4, 0, 4), Size = UDim2.fromOffset(8, 8),
+            BackgroundColor3 = Library.Theme.SubText, Visible = false,
+            BorderSizePixel = 0, ZIndex = 9
+        })
+        Utility:RegisterProperty(TabStatusDot, "BackgroundColor3", "SubText")
+        Utility:Create("UICorner", {Parent = TabStatusDot, CornerRadius = UDim.new(1, 0)})
+        local tabStatusStroke = Utility:Create("UIStroke", {Parent = TabStatusDot, Color = Library.Theme.Main, Thickness = 1})
+        Utility:RegisterProperty(tabStatusStroke, "Color", "Main")
+        Tab.StatusDot = TabStatusDot
+        Tab.Status = "Idle"
+        Tab.StatusDetail = ""
+
+        function Tab:SetStatus(status, detail)
+            local normalized = tostring(status or "Idle"):lower()
+            local colorKeys = {active = "Success", waiting = "Warn", error = "Error", success = "Success"}
+            local colorKey = colorKeys[normalized]
+            self.Status = normalized
+            self.StatusDetail = tostring(detail or "")
+            TabStatusDot.Visible = colorKey ~= nil
+            if colorKey then
+                Library.Registry[TabStatusDot]["BackgroundColor3"] = colorKey
+                Utility:Tween(TabStatusDot, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme[colorKey]})
+            end
+            if self._StatusTooltip then self._StatusTooltip:Set(self.StatusDetail ~= "" and self.StatusDetail or normalized) end
+            return self
+        end
+
+        Tab._StatusTooltip = Window:AttachTooltip(Tab.TabBtn, "Status: idle")
+        if options.Status then Tab:SetStatus(options.Status, options.StatusDetail or options.StatusText) end
+
         function Tab:ApplyNavigationLayout(mobile, compact, animated)
             if self.IsSettings or self.IsOverview or not self.TabBtn then return end
             local iconOnly = mobile or compact
@@ -4210,11 +4807,12 @@ end
         Library:Connect(LeftLayout:GetPropertyChangedSignal("AbsoluteContentSize"), UpdateCanvas)
         Library:Connect(RightLayout:GetPropertyChangedSignal("AbsoluteContentSize"), UpdateCanvas)
 
-        function Tab:ApplyResponsiveLayout(mobile, topInset)
+        function Tab:ApplyResponsiveLayout(mobile, topInset, phoneCompact)
             useSingleColumn = mobile
             local pageTop = mobile and ((topInset or 88) + 4) or 70
-            Page.Position = UDim2.new(0, mobile and 8 or 20, 0, pageTop)
-            Page.Size = UDim2.new(1, mobile and -16 or -40, 1, -(pageTop + 10))
+            local pageMargin = phoneCompact and 5 or (mobile and 8 or 20)
+            Page.Position = UDim2.new(0, pageMargin, 0, pageTop)
+            Page.Size = UDim2.new(1, -pageMargin * 2, 1, -(pageTop + (phoneCompact and 6 or 10)))
             Page.ScrollBarThickness = mobile and 3 or 2
             LeftColumn.Size = mobile and UDim2.new(1, 0, 1, 0) or UDim2.new(0.5, -6, 1, 0)
             LeftColumn.Position = UDim2.new(0, 0, 0, Tab.HeaderHeight)
@@ -4440,6 +5038,24 @@ end
                 end
             end
 
+            local function createBadge(parent, text, colorKey, layoutOrder)
+                text = tostring(text or "")
+                if text == "" then return nil end
+                colorKey = Library.Theme[colorKey] and colorKey or "Accent"
+                local width = math.clamp(TextService:GetTextSize(text, 9, Enum.Font.GothamBold, Vector2.new(96, 18)).X + 14, 34, 96)
+                local badge = Utility:Create("TextLabel", {
+                    Name = "Badge", Parent = parent, BackgroundColor3 = Library.Theme[colorKey],
+                    BackgroundTransparency = 0.78, Size = UDim2.fromOffset(width, 18),
+                    Text = text, TextColor3 = Library.Theme[colorKey], Font = Enum.Font.GothamBold,
+                    TextSize = 9, TextTruncate = Enum.TextTruncate.AtEnd,
+                    LayoutOrder = layoutOrder or 0, BorderSizePixel = 0, ZIndex = (parent.ZIndex or 5) + 1
+                })
+                Utility:RegisterProperty(badge, "BackgroundColor3", colorKey)
+                Utility:RegisterProperty(badge, "TextColor3", colorKey)
+                Utility:Create("UICorner", {Parent = badge, CornerRadius = UDim.new(1, 0)})
+                return badge
+            end
+
             local function finishController(controller, holder, name, tooltip)
                 controller = controller or {}
                 controller.Holder = holder
@@ -4660,7 +5276,7 @@ end
                     Get = function() return Library.Flags[flag] end,
                     OnChanged = function(self, fn) table.insert(listeners, fn) end
                 }, container, name, options.Tooltip)
-                Library:RegisterOption(flag, controller)
+                Library:RegisterOption(flag, controller, options.Numeric and tonumber(options.Default) or tostring(options.Default or ""))
                 addElement({Holder = container, Text = name})
                 return controller
             end
@@ -4797,6 +5413,7 @@ end
                 local Callback = options.Callback or function() end
                 local Description = tostring(options.Description or "")
                 local ButtonIconAsset = Utility:NormalizeAssetId(options.Icon)
+                local ButtonActionId = normalizeActionId(options.Id or (Tab.Name .. "-" .. SectionName .. "-" .. Name))
 
                 local btnHeight = Description ~= "" and (IsMobile and 56 or 54) or (IsMobile and 44 or 42)
                 local ButtonContainer = Utility:Create("Frame", {
@@ -4900,9 +5517,16 @@ end
                             Utility:Tween(ButtonContainer, TweenInfo.new(0.2), {BackgroundColor3 = Library.Theme.Surface})
                         end)
                     end
-                    Utility:SafeCall(Callback)
+                    local ok, err = Window:ExecuteCommand(ButtonActionId)
+                    if not ok then Library:Notify({Title = "Action unavailable", Content = tostring(err), Duration = 3}) end
                 end)
-                addElement({Holder = ButtonContainer, Text = Name .. " " .. Description})
+                Window:RegisterCommand({
+                    Id = ButtonActionId, Name = Name, Description = Description,
+                    Category = options.Category or (Tab.Name .. " / " .. SectionName),
+                    Synonyms = options.Synonyms or options.Aliases,
+                    Requirement = options.Requirement, Icon = options.Icon, Callback = Callback
+                })
+                addElement({Holder = ButtonContainer, Text = Name .. " " .. Description, Synonyms = options.Synonyms or options.Aliases})
                 return finishController({
                     SetText = function(self, text) ButtonTitle.Text = tostring(text) end,
                     SetDescription = function(self, text)
@@ -5028,7 +5652,7 @@ end
                     end
                 }
                 finishController(toggleObj, ToggleContainer, Name, options.Tooltip)
-                Library:RegisterOption(Flag, toggleObj)
+                Library:RegisterOption(Flag, toggleObj, Default)
                 return toggleObj
             end
 
@@ -5177,7 +5801,7 @@ end
                     Get = function() return Value end
                 }
                 finishController(sliderObj, SliderContainer, Name, options.Tooltip)
-                Library:RegisterOption(Flag, sliderObj)
+                Library:RegisterOption(Flag, sliderObj, Default)
                 return sliderObj
             end
 
@@ -5459,7 +6083,7 @@ end
                     SetExpanded = function(self, open) SetExpanded(open) end
                 }
                 finishController(dropObj, DropdownContainer, Name, options.Tooltip)
-                Library:RegisterOption(Flag, dropObj)
+                Library:RegisterOption(Flag, dropObj, Default)
                 return dropObj
             end
 
@@ -5848,7 +6472,7 @@ end
                     GetState = function() return toggled end
                 }, container, name, options.Tooltip)
                 Library.Flags[flag] = currentKey
-                Library:RegisterOption(flag, controller)
+                Library:RegisterOption(flag, controller, defaultKey)
                 keybindEntry.controller = controller
                 return controller
             end
@@ -6062,7 +6686,7 @@ end
                     OnChanged = function(self, fn) table.insert(listeners, fn) end,
                     SetExpanded = function(self, open) if expanded ~= (open == true) then setExpanded(open) end end
                 }, container, name, options.Tooltip)
-                Library:RegisterOption(flag, controller)
+                Library:RegisterOption(flag, controller, defaultColor)
                 return controller
             end
 
@@ -6155,6 +6779,12 @@ end
                 function group:CreatePlayerList(value) return attach("CreatePlayerList", value) end
                 function group:CreateLogConsole(value) return attach("CreateLogConsole", value) end
                 function group:CreateSkeleton(value) return attach("CreateSkeleton", value) end
+                function group:CreateCatalog(value) return attach("CreateCatalog", value) end
+                function group:CreateBossCard(value) return attach("CreateBossCard", value) end
+                function group:CreateIslandCard(value) return attach("CreateIslandCard", value) end
+                function group:CreateESPPresets(value) return attach("CreateESPPresets", value) end
+                function group:CreateWorkflowPresets(value) return attach("CreateWorkflowPresets", value) end
+                function group:CreateStrategyProfiles(value) return attach("CreateStrategyProfiles", value) end
                 Library:Connect(header.MouseButton1Click, function() group:Toggle() end)
                 task.defer(refresh)
                 return group
@@ -6400,6 +7030,434 @@ end
                 local destroy = controller.Destroy
                 function controller:Destroy() animationToken = 0 destroy(self) end
                 return controller
+            end
+
+            -- Search-first action catalog with ownership/cost/requirement badges,
+            -- favorites, recent actions, and command-palette registration.
+            function Section:CreateCatalog(options)
+                options = options or {}
+                local name = tostring(options.Name or "Item catalog")
+                local items = type(options.Items) == "table" and options.Items or {}
+                local query, filter = "", tostring(options.DefaultFilter or "All")
+                local itemById = {}
+                local height = tonumber(options.Height) or (Library.DeviceMode == "Phone" and 292 or 340)
+                local container = Utility:Create("Frame", {
+                    Name = "Catalog_" .. name, Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Secondary, Size = UDim2.new(1, 0, 0, height),
+                    ClipsDescendants = true, BorderSizePixel = 0, ZIndex = 5
+                })
+                Utility:RegisterProperty(container, "BackgroundColor3", "Secondary")
+                Utility:RegisterMaterial(container, 0.34, 0.04)
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 9)})
+                local catalogStroke = Utility:Create("UIStroke", {Parent = container, Color = Library.Theme.Divider, Thickness = 1})
+                Utility:RegisterProperty(catalogStroke, "Color", "Divider")
+                local search = Utility:Create("TextBox", {
+                    Name = "CatalogSearch", Parent = container, BackgroundColor3 = Library.Theme.Surface,
+                    Position = UDim2.fromOffset(8, 8), Size = UDim2.new(1, -16, 0, Library.DeviceMode == "Phone" and 34 or 38),
+                    ClearTextOnFocus = false, PlaceholderText = tostring(options.Placeholder or "Search items, requirements, or aliases…"),
+                    Text = "", TextColor3 = Library.Theme.Text, PlaceholderColor3 = Library.Theme.SubText,
+                    Font = Enum.Font.Gotham, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
+                    BorderSizePixel = 0, ZIndex = 7
+                })
+                Utility:RegisterProperty(search, "BackgroundColor3", "Surface")
+                Utility:RegisterProperty(search, "TextColor3", "Text")
+                Utility:RegisterProperty(search, "PlaceholderColor3", "SubText")
+                Utility:Create("UICorner", {Parent = search, CornerRadius = UDim.new(0, 7)})
+                Utility:Create("UIPadding", {Parent = search, PaddingLeft = UDim.new(0, 11), PaddingRight = UDim.new(0, 11)})
+                local filterBar = Utility:Create("Frame", {
+                    Parent = container, BackgroundTransparency = 1,
+                    Position = UDim2.fromOffset(8, Library.DeviceMode == "Phone" and 48 or 52),
+                    Size = UDim2.new(1, -16, 0, 26), ZIndex = 7
+                })
+                local filterLayout = Utility:Create("UIListLayout", {
+                    Parent = filterBar, FillDirection = Enum.FillDirection.Horizontal,
+                    Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder
+                })
+                local filterButtons = {}
+                local resultsTop = Library.DeviceMode == "Phone" and 80 or 84
+                local results = Utility:Create("ScrollingFrame", {
+                    Name = "CatalogResults", Parent = container, BackgroundTransparency = 1,
+                    Position = UDim2.fromOffset(8, resultsTop), Size = UDim2.new(1, -16, 1, -(resultsTop + 8)),
+                    CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                    ScrollBarThickness = 2, ScrollBarImageColor3 = Library.Theme.Accent,
+                    BorderSizePixel = 0, ZIndex = 6
+                })
+                Utility:RegisterProperty(results, "ScrollBarImageColor3", "Accent")
+                Utility:Create("UIListLayout", {Parent = results, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 7)})
+                local empty = Utility:Create("TextLabel", {
+                    Name = "CatalogEmpty", Parent = results, BackgroundTransparency = 1,
+                    Size = UDim2.new(1, -4, 0, 64), Text = "No catalog items match this view",
+                    TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham,
+                    TextSize = 11, Visible = false, ZIndex = 7
+                })
+                Utility:RegisterProperty(empty, "TextColor3", "SubText")
+
+                local controller
+                local catalogId = normalizeActionId(options.Id or name)
+                local function itemId(item, index)
+                    return catalogId .. "-" .. normalizeActionId(item.Id or item.Name or tostring(index))
+                end
+                local function itemTerms(item)
+                    local aliases = item.Synonyms or item.Aliases or item.Tags or {}
+                    if type(aliases) == "table" then aliases = table.concat(aliases, " ") end
+                    return table.concat({item.Name or "", item.Description or "", item.Category or "", item.Cost or "", item.Requirement or "", aliases or ""}, " "):lower()
+                end
+                local function resolveOwned(item)
+                    if type(item.Owned) == "function" then
+                        local ok, value = pcall(item.Owned, item)
+                        return ok and value == true
+                    end
+                    return item.Owned == true
+                end
+                local function requirementState(item)
+                    if type(item.Requirement) == "function" then
+                        local ok, allowed, reason = pcall(item.Requirement, item)
+                        if not ok then return false, "Requirement error" end
+                        return allowed ~= false, tostring(reason or (allowed == false and "Locked" or "Ready"))
+                    end
+                    if item.Requirement == false then return false, "Locked" end
+                    return true, type(item.Requirement) == "string" and item.Requirement or ""
+                end
+                local function orderedItems()
+                    local ordered = {}
+                    if filter == "Recent" then
+                        for _, recentId in ipairs(Window.RecentActions) do
+                            if itemById[recentId] then table.insert(ordered, itemById[recentId]) end
+                        end
+                    else
+                        for _, item in ipairs(items) do
+                            local id = item._RenCatalogId
+                            if filter ~= "Favorites" or Window.Favorites[id] then table.insert(ordered, item) end
+                        end
+                    end
+                    return ordered
+                end
+                local function refreshFilterVisuals()
+                    for label, button in pairs(filterButtons) do
+                        button.BackgroundTransparency = label == filter and 0.18 or 0.62
+                    end
+                end
+                local function render()
+                    for _, child in ipairs(results:GetChildren()) do if child.Name == "CatalogItem" then child:Destroy() end end
+                    local shown = 0
+                    for _, item in ipairs(orderedItems()) do
+                        if query == "" or itemTerms(item):find(query, 1, true) then
+                            shown = shown + 1
+                            local id = item._RenCatalogId
+                            local allowed, requirementText = requirementState(item)
+                            local rowHeight = item.Description and tostring(item.Description) ~= "" and 82 or 64
+                            local card = Utility:Create("TextButton", {
+                                Name = "CatalogItem", Parent = results, BackgroundColor3 = Library.Theme.Surface,
+                                Size = UDim2.new(1, -4, 0, rowHeight), Text = "", AutoButtonColor = false,
+                                LayoutOrder = shown, BorderSizePixel = 0, ZIndex = 7
+                            })
+                            card:SetAttribute("CatalogId", id)
+                            Utility:RegisterProperty(card, "BackgroundColor3", "Surface")
+                            Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 7)})
+                            local cardStroke = Utility:Create("UIStroke", {Parent = card, Color = allowed and Library.Theme.Divider or Library.Theme.Error, Thickness = 1, Transparency = 0.18})
+                            Utility:RegisterProperty(cardStroke, "Color", allowed and "Divider" or "Error")
+                            local title = Utility:Create("TextLabel", {
+                                Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(11, 6),
+                                Size = UDim2.new(1, -54, 0, 19), Text = tostring(item.Name or id),
+                                TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold,
+                                TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8
+                            })
+                            Utility:RegisterProperty(title, "TextColor3", "Text")
+                            if item.Description and tostring(item.Description) ~= "" then
+                                local description = Utility:Create("TextLabel", {
+                                    Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(11, 25),
+                                    Size = UDim2.new(1, -54, 0, 18), Text = tostring(item.Description),
+                                    TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 9,
+                                    TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8
+                                })
+                                Utility:RegisterProperty(description, "TextColor3", "SubText")
+                            end
+                            local badges = Utility:Create("Frame", {
+                                Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(10, rowHeight - 25),
+                                Size = UDim2.new(1, -54, 0, 18), ZIndex = 8
+                            })
+                            Utility:Create("UIListLayout", {Parent = badges, FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder})
+                            createBadge(badges, resolveOwned(item) and "OWNED" or (item.Owned ~= nil and "NOT OWNED" or ""), resolveOwned(item) and "Success" or "SubText", 1)
+                            createBadge(badges, item.Cost and ("COST  " .. tostring(item.Cost)) or "", "Warn", 2)
+                            createBadge(badges, requirementText, allowed and "Accent2" or "Error", 3)
+                            local star = Utility:Create("TextButton", {
+                                Parent = card, BackgroundTransparency = 1, Position = UDim2.new(1, -42, 0, 0),
+                                Size = UDim2.fromOffset(42, 42), Text = Window.Favorites[id] and "★" or "☆",
+                                TextColor3 = Library.Theme.Warn, Font = Enum.Font.GothamBold, TextSize = 17, ZIndex = 10
+                            })
+                            Utility:RegisterProperty(star, "TextColor3", "Warn")
+                            Library:Connect(star.MouseButton1Click, function()
+                                Window:ToggleFavorite(id)
+                                render()
+                            end)
+                            Library:Connect(card.MouseButton1Click, function()
+                                local ok, err = Window:ExecuteCommand(id)
+                                if not ok then Library:Notify({Title = "Action unavailable", Content = tostring(err), Duration = 3}) end
+                                render()
+                            end)
+                            Library:Connect(card.MouseEnter, function() Utility:Tween(card, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Hover}) end)
+                            Library:Connect(card.MouseLeave, function() Utility:Tween(card, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Surface}) end)
+                        end
+                    end
+                    empty.Visible = shown == 0
+                    refreshFilterVisuals()
+                    return shown
+                end
+                for order, label in ipairs({"All", "Favorites", "Recent"}) do
+                    local button = Utility:Create("TextButton", {
+                        Parent = filterBar, BackgroundColor3 = Library.Theme.Accent,
+                        BackgroundTransparency = label == filter and 0.18 or 0.62,
+                        Size = UDim2.fromOffset(label == "Favorites" and 78 or 58, 24), Text = label,
+                        TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 9,
+                        AutoButtonColor = false, LayoutOrder = order, BorderSizePixel = 0, ZIndex = 8
+                    })
+                    Utility:RegisterProperty(button, "BackgroundColor3", "Accent")
+                    Utility:RegisterProperty(button, "TextColor3", "Text")
+                    Utility:Create("UICorner", {Parent = button, CornerRadius = UDim.new(1, 0)})
+                    filterButtons[label] = button
+                    Library:Connect(button.MouseButton1Click, function() filter = label render() end)
+                end
+                local function indexItems()
+                    table.clear(itemById)
+                    for index, item in ipairs(items) do
+                        item._RenCatalogId = itemId(item, index)
+                        itemById[item._RenCatalogId] = item
+                        Window:RegisterCommand({
+                            Id = item._RenCatalogId, Name = item.Name, Description = item.Description,
+                            Category = item.Category or name, Synonyms = item.Synonyms or item.Aliases or item.Tags,
+                            Icon = item.Icon, Requirement = item.Requirement,
+                            Callback = function() Utility:SafeCall(item.Callback or options.Callback, item, controller) end,
+                            Data = item
+                        })
+                    end
+                end
+                controller = finishController({Type = "Catalog"}, container, name, options.Tooltip)
+                function controller:SetItems(nextItems) items = type(nextItems) == "table" and nextItems or {} indexItems() render() return self end
+                function controller:GetItems() return items end
+                function controller:SetQuery(value) query = tostring(value or ""):lower(); search.Text = tostring(value or ""); render(); return self end
+                function controller:SetFilter(value) filter = tostring(value or "All"); render(); return self end
+                function controller:Refresh() render() return self end
+                function controller:Activate(id) return Window:ExecuteCommand(id) end
+                function controller:SetOwned(id, owned)
+                    local key = tostring(id or "")
+                    local item = itemById[key] or itemById[catalogId .. "-" .. normalizeActionId(key)]
+                    if item then item.Owned = owned == true; render(); return true end
+                    return false
+                end
+                function controller:ToggleFavorite(id) Window:ToggleFavorite(id); render(); return self end
+                function controller:GetFavorites()
+                    local favorites = {}
+                    for _, item in ipairs(items) do if Window.Favorites[item._RenCatalogId] then table.insert(favorites, item) end end
+                    return favorites
+                end
+                function controller:GetRecent()
+                    local recent = {}
+                    for _, id in ipairs(Window.RecentActions) do if itemById[id] then table.insert(recent, itemById[id]) end end
+                    return recent
+                end
+                Library:Connect(search:GetPropertyChangedSignal("Text"), function() query = search.Text:lower(); render() end)
+                indexItems()
+                local allTerms = {}
+                for _, item in ipairs(items) do table.insert(allTerms, itemTerms(item)) end
+                addElement({Holder = container, Text = name .. " " .. table.concat(allTerms, " "), Synonyms = options.Synonyms})
+                render()
+                return controller
+            end
+
+            function Section:CreateBossCard(options)
+                options = options or {}
+                local context = {}
+                for key, value in pairs(options) do context[key] = value end
+                local height = Library.DeviceMode == "Phone" and 126 or 118
+                local card = Utility:Create("Frame", {
+                    Name = "BossCard_" .. tostring(context.Name or "Boss"), Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, height),
+                    BorderSizePixel = 0, ZIndex = 5
+                })
+                Utility:RegisterProperty(card, "BackgroundColor3", "Surface")
+                Utility:RegisterMaterial(card, 0.3, 0)
+                Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 8)})
+                local accent = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.Error, Size = UDim2.new(0, 4, 1, 0), BorderSizePixel = 0, ZIndex = 6})
+                Utility:RegisterProperty(accent, "BackgroundColor3", "Error")
+                local dot = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.Warn, Position = UDim2.fromOffset(13, 13), Size = UDim2.fromOffset(8, 8), BorderSizePixel = 0, ZIndex = 7})
+                Utility:RegisterProperty(dot, "BackgroundColor3", "Warn")
+                Utility:Create("UICorner", {Parent = dot, CornerRadius = UDim.new(1, 0)})
+                local title = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(28, 6), Size = UDim2.new(1, -40, 0, 20), Text = "Boss", TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local subtitle = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(13, 27), Size = UDim2.new(1, -26, 0, 17), Text = "", TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 9, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(subtitle, "TextColor3", "SubText")
+                local badges = Utility:Create("Frame", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 48), Size = UDim2.new(1, -24, 0, 18), ZIndex = 7})
+                Utility:Create("UIListLayout", {Parent = badges, FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder})
+                local primary = Utility:Create("TextButton", {Parent = card, BackgroundColor3 = Library.Theme.Accent, Position = UDim2.new(1, -108, 1, -38), Size = UDim2.fromOffset(96, 28), Text = "Track", TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 10, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 8})
+                Utility:RegisterProperty(primary, "BackgroundColor3", "Accent")
+                Utility:RegisterProperty(primary, "TextColor3", "Text")
+                Utility:Create("UICorner", {Parent = primary, CornerRadius = UDim.new(0, 6)})
+                local secondary = Utility:Create("TextButton", {Parent = card, BackgroundColor3 = Library.Theme.SurfaceAlt, Position = UDim2.fromOffset(12, height - 38), Size = UDim2.fromOffset(82, 28), Text = "Details", TextColor3 = Library.Theme.SubText, Font = Enum.Font.GothamBold, TextSize = 9, AutoButtonColor = false, BorderSizePixel = 0, Visible = false, ZIndex = 8})
+                Utility:RegisterProperty(secondary, "BackgroundColor3", "SurfaceAlt")
+                Utility:RegisterProperty(secondary, "TextColor3", "SubText")
+                Utility:Create("UICorner", {Parent = secondary, CornerRadius = UDim.new(0, 6)})
+                local controller = finishController({Type = "BossCard"}, card, context.Name or "Boss", options.Tooltip)
+                local function refresh()
+                    if type(context.GetContext) == "function" then
+                        local ok, latest = pcall(context.GetContext, context)
+                        if ok and type(latest) == "table" then for key, value in pairs(latest) do context[key] = value end end
+                    end
+                    title.Text = tostring(context.Name or "Boss")
+                    subtitle.Text = tostring(context.Description or context.Location or "No live context")
+                    local state = tostring(context.Status or "Waiting"):lower()
+                    local colorKey = ({active = "Success", waiting = "Warn", error = "Error", defeated = "SubText"})[state] or "Warn"
+                    Library.Registry[dot]["BackgroundColor3"] = colorKey
+                    dot.BackgroundColor3 = Library.Theme[colorKey]
+                    for _, child in ipairs(badges:GetChildren()) do if child.Name == "Badge" then child:Destroy() end end
+                    createBadge(badges, state:upper(), colorKey, 1)
+                    createBadge(badges, context.Level and ("LV. " .. tostring(context.Level)) or "", "Accent2", 2)
+                    createBadge(badges, context.Requirement and tostring(context.Requirement) or "", "Warn", 3)
+                    createBadge(badges, context.Drop and tostring(context.Drop) or "", "Success", 4)
+                    primary.Text = tostring(context.ActionText or "Track")
+                    secondary.Text = tostring(context.SecondaryText or "Details")
+                    secondary.Visible = type(context.SecondaryCallback) == "function"
+                    controller.Name = tostring(context.Name or "Boss")
+                    return controller
+                end
+                function controller:SetContext(values) for key, value in pairs(values or {}) do context[key] = value end return refresh() end
+                function controller:GetContext() return context end
+                function controller:RefreshContext() return refresh() end
+                function controller:SetStatus(value, description) context.Status = value if description ~= nil then context.Description = description end return refresh() end
+                Library:Connect(primary.MouseButton1Click, function() Window:MarkActionUsed(normalizeActionId("boss-" .. tostring(context.Name))); Utility:SafeCall(context.Callback, context, controller) end)
+                Library:Connect(secondary.MouseButton1Click, function() Utility:SafeCall(context.SecondaryCallback, context, controller) end)
+                Window:RegisterCommand({Id = "boss-" .. tostring(context.Name), Name = tostring(context.ActionText or "Track") .. " " .. tostring(context.Name or "boss"), Description = context.Description, Category = "Bosses", Synonyms = context.Synonyms or {"boss", "spawn", "track"}, Callback = function() Utility:SafeCall(context.Callback, context, controller) end})
+                addElement({Holder = card, Text = table.concat({tostring(context.Name or "Boss"), tostring(context.Description or ""), tostring(context.Location or ""), tostring(context.Drop or "")}, " "), Synonyms = context.Synonyms})
+                refresh()
+                return controller
+            end
+
+            function Section:CreateIslandCard(options)
+                options = options or {}
+                local state = {}
+                for key, value in pairs(options) do state[key] = value end
+                local card = Utility:Create("Frame", {Name = "IslandCard_" .. tostring(state.Name or "Island"), Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, Library.DeviceMode == "Phone" and 82 or 76), BorderSizePixel = 0, ZIndex = 5})
+                Utility:RegisterProperty(card, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 8)})
+                local stripe = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.Accent2, Size = UDim2.new(0, 5, 1, 0), BorderSizePixel = 0, ZIndex = 6})
+                Utility:RegisterProperty(stripe, "BackgroundColor3", "Accent2")
+                local title = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(14, 8), Size = UDim2.new(1, -108, 0, 20), Text = "Island", TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local detail = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(14, 30), Size = UDim2.new(1, -112, 0, 30), Text = "", TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 9, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 7})
+                Utility:RegisterProperty(detail, "TextColor3", "SubText")
+                local kindBadge = createBadge(card, "PERMANENT", "Accent2", 1)
+                kindBadge.Position = UDim2.new(1, -92, 0, 8)
+                local action = Utility:Create("TextButton", {Parent = card, BackgroundColor3 = Library.Theme.SurfaceAlt, Position = UDim2.new(1, -94, 1, -32), Size = UDim2.fromOffset(82, 24), Text = "Travel", TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 9, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 8})
+                Utility:RegisterProperty(action, "BackgroundColor3", "SurfaceAlt")
+                Utility:RegisterProperty(action, "TextColor3", "Text")
+                Utility:Create("UICorner", {Parent = action, CornerRadius = UDim.new(0, 6)})
+                local controller = finishController({Type = "IslandCard"}, card, state.Name or "Island", options.Tooltip)
+                local kindColors = {Permanent = "Accent2", Raid = "Warn", Event = "Accent3"}
+                local function refresh()
+                    local kind = tostring(state.Kind or "Permanent")
+                    kind = kind:gsub("^%l", string.upper)
+                    if not kindColors[kind] then kind = "Permanent" end
+                    local colorKey = kindColors[kind]
+                    title.Text = tostring(state.Name or "Island")
+                    detail.Text = tostring(state.Description or state.Requirement or "Always available")
+                    kindBadge.Text = kind:upper()
+                    kindBadge.TextColor3 = Library.Theme[colorKey]
+                    kindBadge.BackgroundColor3 = Library.Theme[colorKey]
+                    Library.Registry[kindBadge]["TextColor3"] = colorKey
+                    Library.Registry[kindBadge]["BackgroundColor3"] = colorKey
+                    Library.Registry[stripe]["BackgroundColor3"] = colorKey
+                    stripe.BackgroundColor3 = Library.Theme[colorKey]
+                    action.Text = tostring(state.ActionText or (kind == "Raid" and "Join" or "Travel"))
+                    return controller
+                end
+                function controller:SetData(values) for key, value in pairs(values or {}) do state[key] = value end return refresh() end
+                function controller:SetKind(value) state.Kind = value return refresh() end
+                function controller:GetData() return state end
+                Library:Connect(action.MouseButton1Click, function() Window:MarkActionUsed(normalizeActionId("island-" .. tostring(state.Name))); Utility:SafeCall(state.Callback, state, controller) end)
+                Window:RegisterCommand({Id = "island-" .. tostring(state.Name), Name = tostring(state.ActionText or "Travel to") .. " " .. tostring(state.Name or "island"), Description = state.Description, Category = "Islands", Synonyms = state.Synonyms or {state.Kind or "permanent", "island", "travel"}, Callback = function() Utility:SafeCall(state.Callback, state, controller) end})
+                addElement({Holder = card, Text = table.concat({tostring(state.Name or "Island"), tostring(state.Kind or "Permanent"), tostring(state.Description or ""), tostring(state.Requirement or "")}, " "), Synonyms = state.Synonyms})
+                refresh()
+                return controller
+            end
+
+            function Section:CreateESPPresets(options)
+                options = options or {}
+                local presets = options.Presets or {
+                    Low = {MaxLabels = 12, UpdateRate = 0.35, Description = "Sparse labels for low-end devices"},
+                    Balanced = {MaxLabels = 32, UpdateRate = 0.18, Description = "Balanced visibility and performance"},
+                    High = {MaxLabels = 80, UpdateRate = 0.08, Description = "Dense labels for nearby world objects"}
+                }
+                local names = {}
+                for presetName in pairs(presets) do table.insert(names, presetName) end
+                table.sort(names)
+                local defaultPreset = options.Default or (presets.Balanced and "Balanced" or names[1])
+                local group = self:CreateGroup({Name = options.Name or "ESP visibility", Expanded = options.Expanded ~= false, Tooltip = options.Tooltip})
+                local density = group:CreateDropdown({Name = "Density preset", Values = names, Default = defaultPreset, Flag = options.DensityFlag or "ESPDensity", Callback = function(value) Utility:SafeCall(options.Callback, value, presets[value]) end})
+                local nearest = group:CreateToggle({Name = "Nearest only", Default = options.NearestOnly == true, Flag = options.NearestFlag or "ESPNearestOnly", Callback = function(value) Utility:SafeCall(options.NearestCallback, value) end})
+                local info = group:CreateParagraph({Title = "Preset behavior", Content = presets[defaultPreset] and presets[defaultPreset].Description or ""})
+                density:OnChanged(function(value) if presets[value] then info:SetContent(presets[value].Description or "") end end)
+                local controller = {Type = "ESPPresets", Holder = group.Holder, Group = group, Density = density, NearestOnly = nearest}
+                function controller:SetPreset(value) density:Set(value) return self end
+                function controller:SetNearestOnly(value) nearest:Set(value) return self end
+                function controller:Get() return {Preset = density:Get(), NearestOnly = nearest:Get(), Definition = presets[density:Get()]} end
+                function controller:Reset() density:Reset(); nearest:Reset(); return true end
+                return controller
+            end
+
+            function Section:CreateWorkflowPresets(options)
+                options = options or {}
+                for key, definition in pairs(options.Presets or {}) do Library:RegisterWorkflowPreset(key, definition) end
+                local catalogItems = {}
+                for _, entry in ipairs(Library:GetWorkflowPresets()) do
+                    local key, preset = entry.Key, entry.Definition
+                    table.insert(catalogItems, {
+                        Id = "workflow-" .. key, Name = preset.Name or key,
+                        Description = preset.Description or "Apply this workflow strategy.",
+                        Category = "Workflows", Synonyms = preset.Synonyms,
+                        Requirement = preset.Requirement,
+                        Callback = function()
+                            local ok, err = Library:ApplyWorkflowPreset(key)
+                            Utility:SafeCall(options.Callback, key, preset, ok, err)
+                            if options.Notify ~= false then Library:Notify({Title = ok and "Workflow applied" or "Workflow failed", Content = ok and tostring(preset.Name or key) or tostring(err), Duration = 3}) end
+                        end
+                    })
+                end
+                return self:CreateCatalog({Name = options.Name or "Workflow presets", Items = catalogItems, Height = options.Height or (Library.DeviceMode == "Phone" and 270 or 310), Placeholder = "Search leveling, items, raids, performance…", Tooltip = options.Tooltip})
+            end
+
+            function Section:CreateStrategyProfiles(options)
+                options = options or {}
+                local group = self:CreateGroup({Name = options.Name or "Strategy profiles", Expanded = options.Expanded ~= false, Tooltip = options.Tooltip})
+                local nameInput = group:CreateInput({Name = "Profile name", Placeholder = "Example: Fast raid", Default = options.DefaultName or ""})
+                local profiles = Library:GetStrategyProfiles()
+                local selected = profiles[1]
+                local picker = group:CreateDropdown({Name = "Saved profile", Values = profiles, Default = selected, Searchable = true})
+                local function refresh(preferred)
+                    profiles = Library:GetStrategyProfiles()
+                    picker:Refresh(profiles)
+                    if preferred then picker:Set(preferred) end
+                    Utility:SafeCall(options.OnProfilesChanged, profiles)
+                end
+                group:CreateButton({Name = "Save strategy", Description = "Save the selected feature flags under this name.", Callback = function()
+                    local profileName = nameInput:Get()
+                    local ok, err = Library:SaveStrategyProfile(profileName, options.Flags)
+                    if ok then refresh(cleanConfigName(profileName)) end
+                    Library:Notify({Title = ok and "Strategy saved" or "Save failed", Content = ok and cleanConfigName(profileName) or tostring(err), Duration = 3})
+                end})
+                group:CreateButton({Name = "Load selected strategy", Callback = function()
+                    local profileName = picker:Get()
+                    local ok, err = Library:LoadStrategyProfile(profileName)
+                    Library:Notify({Title = ok and "Strategy loaded" or "Load failed", Content = ok and tostring(profileName) or tostring(err), Duration = 3})
+                end})
+                group:CreateButton({Name = "Delete selected strategy", Callback = function()
+                    local profileName = picker:Get()
+                    local ok, err = Library:DeleteStrategyProfile(profileName)
+                    if ok then refresh() end
+                    Library:Notify({Title = ok and "Strategy deleted" or "Delete failed", Content = ok and tostring(profileName) or tostring(err), Duration = 3})
+                end})
+                group.ProfileName = nameInput
+                group.ProfilePicker = picker
+                group.RefreshProfiles = function(self) refresh() return self end
+                return group
             end
 
 
@@ -6972,6 +8030,8 @@ local inputOk, inputErr = pcall(function()
     Library:Connect(UserInputService.InputBegan, function(input, gpe)
         if gpe then return end
         if input.KeyCode == Library.ToggleKey then
+            if input.KeyCode == Enum.KeyCode.K
+                and (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)) then return end
             if Library.Window then Library.Window:Toggle() end
         end
     end)
