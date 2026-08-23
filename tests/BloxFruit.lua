@@ -43,7 +43,7 @@ local LEVEL_DATA = {
         { Min=60, Max=74, Team=nil, Enemy="Desert Bandit", Quest="DesertQuest", Slot=1, Title="Desert Bandit", QuestCFrame=CFrame.new(894.546265, 5.94077444, 4392.45166, 0.28321889, 0.0492709801, 0.957788825, -0.00534322672, 0.998745084, -0.0497978739, -0.959040463, 0.0089860186, 0.283126742), EnemyCFrame=CFrame.new(924.7998046875, 6.44867467880249, 4481.5859375) },
         { Min=75, Max=89, Team=nil, Enemy="Desert Officer", Quest="DesertQuest", Slot=2, Title="Desert Officer", QuestCFrame=CFrame.new(894.546265, 5.94077444, 4392.45166, 0.28321889, 0.0492709801, 0.957788825, -0.00534322672, 0.998745084, -0.0497978739, -0.959040463, 0.0089860186, 0.283126742), EnemyCFrame=CFrame.new(1608.2822265625, 8.614224433898926, 4371.00732421875) },
         { Min=90, Max=99, Team=nil, Enemy="Snow Bandit", Quest="SnowQuest", Slot=1, Title="Snow Bandit", QuestCFrame=CFrame.new(1387.2179, 86.7898254, -1295.06165, -0.19740738, 0.0237135217, 0.980034709, -0.0140903126, 0.999535501, -0.027023565, -0.980220258, -0.0191436484, -0.196981549), EnemyCFrame=CFrame.new(1354.347900390625, 87.27277374267578, -1393.946533203125) },
-        { Min=100, Max=119, Team=nil, Enemy="Snowman", Quest="SnowQuest", Slot=2, Title="Snowman", QuestCFrame=CFrame.new(1387.2179, 86.7898254, -1295.06165, -0.19740738, 0.0237135217, 0.980034709, -0.0140903126, 0.999535501, -0.027023565, -0.980220258, -0.0191436484, -0.196981549), EnemyCFrame=CFrame.new(6241.9951171875, 51.522083282471, -1243.9771728516) },
+        { Min=100, Max=119, Team=nil, Enemy="Snowman", Quest="SnowQuest", Slot=2, Title="Snowman", QuestCFrame=CFrame.new(1387.2179, 86.7898254, -1295.06165, -0.19740738, 0.0237135217, 0.980034709, -0.0140903126, 0.999535501, -0.027023565, -0.980220258, -0.0191436484, -0.196981549), EnemyCFrame=CFrame.new(1201.6412353515625, 144.57958984375, -1550.0670166015625) },
         { Min=120, Max=149, Team=nil, Enemy="Chief Petty Officer", Quest="MarineQuest2", Slot=1, Title="Chief Petty Officer", QuestCFrame=CFrame.new(-5039.58643, 27.3500385, 4324.68018, 0, 0, -1, 0, 1, 0, 1, 0, 0), EnemyCFrame=CFrame.new(-4881.23095703125, 22.65204429626465, 4273.75244140625) },
         { Min=150, Max=174, Team=nil, Enemy="Sky Bandit", Quest="SkyQuest", Slot=1, Title="Sky Bandit", QuestCFrame=CFrame.new(-4839.53027, 716.368591, -2619.44165, 0.866007268, 0, 0.500031412, 0, 1, 0, -0.500031412, 0, 0.866007268), EnemyCFrame=CFrame.new(-4953.20703125, 295.74420166015625, -2899.22900390625) },
         { Min=175, Max=189, Team=nil, Enemy="Dark Master", Quest="SkyQuest", Slot=2, Title="Dark Master", QuestCFrame=CFrame.new(-4839.53027, 716.368591, -2619.44165, 0.866007268, 0, 0.500031412, 0, 1, 0, -0.500031412, 0, 0.866007268), EnemyCFrame=CFrame.new(-5259.8447265625, 391.3976745605469, -2229.035400390625) },
@@ -230,6 +230,7 @@ local Settings = {
     AutoObservation = false,
     AutoFarmObservation = false,
     AutoCollectChest = false,
+    WholeSeaChestSweep = true,
     AutoCollectBerries = false,
     AutoRaid = false,
     AutoEventEnemy = false,
@@ -238,7 +239,7 @@ local Settings = {
     BringMobs = true,
     FastAttack = true,
     ActivateTool = true,
-    SelectedMob = "Bandit",
+    SelectedMob = Sea == 1 and "Bandit" or (Sea == 2 and "Raider" or "Pirate Millionaire"),
     SelectedBoss = BOSS_LISTS[Sea][1],
     SelectedMaterial = MATERIAL_LISTS[Sea][1],
     SelectedRaidChip = "Flame",
@@ -256,12 +257,24 @@ local Settings = {
     MasteryType = "Blox Fruit",
     LockWalkSpeed = false,
     LockJumpPower = false,
+    SelectedPlayer = "",
+    TeleportToPlayer = false,
+    SpectatePlayer = false,
+    AimbotCamera = false,
+    AimbotSkills = false,
+    InfiniteMinkV3 = false,
+    InfiniteEnergy = false,
+    InfiniteSoru = false,
+    InfiniteObservationRange = false,
+    IgnoreSameTeams = false,
+    AcceptAllies = false,
+    WalkOnWater = true,
     WalkSpeed = 16,
     JumpPower = 50,
     WeaponCategory = "Melee",
     ExactToolName = nil,
     Height = 20,
-    TweenSpeed = 200,
+    TweenSpeed = 300,
     BringRadius = 3000,
     TargetRadius = 60,
     HitboxSize = 60,
@@ -281,6 +294,7 @@ local Settings = {
     ChestESP = false,
     BerryESP = false,
     IslandESP = false,
+    PlayerESP = false,
     AutoRaceV3 = false,
     AutoRaceV4 = false,
     AutoSeaBeast = false,
@@ -300,6 +314,53 @@ local Settings = {
     AggressiveFPSBoost = false,
     CreateUI = true,
 }
+
+local SETTINGS_FOLDER = "BloxFruitScript"
+local SETTINGS_PATH = SETTINGS_FOLDER .. "/Sea" .. tostring(Sea) .. ".json"
+Environment.__BloxFruitScriptProfiles = Environment.__BloxFruitScriptProfiles or {}
+
+local function serializableSettings()
+    local output = {}
+    for key, value in pairs(Settings) do
+        if type(value) == "boolean" or type(value) == "number" or type(value) == "string" then
+            output[key] = value
+        end
+    end
+    return output
+end
+
+local function loadPersistentSettings()
+    local saved = Environment.__BloxFruitScriptProfiles[Sea]
+    if type(isfile) == "function" and type(readfile) == "function" and isfile(SETTINGS_PATH) then
+        local ok, decoded = pcall(function() return HttpService:JSONDecode(readfile(SETTINGS_PATH)) end)
+        if ok and type(decoded) == "table" then saved = decoded end
+    end
+    if type(saved) == "table" then
+        for key, value in pairs(saved) do
+            if Settings[key] ~= nil and type(value) == type(Settings[key]) then Settings[key] = value end
+        end
+    end
+end
+
+local SettingsSaveGeneration = 0
+local function savePersistentSettings(immediate)
+    SettingsSaveGeneration += 1
+    local generation = SettingsSaveGeneration
+    local function write()
+        if generation ~= SettingsSaveGeneration then return end
+        local payload = serializableSettings()
+        Environment.__BloxFruitScriptProfiles[Sea] = payload
+        if type(writefile) == "function" and type(makefolder) == "function" then
+            pcall(function()
+                if type(isfolder) ~= "function" or not isfolder(SETTINGS_FOLDER) then makefolder(SETTINGS_FOLDER) end
+                writefile(SETTINGS_PATH, HttpService:JSONEncode(payload))
+            end)
+        end
+    end
+    if immediate then write() else task.delay(0.6, write) end
+end
+
+loadPersistentSettings()
 
 local ATTACK_DELAYS = {
     ["Normal Attack"] = 0.3,
@@ -338,6 +399,8 @@ local Runtime = {
     Chests = setmetatable({}, { __mode = "k" }),
     Berries = setmetatable({}, { __mode = "k" }),
     Islands = setmetatable({}, { __mode = "k" }),
+    EnemySpawnBuckets = {},
+    EnemySpawnRoot = nil,
     ChestCooldown = setmetatable({}, { __mode = "k" }),
     BerryCooldown = setmetatable({}, { __mode = "k" }),
     FruitCooldown = setmetatable({}, { __mode = "k" }),
@@ -345,6 +408,12 @@ local Runtime = {
     PickupKind = nil,
     PickupTarget = nil,
     PickupLastFound = 0,
+    ChestSweepQueue = nil,
+    ChestSweepIndex = 1,
+    ChestSweepArrivedAt = nil,
+    ChestSweepNextAt = 0,
+    AllBossIndex = 1,
+    AllBossArrivedAt = nil,
     ESPObjects = setmetatable({}, { __mode = "k" }),
     RaidSummonAttempt = 0,
     UIControls = {},
@@ -358,9 +427,15 @@ local Runtime = {
     LastBatchSize = 0,
     BossDropdown = nil,
     IslandDropdown = nil,
+    PlayerDropdown = nil,
     StatusCards = {},
     VisualState = setmetatable({}, { __mode = "k" }),
     FPSWorldState = nil,
+    EnergyFloor = nil,
+    WaterPart = nil,
+    OriginalCameraSubject = nil,
+    SkillAimbotHookInstalled = false,
+    SoruClosures = nil,
 }
 
 local function connect(signal, callback)
@@ -464,7 +539,8 @@ end
 local function canonicalChest(instance)
     local current, found = instance, nil
     while current and current ~= workspace do
-        if chestCandidate(current) then found = current end
+        if CollectionService:HasTag(current, "_ChestTagged") then return current end
+        if not found and chestCandidate(current) then found = current end
         current = current.Parent
     end
     return found
@@ -506,12 +582,58 @@ local function trackIsland(instance)
     end
 end
 
+local function normalizedEntityName(value)
+    local name = string.lower(tostring(value or ""))
+    name = string.gsub(name, "%s*%[lv%.?%s*%d+%].*", "")
+    name = string.gsub(name, "%s*%[boss%].*", "")
+    name = string.gsub(name, "^%s+", "")
+    name = string.gsub(name, "%s+$", "")
+    return name
+end
+
+local function enemySpawnAncestor(instance)
+    local current = instance and instance.Parent
+    while current and current ~= workspace do
+        if current.Name == "EnemySpawns" then return current end
+        current = current.Parent
+    end
+end
+
+local function trackEnemySpawn(instance)
+    if not instance:IsA("BasePart") then return end
+    local spawnRoot = enemySpawnAncestor(instance)
+    if not spawnRoot then return end
+    Runtime.EnemySpawnRoot = spawnRoot
+    local names = {instance.Name}
+    if instance.Parent and instance.Parent ~= spawnRoot then names[#names + 1] = instance.Parent.Name end
+    for _, value in ipairs(names) do
+        local key = normalizedEntityName(value)
+        if key ~= "" and key ~= "spawn" and key ~= "spawnlocation" then
+            local bucket = Runtime.EnemySpawnBuckets[key]
+            if not bucket then
+                bucket = setmetatable({}, { __mode = "k" })
+                Runtime.EnemySpawnBuckets[key] = bucket
+            end
+            bucket[instance] = true
+        end
+    end
+end
+
 for _, instance in ipairs(workspace:GetDescendants()) do
     trackChest(instance)
     trackBerry(instance)
     trackIsland(instance)
+    trackEnemySpawn(instance)
 end
+for _, taggedChest in ipairs(CollectionService:GetTagged("_ChestTagged")) do trackChest(taggedChest) end
 for _, bush in ipairs(CollectionService:GetTagged("BerryBush")) do trackBerry(bush) end
+connect(CollectionService:GetInstanceAddedSignal("_ChestTagged"), trackChest)
+connect(CollectionService:GetInstanceRemovedSignal("_ChestTagged"), function(instance)
+    local chest = canonicalChest(instance) or instance
+    Runtime.Chests[chest] = nil
+    Runtime.ChestCooldown[chest] = nil
+    destroyESPEntry(chest)
+end)
 connect(CollectionService:GetInstanceAddedSignal("BerryBush"), trackBerry)
 connect(CollectionService:GetInstanceRemovedSignal("BerryBush"), function(instance)
     Runtime.Berries[instance] = nil
@@ -521,6 +643,7 @@ connect(workspace.DescendantAdded, function(instance)
     trackChest(instance)
     trackBerry(instance)
     trackIsland(instance)
+    trackEnemySpawn(instance)
 end)
 connect(workspace.DescendantRemoving, function(instance)
     for chest in pairs(Runtime.Chests) do
@@ -733,6 +856,47 @@ local function levelMetadata()
     return fallback
 end
 
+local function refreshEnemySpawnCache()
+    local worldOrigin = workspace:FindFirstChild("_WorldOrigin")
+    local spawnRoot = worldOrigin and worldOrigin:FindFirstChild("EnemySpawns", true)
+    if not spawnRoot then return end
+    if Runtime.EnemySpawnRoot ~= spawnRoot then
+        Runtime.EnemySpawnRoot = spawnRoot
+        table.clear(Runtime.EnemySpawnBuckets)
+    end
+    for _, instance in ipairs(spawnRoot:GetDescendants()) do trackEnemySpawn(instance) end
+end
+
+local function enemySpawnCFrame(name, reference)
+    refreshEnemySpawnCache()
+    local wanted = normalizedEntityName(name)
+    local buckets = {}
+    local exact = Runtime.EnemySpawnBuckets[wanted]
+    if exact then buckets[#buckets + 1] = exact end
+    if not exact then
+        for key, bucket in pairs(Runtime.EnemySpawnBuckets) do
+            if string.find(key, wanted, 1, true) or string.find(wanted, key, 1, true) then
+                buckets[#buckets + 1] = bucket
+            end
+        end
+    end
+    local referencePosition
+    if typeof(reference) == "CFrame" then referencePosition = reference.Position
+    elseif typeof(reference) == "Vector3" then referencePosition = reference end
+    local best, bestDistance
+    for _, bucket in ipairs(buckets) do
+        for part in pairs(bucket) do
+            if part and part.Parent then
+                local distance = referencePosition and (part.Position - referencePosition).Magnitude or 0
+                if not bestDistance or distance < bestDistance then
+                    best, bestDistance = part, distance
+                end
+            end
+        end
+    end
+    return best and best.CFrame or nil
+end
+
 local function bossMetadata(name)
     local resolved = BOSS_ALIASES[name] or name
     return BOSS_DATA[Sea][resolved], resolved
@@ -832,7 +996,7 @@ function Movement:Go(destination)
     Runtime.MovementStarted = os.clock()
     Runtime.MovementLastProgress = os.clock()
     Runtime.MovementLastPosition = root.Position
-    local speed = math.clamp(tonumber(Settings.TweenSpeed) or 200, 5, 300)
+    local speed = math.clamp(tonumber(Settings.TweenSpeed) or 300, 5, 600)
     local tween = TweenService:Create(root, TweenInfo.new(distance / speed, Enum.EasingStyle.Linear), {
         CFrame = destination,
     })
@@ -1343,10 +1507,12 @@ local function tickLevel(playerRoot)
         target = findNearestByName(metadata.Enemy, playerRoot)
         Runtime.CurrentTarget = nil
     end
+    local spawnCFrame = enemySpawnCFrame(metadata.Enemy, metadata.QuestCFrame)
+        or metadata.EnemyCFrame
     if target then
-        combatTarget(target, "Level:" .. metadata.Enemy, metadata.EnemyCFrame)
-    elseif metadata.EnemyCFrame then
-        local anchor = ensureFarmAnchor("Level:" .. metadata.Enemy, metadata.EnemyCFrame)
+        combatTarget(target, "Level:" .. metadata.Enemy, spawnCFrame)
+    elseif spawnCFrame then
+        local anchor = ensureFarmAnchor("Level:" .. metadata.Enemy, spawnCFrame)
         Movement:Go(anchor * CFrame.new(0, tonumber(Settings.Height) or 20, 0))
     end
 end
@@ -1358,7 +1524,13 @@ local function tickMob(playerRoot)
         target = findNearestByName(Settings.SelectedMob, playerRoot)
         Runtime.CurrentTarget = nil
     end
-    if target then combatTarget(target, "Mob:" .. Settings.SelectedMob) end
+    local spawnCFrame = enemySpawnCFrame(Settings.SelectedMob, playerRoot.Position)
+    if target then
+        combatTarget(target, "Mob:" .. Settings.SelectedMob, spawnCFrame)
+    elseif spawnCFrame then
+        local anchor = ensureFarmAnchor("Mob:" .. Settings.SelectedMob, spawnCFrame)
+        Movement:Go(anchor * CFrame.new(0, tonumber(Settings.Height) or 20, 0))
+    end
 end
 
 local function tickNearest(playerRoot)
@@ -1394,19 +1566,15 @@ local function tickBoss(playerRoot)
     end
 
     local target = findNearestByName(metadata.Model, playerRoot)
+    local spawnCFrame = enemySpawnCFrame(metadata.Model, metadata.QuestCFrame or metadata.BossCFrame)
+        or metadata.BossCFrame
     if target then
-        combatTarget(target, "Boss:" .. metadata.Model, metadata.BossCFrame)
+        combatTarget(target, "Boss:" .. metadata.Model, spawnCFrame)
         return
     end
 
     Runtime.CurrentTarget = nil
-    local template = ReplicatedStorage:FindFirstChild(metadata.Model)
-    local templateRoot = template and template:FindFirstChild("HumanoidRootPart")
-    if templateRoot then
-        Movement:Go(templateRoot.CFrame * CFrame.new(0, 30, 0))
-    elseif metadata.BossCFrame then
-        Movement:Go(metadata.BossCFrame)
-    end
+    if spawnCFrame then Movement:Go(spawnCFrame * CFrame.new(0, 25, 0)) end
 end
 
 local function tickAllBoss(playerRoot)
@@ -1416,7 +1584,39 @@ local function tickAllBoss(playerRoot)
         target = findNearestBoss(playerRoot)
         Runtime.CurrentTarget = nil
     end
-    if target then combatTarget(target, "AllBoss:" .. target.Name) end
+    if target then
+        Runtime.AllBossArrivedAt = nil
+        combatTarget(target, "AllBoss:" .. target.Name)
+        return
+    end
+
+    -- No boss is currently streamed. Cycle the known current-sea spawns so a
+    -- distant live boss can stream in, instead of leaving All Boss idle.
+    local names = BOSS_LISTS[Sea] or {}
+    if #names == 0 then return end
+    Runtime.AllBossIndex = math.clamp(Runtime.AllBossIndex or 1, 1, #names)
+    local publicName = names[Runtime.AllBossIndex]
+    local metadata = bossMetadata(publicName)
+    local destination = metadata and (
+        enemySpawnCFrame(metadata.Model, metadata.QuestCFrame or metadata.BossCFrame)
+        or metadata.BossCFrame
+    )
+    if not destination then
+        Runtime.AllBossIndex = Runtime.AllBossIndex % #names + 1
+        return
+    end
+    local goal = destination * CFrame.new(0, 25, 0)
+    if (playerRoot.Position - goal.Position).Magnitude > 20 then
+        Runtime.AllBossArrivedAt = nil
+        Movement:Go(goal)
+        return
+    end
+    Movement:Cancel()
+    Runtime.AllBossArrivedAt = Runtime.AllBossArrivedAt or os.clock()
+    if os.clock() - Runtime.AllBossArrivedAt >= 2 then
+        Runtime.AllBossIndex = Runtime.AllBossIndex % #names + 1
+        Runtime.AllBossArrivedAt = nil
+    end
 end
 
 local function tickMaterial(playerRoot)
@@ -1468,14 +1668,14 @@ local function objectPart(instance)
     return instance:FindFirstChildWhichIsA("BasePart", true)
 end
 
-local function findNearestCached(playerRoot, cache, cooldowns)
+local function findNearestCached(playerRoot, cache, cooldowns, predicate)
     local nearest, nearestPart, nearestDistance
     local now = os.clock()
     for object in pairs(cache) do
         local part = objectPart(object)
         if part and part.Parent then
             local retryAt = cooldowns[object] or 0
-            if retryAt <= now then
+            if retryAt <= now and (not predicate or predicate(object)) then
                 local distance = (part.Position - playerRoot.Position).Magnitude
                 if not nearestDistance or distance < nearestDistance then
                     nearest, nearestPart, nearestDistance = object, part, distance
@@ -1489,15 +1689,21 @@ local function findNearestCached(playerRoot, cache, cooldowns)
     return nearest, nearestPart, nearestDistance
 end
 
+local function chestAvailable(chest)
+    if not chest or not chest.Parent then return false end
+    if chest:GetAttribute("IsDisabled") == true then return false end
+    local disabled = chest:FindFirstChild("IsDisabled")
+    if disabled and disabled:IsA("BoolValue") and disabled.Value then return false end
+    return true
+end
+
 local function interactPickup(playerRoot, object, primaryPart)
     local touched, prompted = 0, 0
     local function touch(part)
-        if touched >= 64 or not part:IsA("BasePart") then return end
-        touched += 1
-        if type(firetouchinterest) == "function" then
-            pcall(firetouchinterest, playerRoot, part, 0)
-            pcall(firetouchinterest, playerRoot, part, 1)
-        end
+        if touched >= 64 or not part:IsA("BasePart") or type(firetouchinterest) ~= "function" then return end
+        local began = pcall(firetouchinterest, playerRoot, part, 0)
+        local ended = pcall(firetouchinterest, playerRoot, part, 1)
+        if began or ended then touched += 1 end
     end
     touch(primaryPart)
     for _, descendant in ipairs(object:GetDescendants()) do
@@ -1512,6 +1718,8 @@ local function interactPickup(playerRoot, object, primaryPart)
         end
     end
     if touched == 0 and prompted == 0 then
+        -- Low-capability executors may not expose any interaction primitive.
+        -- Physical overlap remains the game's native chest/fruit pickup path.
         pcall(function() playerRoot.CFrame = primaryPart.CFrame * CFrame.new(0, 2, 0) end)
     end
 end
@@ -1525,13 +1733,113 @@ local function finishPickupOverlay()
     clearFarmAnchor(true)
 end
 
+local function beginPickupOverlay(kind, object)
+    if not Runtime.PickupBusy then
+        Runtime.PickupBusy = true
+        Runtime.CurrentTarget = nil
+        Movement:Cancel()
+        clearFarmAnchor(true)
+    end
+    Runtime.PickupKind = kind
+    Runtime.PickupTarget = object
+end
+
+local function buildChestSweepQueue(playerRoot)
+    local queue, seen = {}, {}
+    local function addWaypoint(destination, object, name)
+        if typeof(destination) ~= "CFrame" then return end
+        local position = destination.Position
+        -- One stop per broad map cell is enough to request streaming without
+        -- repeatedly visiting every quest pad on the same island.
+        local key = string.format("%d:%d", math.floor(position.X / 1200), math.floor(position.Z / 1200))
+        if seen[key] then return end
+        seen[key] = true
+        queue[#queue + 1] = {
+            Object = object,
+            CFrame = destination,
+            Name = name or (object and object.Name) or "map sector",
+        }
+    end
+    for island in pairs(Runtime.Islands) do
+        local part = objectPart(island)
+        local lower = string.lower(island and island.Name or "")
+        local raidMarker = string.match(lower, "^island%s*%d+$") or string.find(lower, "raid", 1, true)
+        if part and part.Parent and not raidMarker then
+            local destination = island:IsA("BasePart") and island.CFrame or island:GetPivot()
+            addWaypoint(destination, island, island.Name)
+        end
+    end
+
+    -- Streaming can hide both distant chests and distant location markers.
+    -- Current quest/boss metadata therefore supplies a complete sea-wide
+    -- fallback route instead of silently degrading to nearby-only collection.
+    for _, row in ipairs(LEVEL_DATA[Sea] or {}) do
+        addWaypoint(row.QuestCFrame, nil, row.Enemy .. " quest")
+        addWaypoint(row.EnemyCFrame, nil, row.Enemy .. " spawn")
+    end
+    for name, row in pairs(BOSS_DATA[Sea] or {}) do
+        addWaypoint(row.QuestCFrame, nil, name .. " quest")
+        addWaypoint(row.BossCFrame, nil, name .. " spawn")
+    end
+    table.sort(queue, function(a, b)
+        return (a.CFrame.Position - playerRoot.Position).Magnitude < (b.CFrame.Position - playerRoot.Position).Magnitude
+    end)
+    Runtime.ChestSweepQueue = queue
+    Runtime.ChestSweepIndex = 1
+    Runtime.ChestSweepArrivedAt = nil
+    return queue
+end
+
+local function tickChestSweep(playerRoot)
+    if not Settings.AutoCollectChest or not Settings.WholeSeaChestSweep then return false end
+    local now = os.clock()
+    if now < Runtime.ChestSweepNextAt then return false end
+    local queue = Runtime.ChestSweepQueue
+    if not queue then queue = buildChestSweepQueue(playerRoot) end
+    local entry = queue[Runtime.ChestSweepIndex]
+    while entry and typeof(entry.CFrame) ~= "CFrame" do
+        Runtime.ChestSweepIndex += 1
+        entry = queue[Runtime.ChestSweepIndex]
+    end
+    if not entry then
+        Runtime.ChestSweepQueue = nil
+        Runtime.ChestSweepIndex = 1
+        Runtime.ChestSweepArrivedAt = nil
+        Runtime.ChestSweepNextAt = now + 45
+        finishPickupOverlay()
+        return false
+    end
+
+    beginPickupOverlay("Chest sweep", entry.Object)
+    local destination = entry.CFrame * CFrame.new(0, 35, 0)
+    local distance = (playerRoot.Position - destination.Position).Magnitude
+    if distance > 18 then
+        Runtime.ChestSweepArrivedAt = nil
+        Movement:Go(destination)
+        return true
+    end
+    Movement:Cancel()
+    Runtime.ChestSweepArrivedAt = Runtime.ChestSweepArrivedAt or now
+    if now - Runtime.ChestSweepArrivedAt >= 1.25 then
+        Runtime.ChestSweepIndex += 1
+        Runtime.ChestSweepArrivedAt = nil
+        -- Release movement back to the selected farm between map sectors.
+        -- This keeps chest collection an overlay instead of turning farming off
+        -- or monopolising movement for a full-sea pass.
+        Runtime.ChestSweepNextAt = now + 8
+        finishPickupOverlay()
+        return false
+    end
+    return true
+end
+
 local function choosePickup(playerRoot)
     if Settings.AutoCollectFruit then
         local fruit, part, distance = findNearestCached(playerRoot, WorldFruits, Runtime.FruitCooldown)
         if fruit then return "Fruit", fruit, part, distance end
     end
     if Settings.AutoCollectChest then
-        local chest, part, distance = findNearestCached(playerRoot, Runtime.Chests, Runtime.ChestCooldown)
+        local chest, part, distance = findNearestCached(playerRoot, Runtime.Chests, Runtime.ChestCooldown, chestAvailable)
         if chest then return "Chest", chest, part, distance end
     end
     if Settings.AutoCollectBerries then
@@ -1549,6 +1857,7 @@ local function tickPickupOverlay(playerRoot)
 
     local kind, object, part, distance = choosePickup(playerRoot)
     if not object or not part then
+        if tickChestSweep(playerRoot) then return end
         if Runtime.PickupBusy and os.clock() - Runtime.PickupLastFound >= 0.3 then
             finishPickupOverlay()
         end
@@ -1556,14 +1865,7 @@ local function tickPickupOverlay(playerRoot)
     end
 
     Runtime.PickupLastFound = os.clock()
-    if not Runtime.PickupBusy then
-        Runtime.PickupBusy = true
-        Runtime.CurrentTarget = nil
-        Movement:Cancel()
-        clearFarmAnchor(true)
-    end
-    Runtime.PickupKind = kind
-    Runtime.PickupTarget = object
+    beginPickupOverlay(kind, object)
     if distance > 7 then
         Movement:Go(part.CFrame * CFrame.new(0, 3, 0))
         return
@@ -2027,28 +2329,45 @@ local function updateESPs()
     for island in pairs(Runtime.Islands) do
         add(island, Settings.IslandESP, Color3.fromRGB(110, 255, 165), island.Name, false, "Island", 16000)
     end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            add(player.Character, Settings.PlayerESP, Color3.fromRGB(255, 120, 120), player.DisplayName, true, "Player", 10000)
+        end
+    end
 
     table.sort(candidates, function(a, b) return a.Entry.Distance < b.Entry.Distance end)
     local camera = workspace.CurrentCamera
-    local occupied, categoryCount, shown = {}, {}, 0
-    local categoryLimit = {Island = 5, Fruit = 8, Chest = 10, Berry = 8}
+    local occupied, categoryCount, highlightCount, shown = {}, {}, {}, 0
+    local categoryLimit = {Island = 4, Fruit = 14, Chest = 18, Berry = 12, Player = 10}
+    local highlightLimit = {Island = 0, Fruit = 30, Chest = 40, Berry = 24, Player = 16}
     for _, candidate in ipairs(candidates) do
         local entry = candidate.Entry
         local point, onScreen = camera:WorldToViewportPoint(entry.Part.Position)
-        local xCell = math.floor(point.X / 160)
-        local yCell = math.floor(point.Y / 28)
-        local cell = tostring(xCell) .. ":" .. tostring(yCell)
         local count = categoryCount[candidate.Category] or 0
-        local visible = onScreen and point.Z > 0 and entry.Distance <= candidate.MaxDistance
-            and shown < 20 and count < (categoryLimit[candidate.Category] or 8)
-            and not occupied[cell]
-        if visible then
-            occupied[cell] = true
+        local clear = true
+        if onScreen and point.Z > 0 then
+            for _, position in ipairs(occupied) do
+                if math.abs(point.X - position.X) < 92 and math.abs(point.Y - position.Y) < 25 then
+                    clear = false
+                    break
+                end
+            end
+        end
+        local labelVisible = onScreen and point.Z > 0 and entry.Distance <= candidate.MaxDistance
+            and shown < 24 and count < (categoryLimit[candidate.Category] or 8) and clear
+        if labelVisible then
+            occupied[#occupied + 1] = Vector2.new(point.X, point.Y)
             categoryCount[candidate.Category] = count + 1
             shown += 1
         end
-        if entry.Billboard then entry.Billboard.Enabled = visible end
-        if entry.Highlight then entry.Highlight.Enabled = visible end
+        if entry.Billboard then entry.Billboard.Enabled = labelVisible end
+        if entry.Highlight then
+            local highlights = highlightCount[candidate.Category] or 0
+            local highlightVisible = entry.Distance <= candidate.MaxDistance
+                and highlights < (highlightLimit[candidate.Category] or 12)
+            entry.Highlight.Enabled = highlightVisible
+            if highlightVisible then highlightCount[candidate.Category] = highlights + 1 end
+        end
     end
 end
 
@@ -2187,6 +2506,196 @@ connect(Lighting.DescendantAdded, function(instance)
     if Settings.AggressiveFPSBoost then task.defer(optimizeVisualInstance, instance) end
 end)
 
+local function playerNames()
+    local values = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then values[#values + 1] = player.Name end
+    end
+    table.sort(values)
+    return values
+end
+
+local function selectedPlayer()
+    local name = tostring(Settings.SelectedPlayer or "")
+    if name == "" then return nil end
+    return Players:FindFirstChild(name)
+end
+
+local function selectedPlayerTarget()
+    local player = selectedPlayer()
+    if not player or player == LocalPlayer then return nil end
+    if Settings.IgnoreSameTeams and LocalPlayer.Team ~= nil and player.Team == LocalPlayer.Team then return nil end
+    local model = player.Character
+    local humanoid = model and model:FindFirstChildOfClass("Humanoid")
+    local root = model and model:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not root or humanoid.Health <= 0 then return nil end
+    return player, model, humanoid, root
+end
+
+local function updateSpectateAndAim()
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+    local _, _, targetHumanoid, targetRoot = selectedPlayerTarget()
+    if Settings.SpectatePlayer and targetHumanoid then
+        Runtime.OriginalCameraSubject = Runtime.OriginalCameraSubject or camera.CameraSubject
+        camera.CameraSubject = targetHumanoid
+    elseif Runtime.OriginalCameraSubject then
+        local _, localHumanoid = characterParts()
+        camera.CameraSubject = localHumanoid or Runtime.OriginalCameraSubject
+        Runtime.OriginalCameraSubject = nil
+    end
+    if Settings.AimbotCamera and targetRoot then
+        camera.CFrame = CFrame.lookAt(camera.CFrame.Position, targetRoot.Position)
+    end
+end
+
+local function installSkillAimbotHook()
+    if Runtime.SkillAimbotHookInstalled then return end
+    if type(hookmetamethod) ~= "function" or type(getnamecallmethod) ~= "function" then return end
+    local wrapper = type(newcclosure) == "function" and newcclosure or function(callback) return callback end
+    local previous
+    local ok = pcall(function()
+        previous = hookmetamethod(game, "__namecall", wrapper(function(remote, ...)
+            local method = getnamecallmethod()
+            local callerIsScript = type(checkcaller) ~= "function" or not checkcaller()
+            if Settings.AimbotSkills and callerIsScript and method == "FireServer" then
+                local _, _, _, targetRoot = selectedPlayerTarget()
+                if targetRoot and typeof(remote) == "Instance" and remote:IsA("RemoteEvent") then
+                    local args = table.pack(...)
+                    local changed = false
+                    for index = 1, args.n do
+                        if typeof(args[index]) == "Vector3" then
+                            args[index] = targetRoot.Position
+                            changed = true
+                        elseif typeof(args[index]) == "CFrame" then
+                            args[index] = targetRoot.CFrame
+                            changed = true
+                        end
+                    end
+                    if changed then return previous(remote, table.unpack(args, 1, args.n)) end
+                end
+            end
+            return previous(remote, ...)
+        end))
+    end)
+    Runtime.SkillAimbotHookInstalled = ok and type(previous) == "function"
+end
+
+local function maintainInfiniteEnergy()
+    if not Settings.InfiniteEnergy then Runtime.EnergyFloor = nil; return end
+    local model = character()
+    local energy = model and model:FindFirstChild("Energy")
+    if not energy or not (energy:IsA("NumberValue") or energy:IsA("IntValue")) then return end
+    Runtime.EnergyFloor = math.max(tonumber(Runtime.EnergyFloor) or 0, tonumber(energy.Value) or 0)
+    if energy.Value < Runtime.EnergyFloor then energy.Value = Runtime.EnergyFloor end
+end
+
+local function maintainInfiniteObservation()
+    if not Settings.InfiniteObservationRange then return end
+    local radius = LocalPlayer:FindFirstChild("VisionRadius")
+    if radius and (radius:IsA("NumberValue") or radius:IsA("IntValue")) then
+        radius.Value = math.huge
+    end
+end
+
+local function resetSoruCooldowns()
+    if not Settings.InfiniteSoru then return end
+    if Runtime.SoruClosures == nil then
+        Runtime.SoruClosures = {}
+        if type(getgc) == "function" then
+            local ok, objects = pcall(getgc, true)
+            if ok and type(objects) == "table" then
+                for _, object in ipairs(objects) do
+                    if type(object) == "function" then
+                        local envOk, env = pcall(getfenv, object)
+                        local source = envOk and env and env.script
+                        if source and string.lower(source.Name) == "soru" then
+                            Runtime.SoruClosures[#Runtime.SoruClosures + 1] = object
+                        end
+                    end
+                end
+            end
+        end
+    end
+    local getUps = type(getupvalues) == "function" and getupvalues
+        or (debug and type(debug.getupvalues) == "function" and debug.getupvalues)
+    if not getUps then return end
+    for _, callback in ipairs(Runtime.SoruClosures) do
+        local ok, values = pcall(getUps, callback)
+        if ok and type(values) == "table" then
+            for _, value in pairs(values) do
+                if type(value) == "table" then
+                    if value.LastUse ~= nil then value.LastUse = 0 end
+                    if value.LastUsed ~= nil then value.LastUsed = 0 end
+                    if value.Cooldown ~= nil and type(value.Cooldown) == "number" then value.Cooldown = 0 end
+                end
+            end
+        end
+    end
+end
+
+local function maintainWaterWalk()
+    if not Settings.WalkOnWater then
+        if Runtime.WaterPart then pcall(Runtime.WaterPart.Destroy, Runtime.WaterPart); Runtime.WaterPart = nil end
+        return
+    end
+    local model, humanoid, root = characterParts()
+    if not model or not humanoid or not root then return end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {model, Runtime.WaterPart}
+    params.IgnoreWater = false
+    local result = workspace:Raycast(root.Position + Vector3.new(0, 10, 0), Vector3.new(0, -100, 0), params)
+    local overWater = result and result.Material == Enum.Material.Water
+    if not overWater and humanoid.FloorMaterial ~= Enum.Material.Water then
+        if Runtime.WaterPart then Runtime.WaterPart.CFrame = CFrame.new(0, -10000, 0) end
+        return
+    end
+    local part = Runtime.WaterPart
+    if not part or not part.Parent then
+        part = Instance.new("Part")
+        part.Name = "BloxFruitWaterWalk"
+        part.Size = Vector3.new(18, 0.5, 18)
+        part.Anchored = true
+        part.CanCollide = true
+        part.CanTouch = false
+        part.Transparency = 1
+        part:SetAttribute("BloxFruitOwned", true)
+        part.Parent = workspace
+        Runtime.WaterPart = part
+    end
+    local y = overWater and (result.Position.Y + 0.25) or (root.Position.Y - 3.25)
+    part.CFrame = CFrame.new(root.Position.X, y, root.Position.Z)
+end
+
+local function acceptAllyRequest()
+    if not Settings.AcceptAllies then return end
+    local gui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if not gui then return end
+    for _, object in ipairs(gui:GetDescendants()) do
+        if object:IsA("GuiButton") then
+            local text = string.lower((object:IsA("TextButton") and object.Text) or object.Name)
+            if string.find(text, "accept", 1, true) and string.find(text, "all", 1, true) then
+                if type(firesignal) == "function" then pcall(firesignal, object.Activated) else pcall(object.Activate, object) end
+            end
+        end
+    end
+end
+
+connect(LocalPlayer.CharacterAdded, function()
+    Runtime.EnergyFloor = nil
+    Runtime.SoruClosures = nil
+    if Runtime.WaterPart then pcall(Runtime.WaterPart.Destroy, Runtime.WaterPart); Runtime.WaterPart = nil end
+end)
+connect(Players.PlayerAdded, function()
+    if Runtime.PlayerDropdown then pcall(Runtime.PlayerDropdown.Refresh, Runtime.PlayerDropdown, playerNames()) end
+end)
+connect(Players.PlayerRemoving, function(player)
+    if Settings.SelectedPlayer == player.Name then Settings.SelectedPlayer = "" end
+    if Runtime.PlayerDropdown then pcall(Runtime.PlayerDropdown.Refresh, Runtime.PlayerDropdown, playerNames()) end
+end)
+installSkillAimbotHook()
+
 connect(LocalPlayer.Idled, function()
     if not Settings.AntiAFK then return end
     pcall(function()
@@ -2231,6 +2740,17 @@ task.spawn(function()
                 end
             end
         end
+        if Settings.TeleportToPlayer then
+            local _, _, _, targetRoot = selectedPlayerTarget()
+            if targetRoot then Movement:Go(targetRoot.CFrame * CFrame.new(0, 5, 3)) end
+        end
+        pcall(updateSpectateAndAim)
+        pcall(maintainInfiniteEnergy)
+        pcall(maintainInfiniteObservation)
+        pcall(maintainWaterWalk)
+        if Settings.InfiniteMinkV3 and featureReady("InfiniteMinkV3", 0.25) then pcall(fireComm, "ActivateAbility") end
+        if Settings.InfiniteSoru and featureReady("InfiniteSoru", 0.5) then pcall(resetSoruCooldowns) end
+        if Settings.AcceptAllies and featureReady("AcceptAllies", 1) then pcall(acceptAllyRequest) end
         local _, humanoid = characterParts()
         if humanoid then
             if Settings.LockWalkSpeed then humanoid.WalkSpeed = math.clamp(tonumber(Settings.WalkSpeed) or 16, 0, 500) end
@@ -2304,8 +2824,10 @@ API.MaterialLists = MATERIAL_LISTS
 function API.Set(name, value)
     assert(Settings[name] ~= nil, "Unknown BloxFruitScript setting: " .. tostring(name))
     if name == "Height" then value = math.max(16, tonumber(value) or 20) end
-    if name == "TweenSpeed" then value = math.clamp(tonumber(value) or 200, 5, 300) end
+    if name == "TweenSpeed" then value = math.clamp(tonumber(value) or 300, 5, 600) end
     if name == "StatsValue" then value = math.clamp(math.floor(tonumber(value) or 2), 1, 1000) end
+    if name == "WalkSpeed" then value = math.clamp(tonumber(value) or 16, 0, 500) end
+    if name == "JumpPower" then value = math.clamp(tonumber(value) or 50, 0, 500) end
     local exclusive = {
         AutoFarmLevel = true,
         AutoFarmNearest = true,
@@ -2334,20 +2856,33 @@ function API.Set(name, value)
     if name == "AggressiveFPSBoost" then
         if value == true then applyAggressiveFPSBoost() else restoreAggressiveFPSBoost() end
     end
+    if name == "AimbotSkills" and value == true then installSkillAimbotHook() end
+    if name == "SpectatePlayer" and value == false then pcall(updateSpectateAndAim) end
+    if name == "WalkOnWater" and value == false then pcall(maintainWaterWalk) end
     if exclusive[name] or name == "SelectedMob" or name == "SelectedBoss"
         or name == "SelectedMaterial" or name == "SelectedEventEnemy"
     then
         Runtime.CurrentTarget = nil
+        if name == "AutoFarmAllBoss" then Runtime.AllBossIndex = 1; Runtime.AllBossArrivedAt = nil end
         clearFarmAnchor(true)
     elseif name == "BringMobs" and value == false then
         restoreEnemies()
-    elseif (name == "FruitESP" or name == "ChestESP" or name == "BerryESP" or name == "IslandESP") and value == false then
+    elseif (name == "FruitESP" or name == "ChestESP" or name == "BerryESP" or name == "IslandESP" or name == "PlayerESP") and value == false then
         updateESPs()
+    elseif name == "AutoCollectChest" then
+        Runtime.ChestSweepQueue = nil
+        Runtime.ChestSweepIndex = 1
+        Runtime.ChestSweepArrivedAt = nil
+        Runtime.ChestSweepNextAt = value and 0 or math.huge
+        if value == false and not Settings.AutoCollectFruit and not Settings.AutoCollectBerries then
+            finishPickupOverlay()
+        end
     elseif (name == "AutoCollectFruit" or name == "AutoCollectChest" or name == "AutoCollectBerries") and value == false
         and not Settings.AutoCollectFruit and not Settings.AutoCollectChest and not Settings.AutoCollectBerries
     then
         finishPickupOverlay()
     end
+    savePersistentSettings(false)
     return value
 end
 
@@ -2386,6 +2921,7 @@ function API.StopAll()
     Movement:Cancel()
     clearFarmAnchor(true)
     restoreCharacterPhysics()
+    savePersistentSettings(true)
 end
 
 local function uiParent()
@@ -2575,7 +3111,7 @@ end
 
 local function makeRenLibUI()
     local RenLib = (function()
--- RenLib V7.1.0
+-- RenLib V7.0.0
 -- Responsive Roblox UI framework with centralized navigation, non-destructive
 -- search, mobile-first input, live theming, addons, and deterministic cleanup.
 
@@ -2682,7 +3218,7 @@ local ICONS = {
 
 --// ROOT LIBRARY
 local Library = {}
-Library.Version = "7.1.0"
+Library.Version = "7.0.0"
 Library.Title = "RenLib"
 Library.Connections = {}
 Library.Tasks = {}
@@ -3427,86 +3963,6 @@ function Library:SaveConfig(name)
     end)
     if ok then self.KnownConfigs[cleaned] = true end
     return ok, ok and nil or result
-end
-
-local function configPayload(library)
-    local payload = {version = library.Version, flags = {}}
-    for flag, value in pairs(library.Flags) do
-        if not CONFIG_MANAGER_FLAGS[flag] then payload.flags[flag] = encodeValue(value) end
-    end
-    return payload
-end
-
-function Library:FlushAutoSave()
-    if not self.AutoSaveConfigName then return false, "Auto-save is disabled" end
-    local payload = configPayload(self)
-    local ok, err
-    if ensureConfigFolders() then
-        ok, err = self:SaveConfig(self.AutoSaveConfigName)
-    else
-        RuntimeEnvironment.__RENLIB_AUTOSAVE_MEMORY = RuntimeEnvironment.__RENLIB_AUTOSAVE_MEMORY or {}
-        RuntimeEnvironment.__RENLIB_AUTOSAVE_MEMORY[self.AutoSaveConfigName] = payload
-        ok = true
-    end
-    if ok then
-        local encodedOk, encoded = pcall(HttpService.JSONEncode, HttpService, payload)
-        if encodedOk then self.AutoSaveSignature = encoded end
-    end
-    return ok, err
-end
-
--- Loads one application-owned profile before its controls are created, then
--- persists changed flags on a debounce. This removes the need for users to
--- manually create and mark a config just to remember ordinary selections.
-function Library:EnableAutoSave(name, interval)
-    local filesystemAvailable = ensureConfigFolders()
-    local cleaned = cleanConfigName(name)
-    local path = CONFIG_FOLDER .. "/" .. cleaned .. ".json"
-    self.AutoSaveConfigName = cleaned
-    self.AutoSaveInterval = math.clamp(tonumber(interval) or 1.25, 0.5, 10)
-    self.AutoSaveGeneration = (self.AutoSaveGeneration or 0) + 1
-    local generation = self.AutoSaveGeneration
-
-    if filesystemAvailable and isfile(path) then
-        local ok, payload = pcall(function() return HttpService:JSONDecode(readfile(path)) end)
-        if ok and type(payload) == "table" then
-            for flag, rawValue in pairs(payload.flags or {}) do
-                local value = decodeValue(rawValue)
-                self.PendingAutoloadFlags[flag] = value
-                self.Flags[flag] = value
-            end
-            self.KnownConfigs[cleaned] = true
-        end
-    elseif not filesystemAvailable then
-        RuntimeEnvironment.__RENLIB_AUTOSAVE_MEMORY = RuntimeEnvironment.__RENLIB_AUTOSAVE_MEMORY or {}
-        local payload = RuntimeEnvironment.__RENLIB_AUTOSAVE_MEMORY[cleaned]
-        if type(payload) == "table" then
-            for flag, rawValue in pairs(payload.flags or {}) do
-                local value = decodeValue(rawValue)
-                self.PendingAutoloadFlags[flag] = value
-                self.Flags[flag] = value
-            end
-        end
-    end
-
-    local encodedOk, encoded = pcall(HttpService.JSONEncode, HttpService, configPayload(self))
-    self.AutoSaveSignature = encodedOk and encoded or nil
-    task.spawn(function()
-        while not self.Unloaded and self.AutoSaveConfigName == cleaned
-            and self.AutoSaveGeneration == generation
-        do
-            task.wait(self.AutoSaveInterval)
-            local ok, current = pcall(HttpService.JSONEncode, HttpService, configPayload(self))
-            if ok and current ~= self.AutoSaveSignature then self:FlushAutoSave() end
-        end
-    end)
-    return true
-end
-
-function Library:DisableAutoSave(flush)
-    if flush ~= false and self.AutoSaveConfigName then self:FlushAutoSave() end
-    self.AutoSaveConfigName = nil
-    self.AutoSaveGeneration = (self.AutoSaveGeneration or 0) + 1
 end
 
 function Library:GetConfigList()
@@ -7335,7 +7791,7 @@ end
                     TextXAlignment = Enum.TextXAlignment.Left,
                     ZIndex = 6
                 })
-                local valueLabelProperties = {
+                local ValueLabel = Utility:Create("TextLabel", {
                     Parent = SliderContainer,
                     BackgroundTransparency = 1,
                     Position = UDim2.new(0, 12, 0, IsMobile and 6 or 8),
@@ -7346,12 +7802,7 @@ end
                     TextSize = IsMobile and 12 or 13,
                     TextXAlignment = Enum.TextXAlignment.Right,
                     ZIndex = 6
-                }
-                if options.Editable then
-                    valueLabelProperties.ClearTextOnFocus = false
-                    valueLabelProperties.TextEditable = true
-                end
-                local ValueLabel = Utility:Create(options.Editable and "TextBox" or "TextLabel", valueLabelProperties)
+                })
                 local trackHeight = IsMobile and 10 or 6
                 local Track = Utility:Create("TextButton", {
                     Parent = SliderContainer,
@@ -7422,19 +7873,12 @@ end
 
                 addElement({Holder = SliderContainer, Text = Name})
                 local function SetValue(val, fire)
-                    local numeric = math.clamp(tonumber(val) or Value, Min, Max)
-                    Value = math.clamp(Min + math.floor(((numeric - Min) / Step) + 0.5) * Step, Min, Max)
+                    Value = math.clamp(tonumber(val) or Min, Min, Max)
                     ValueLabel.Text = tostring(Value)
                     Library.Flags[Flag] = Value
                     Utility:Tween(Fill, TweenInfo.new(0.1), {Size = UDim2.new((Value - Min) / math.max(0.000001, Max - Min), 0, 1, 0)})
                     pendingCallback = false
                     if fire ~= false then EmitValue() end
-                end
-                if options.Editable then
-                    Library:Connect(ValueLabel.FocusLost, function()
-                        SetValue(ValueLabel.Text, true)
-                        if options.Finished then task.defer(function() Utility:SafeCall(options.Finished, Value) end) end
-                    end)
                 end
                 local sliderObj = {
                     Type = "Slider",
@@ -9160,7 +9604,6 @@ end
 --// UNLOAD
 function Library:Unload(reason)
     if self.Unloaded then return end
-    if self.AutoSaveConfigName then self:FlushAutoSave() end
     self.Unloaded = true
     self.ScalePreview = nil
     for index = #self.AddonOrder, 1, -1 do
@@ -9219,8 +9662,6 @@ return Library
 
     end)()
     Runtime.RenLib = RenLib
-    RenLib:EnableAutoSave("BloxFruitScript-Sea" .. tostring(Sea), 1)
-
     local Window = RenLib:CreateWindow({
         Name = "Blox Fruit Script • Sea " .. tostring(Sea),
         Width = 940,
@@ -9337,7 +9778,8 @@ return Library
     toggle(Combat, "Activate equipped tool", "ActivateTool")
     Combat:CreateSlider({Name = "Hitbox size", Min = 8, Max = 100, Step = 1, Default = Settings.HitboxSize, Flag = "HitboxSize", Callback = function(value) API.Set("HitboxSize", value) end})
     Combat:CreateSlider({Name = "Height above anchor", Min = 16, Max = 50, Step = 1, Default = Settings.Height, Flag = "CombatHeightV3", Tooltip = "The tokenized/legacy transports support the original above-mob farming position.", Callback = function(value) API.Set("Height", math.max(16, value)) end})
-    Combat:CreateSlider({Name = "Tween speed", Min = 5, Max = 300, Step = 1, Default = Settings.TweenSpeed, Flag = "TweenSpeed", Editable = true, Tooltip = "Supported range: 5–300, default 200. Drag or type the value.", Callback = function(value) API.Set("TweenSpeed", value) end})
+    Combat:CreateSlider({Name = "Tween speed", Min = 5, Max = 600, Step = 1, Default = Settings.TweenSpeed, Flag = "TweenSpeed", Tooltip = "Default 300 with the full proven 5–600 movement range.", Callback = function(value) API.Set("TweenSpeed", value) end})
+    Combat:CreateInput({Name = "Exact tween speed", Default = tostring(Settings.TweenSpeed), Flag = "TweenSpeedExact", Numeric = true, Finished = true, Callback = function(value) API.Set("TweenSpeed", value) end})
     Combat:CreateButton({Name = "Stop every automation", Callback = API.StopAll})
     Combat:CreateButton({
         Name = "Show combat diagnostics",
@@ -9371,7 +9813,8 @@ return Library
 
     local Stats = Window:CreateTab({Name = "Upgrade", Icon = "6031260800"})
     local StatsSection = Stats:CreateSection({Name = "Automatic stat allocation", Side = "Left"})
-    StatsSection:CreateSlider({Name = "Points per request (drag or type)", Min = 1, Max = 1000, Step = 1, Default = Settings.StatsValue, Flag = "StatsValue", Editable = true, Callback = function(value) API.Set("StatsValue", value) end})
+    StatsSection:CreateSlider({Name = "Points per request", Min = 1, Max = 1000, Step = 1, Default = Settings.StatsValue, Flag = "StatsValue", Callback = function(value) API.Set("StatsValue", value) end})
+    StatsSection:CreateInput({Name = "Exact points per request", Default = tostring(Settings.StatsValue), Flag = "StatsValueExact", Numeric = true, Finished = true, Callback = function(value) API.Set("StatsValue", value) end})
     toggle(StatsSection, "Auto melee", "AutoMelee")
     toggle(StatsSection, "Auto defense", "AutoDefense")
     toggle(StatsSection, "Auto sword", "AutoSword")
@@ -9404,7 +9847,8 @@ return Library
 
     local Items = Window:CreateTab({Name = "Get Items & Mastery", Icon = "6031225818"})
     local ChestSection = Items:CreateSection({Name = "Chests", Side = "Left"})
-    toggle(ChestSection, "Auto collect every chest", "AutoCollectChest", "Background overlay: pauses movement only while cached chests exist, collects all of them, then resumes the enabled farm.")
+    toggle(ChestSection, "Auto collect every chest", "AutoCollectChest", "Collects every tagged chest and resumes the enabled farm after each pickup route.")
+    toggle(ChestSection, "Search the whole sea", "WholeSeaChestSweep", "When no chest is streamed, checks one island/map sector, releases movement back to autofarm for 8 seconds, then continues the sea-wide route. Distant streaming can no longer reduce collection to nearby chests.")
     local BerrySection = Items:CreateSection({Name = "Berries", Side = "Left"})
     toggle(BerrySection, "Auto collect berries", "AutoCollectBerries", "Uses BerryBush tags plus direct berry instances, sweeps every replicated bush, and returns to farming.")
     if Sea >= 2 then
@@ -9433,6 +9877,7 @@ return Library
     toggle(WorldESP, "Fruit ESP", "FruitESP", "Labels and highlights every replicated world fruit.")
     toggle(WorldESP, "Chest ESP", "ChestESP", "Labels and highlights every cached chest, not only the current pickup.")
     toggle(WorldESP, "Berry ESP", "BerryESP", "Decluttered labels for BerryBush-tagged objects and direct berry instances.")
+    toggle(WorldESP, "Player ESP", "PlayerESP", "Name labels plus through-wall outlines for other live player characters.")
     local ESPInfo = ESPTab:CreateSection({Name = "Scanner behavior", Side = "Right"})
     ESPInfo:CreateParagraph({Title = "Event maintained", Content = "Fruit, chest, berry, and island caches update from spawn/removal signals. ESP refreshes labels and distances without repeatedly scanning the whole workspace."})
 
@@ -9566,10 +10011,32 @@ return Library
 
     local LocalTab = Window:CreateTab({Name = "LocalPlayer", Icon = "6031075938"})
     local MovementLocal = LocalTab:CreateSection({Name = "Movement", Side = "Left"})
-    MovementLocal:CreateSlider({Name = "Walk speed (drag or type)", Min = 0, Max = 500, Step = 1, Default = Settings.WalkSpeed, Flag = "WalkSpeed", Editable = true, Callback = function(value) API.Set("WalkSpeed", value) end})
-    toggle(MovementLocal, "Lock walk speed", "LockWalkSpeed")
-    MovementLocal:CreateSlider({Name = "Jump power (drag or type)", Min = 0, Max = 500, Step = 1, Default = Settings.JumpPower, Flag = "JumpPower", Editable = true, Callback = function(value) API.Set("JumpPower", value) end})
-    toggle(MovementLocal, "Lock jump power", "LockJumpPower")
+    MovementLocal:CreateSlider({Name = "WalkSpeed value", Min = 0, Max = 500, Step = 1, Default = Settings.WalkSpeed, Flag = "WalkSpeed", Callback = function(value) API.Set("WalkSpeed", value) end})
+    MovementLocal:CreateInput({Name = "Exact WalkSpeed", Default = tostring(Settings.WalkSpeed), Flag = "WalkSpeedExact", Numeric = true, Finished = true, Callback = function(value) API.Set("WalkSpeed", value) end})
+    toggle(MovementLocal, "Set WalkSpeed", "LockWalkSpeed")
+    MovementLocal:CreateSlider({Name = "JumpPower value", Min = 0, Max = 500, Step = 1, Default = Settings.JumpPower, Flag = "JumpPower", Callback = function(value) API.Set("JumpPower", value) end})
+    MovementLocal:CreateInput({Name = "Exact JumpPower", Default = tostring(Settings.JumpPower), Flag = "JumpPowerExact", Numeric = true, Finished = true, Callback = function(value) API.Set("JumpPower", value) end})
+    toggle(MovementLocal, "Set JumpPower", "LockJumpPower")
+    toggle(MovementLocal, "Walk on Water", "WalkOnWater", "Transparent local platform follows only detected terrain water and is enabled by default.")
+
+    local PlayersLocal = LocalTab:CreateSection({Name = "Players, spectate and aim", Side = "Right"})
+    local localPlayerNames = playerNames()
+    if Settings.SelectedPlayer == "" and localPlayerNames[1] then Settings.SelectedPlayer = localPlayerNames[1] end
+    Runtime.PlayerDropdown = PlayersLocal:CreateDropdown({Name = "Select Players", Values = localPlayerNames, Default = Settings.SelectedPlayer, Flag = "SelectedPlayer", Searchable = true, Callback = function(value) API.Set("SelectedPlayer", value) end})
+    PlayersLocal:CreateButton({Name = "Refresh Player List", Callback = function() Runtime.PlayerDropdown:Refresh(playerNames()) end})
+    toggle(PlayersLocal, "Teleport to Player", "TeleportToPlayer")
+    toggle(PlayersLocal, "Spectate Choose Players", "SpectatePlayer")
+    toggle(PlayersLocal, "Aimbot Cam Lock", "AimbotCamera")
+    toggle(PlayersLocal, "Aimbot Skills", "AimbotSkills", "High-capability executors redirect Vector3/CFrame skill-remote targets; low-capability executors keep the rest of the tab working.")
+    toggle(PlayersLocal, "Ignore Same Teams", "IgnoreSameTeams")
+    toggle(PlayersLocal, "Accept Allies", "AcceptAllies")
+
+    local InfiniteLocal = LocalTab:CreateSection({Name = "Infinite local abilities", Side = "Left"})
+    toggle(InfiniteLocal, "Instance Mink V3 [ INF ]", "InfiniteMinkV3")
+    toggle(InfiniteLocal, "Instance Energy [ INF ]", "InfiniteEnergy")
+    toggle(InfiniteLocal, "Instance Soru [ INF ]", "InfiniteSoru", "Resets the local Soru closure state when getgc/getupvalues are available; safely no-ops on low-capability executors.")
+    toggle(InfiniteLocal, "Instance Observation Range [ INF ]", "InfiniteObservationRange")
+
     local LocalActions = LocalTab:CreateSection({Name = "Character", Side = "Right"})
     LocalActions:CreateButton({Name = "Reset character", Callback = function() local model = character(); if model then model:BreakJoints() end end})
     toggle(LocalActions, "Anti AFK", "AntiAFK")
@@ -9608,7 +10075,11 @@ end
 function API.Destroy()
     if not Runtime.Alive then return end
     Runtime.Alive = false
-    API.StopAll()
+    savePersistentSettings(true)
+    Runtime.CurrentTarget = nil
+    finishPickupOverlay()
+    Movement:Cancel()
+    clearFarmAnchor(true)
     restoreAggressiveFPSBoost()
     for _, connection in ipairs(Runtime.Connections) do pcall(connection.Disconnect, connection) end
     table.clear(Runtime.Connections)
