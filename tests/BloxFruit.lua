@@ -506,6 +506,12 @@ local Runtime = {
     MovementStarted = 0,
     MovementLastProgress = 0,
     MovementLastPosition = nil,
+    MovementRetryCount = 0,
+    MovementRetryGoal = nil,
+    BlockedMovementGoal = nil,
+    BlockedMovementUntil = 0,
+    LastRejectedNavigation = nil,
+    NavigationRejectCount = 0,
     LastLandCFrame = nil,
     RecoveryCount = 0,
     ForceReleaseUntil = 0,
@@ -1023,6 +1029,71 @@ local function levelMetadata()
     return fallback
 end
 
+local Movement = {}
+
+function Movement:FinitePosition(position)
+    return typeof(position) == "Vector3"
+        and position.X == position.X and position.Y == position.Y and position.Z == position.Z
+        and math.abs(position.X) < 1000000 and math.abs(position.Y) < 1000000
+        and math.abs(position.Z) < 1000000
+end
+
+function Movement:GroundBelowPosition(position)
+    if not self:FinitePosition(position) then return nil end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local excluded = {}
+    local model = character()
+    if model then excluded[#excluded + 1] = model end
+    if EnemyFolder then excluded[#excluded + 1] = EnemyFolder end
+    params.FilterDescendantsInstances = excluded
+    params.IgnoreWater = false
+    return workspace:Raycast(position + Vector3.new(0, 250, 0), Vector3.new(0, -2500, 0), params)
+end
+
+function Movement:RejectNavigation(reason, destination)
+    Runtime.NavigationRejectCount += 1
+    Runtime.LastRejectedNavigation = tostring(reason)
+    if typeof(destination) == "CFrame" then
+        Runtime.BlockedMovementGoal = destination.Position
+        Runtime.BlockedMovementUntil = os.clock() + 8
+    end
+    return nil
+end
+
+function Movement:SafeLandDestination(destination, source)
+    if typeof(destination) ~= "CFrame" or not self:FinitePosition(destination.Position) then
+        return self:RejectNavigation((source or "destination") .. ": invalid CFrame", destination)
+    end
+    local ground = self:GroundBelowPosition(destination.Position)
+    if ground and ground.Material == Enum.Material.Water then
+        return self:RejectNavigation((source or "destination") .. ": water below destination", destination)
+    end
+    return destination
+end
+
+function Movement:SafeLevelSpawn(metadata, destination, source)
+    destination = self:SafeLandDestination(destination, source or "spawn")
+    if not destination then return nil end
+    if metadata and typeof(metadata.QuestCFrame) == "CFrame" then
+        local delta = destination.Position - metadata.QuestCFrame.Position
+        local horizontal = Vector2.new(delta.X, delta.Z).Magnitude
+        -- Every current level quest/spawn pair is below 1,510 studs. A wider
+        -- 2,200-stud guard leaves room for roaming while rejecting stale rows
+        -- that point to a different island or the open sea.
+        if horizontal > 2200 then
+            return self:RejectNavigation(string.format("%s rejected: %.0f studs from quest", source or "spawn", horizontal), destination)
+        end
+    end
+    return destination
+end
+
+function Movement:MatchingLevelMetadata(enemyName)
+    for _, row in ipairs(LEVEL_DATA[Sea] or {}) do
+        if row.Enemy == enemyName then return row end
+    end
+end
+
 local function refreshEnemySpawnCache()
     local worldOrigin = workspace:FindFirstChild("_WorldOrigin")
     local spawnRoot = worldOrigin and worldOrigin:FindFirstChild("EnemySpawns", true)
@@ -1110,9 +1181,14 @@ local function findNearestEnemy(playerRoot)
         for model in pairs(bucket) do
             local humanoid, root = aliveModel(model)
             if humanoid and root then
-                local distance = (playerRoot.Position - root.Position).Magnitude
-                if not nearestDistance or distance < nearestDistance then
-                    nearest, nearestDistance = model, distance
+                local ground = Movement:GroundBelowPosition(root.Position)
+                -- Auto Farm Nearest is for land/humanoid farming. Ignore sea
+                -- event humanoids whose only surface below them is water.
+                if not ground or ground.Material ~= Enum.Material.Water then
+                    local distance = (playerRoot.Position - root.Position).Magnitude
+                    if not nearestDistance or distance < nearestDistance then
+                        nearest, nearestDistance = model, distance
+                    end
                 end
             end
         end
@@ -1131,8 +1207,6 @@ local function findNearestFromNames(names, playerRoot)
     return nearest, nearestDistance
 end
 
-local Movement = {}
-
 function Movement:Cancel(expectedOwner)
     if expectedOwner and Runtime.MovementOwner ~= expectedOwner then return false end
     if Runtime.MovementTween then
@@ -1150,6 +1224,13 @@ function Movement:Go(destination, owner)
     owner = owner or "Automation"
     if Runtime.Respawning then return false end
     if Runtime.ManualTravelHold and owner ~= "ManualTravel" then return false end
+    if owner ~= "ManualTravel" and Runtime.BlockedMovementGoal and os.clock() < Runtime.BlockedMovementUntil
+        and (Runtime.BlockedMovementGoal - destination.Position).Magnitude <= 12
+    then
+        return false
+    elseif os.clock() >= Runtime.BlockedMovementUntil then
+        Runtime.BlockedMovementGoal = nil
+    end
     local model, humanoid, root = characterParts()
     if not humanoid or not root or humanoid.Health <= 0 then return false end
     if humanoid.Sit then humanoid.Sit = false end
@@ -1157,7 +1238,7 @@ function Movement:Go(destination, owner)
     local distance = (root.Position - destination.Position).Magnitude
     if distance <= 3 then
         self:Cancel()
-        root.CFrame = destination
+        if distance > 0.75 then root.CFrame = destination end
         Runtime.ManualTravelInProgress = false
         return true
     end
@@ -1168,6 +1249,12 @@ function Movement:Go(destination, owner)
         return false
     end
 
+    if not Runtime.MovementRetryGoal
+        or (Runtime.MovementRetryGoal - destination.Position).Magnitude > 2
+    then
+        Runtime.MovementRetryCount = 0
+        Runtime.MovementRetryGoal = destination.Position
+    end
     self:Cancel()
     Runtime.MovementGoal = destination
     Runtime.MovementOwner = owner
@@ -1188,6 +1275,8 @@ function Movement:Go(destination, owner)
             Runtime.MovementGoal = nil
             Runtime.MovementOwner = nil
             Runtime.MovementCharacter = nil
+            Runtime.MovementRetryCount = 0
+            Runtime.MovementRetryGoal = nil
             if owner == "ManualTravel" then Runtime.ManualTravelInProgress = false end
             if playbackState == Enum.PlaybackState.Completed then Runtime.MovementLastProgress = os.clock() end
         end
@@ -1228,8 +1317,20 @@ task.spawn(function()
                 then
                     local retry, owner = goal, Runtime.MovementOwner
                     Runtime.RecoveryCount += 1
+                    Runtime.MovementRetryCount += 1
                     Movement:Cancel()
-                    Movement:Go(retry, owner)
+                    if Runtime.MovementRetryCount >= 2 then
+                        Runtime.BlockedMovementGoal = retry.Position
+                        Runtime.BlockedMovementUntil = os.clock() + 10
+                        Runtime.LastRejectedNavigation = "movement stalled twice; goal blocked for 10s"
+                        Runtime.NavigationRejectCount += 1
+                        Runtime.CurrentTarget = nil
+                        Runtime.FarmAnchor = nil
+                        Runtime.FarmAnchorKey = nil
+                        Runtime.AnchorReached = false
+                    else
+                        Movement:Go(retry, owner)
+                    end
                 end
                 strandedSince = nil
             elseif farmEnabled() and not Runtime.ManualTravelHold and not Runtime.PickupBusy and not Runtime.AnchorReached
@@ -1238,8 +1339,10 @@ task.spawn(function()
                 strandedSince = strandedSince or os.clock()
                 if os.clock() - strandedSince > 2.5 then
                     local levelRow = levelMetadata()
-                    local fallback = Runtime.LastLandCFrame
-                        or (levelRow and (levelRow.EnemyCFrame or levelRow.QuestCFrame))
+                    local mode = activeFarmMode()
+                    local questFallback = (mode == "Level" or mode == "Mob") and levelRow
+                        and Movement:SafeLandDestination(levelRow.QuestCFrame, "stranded quest recovery")
+                    local fallback = questFallback or Runtime.LastLandCFrame
                     if fallback then
                     Runtime.RecoveryCount += 1
                     Movement:Go(fallback * CFrame.new(0, 5, 0))
@@ -1639,9 +1742,15 @@ local function ensureQuest(metadata, titleMatch)
         return false
     end
     if not visible then
-        Movement:Go(metadata.QuestCFrame)
+        local questCFrame = Movement:SafeLandDestination(metadata.QuestCFrame, tostring(metadata.Quest) .. " quest giver")
+        if not questCFrame then
+            Runtime.CurrentTarget = nil
+            clearFarmAnchor(true)
+            return false
+        end
+        Movement:Go(questCFrame)
         local _, _, root = characterParts()
-        if root and (root.Position - metadata.QuestCFrame.Position).Magnitude <= 5
+        if root and (root.Position - questCFrame.Position).Magnitude <= 5
             and questRemoteReady(0.75)
         then
             invokeComm("StartQuest", metadata.Quest, metadata.Slot)
@@ -1651,13 +1760,15 @@ local function ensureQuest(metadata, titleMatch)
     return true
 end
 
-local function combatTarget(target, anchorKey, fallbackAnchor)
+local function combatTarget(target, anchorKey)
     local humanoid, root = aliveModel(target)
     if not humanoid or not root then return false end
     local _, _, playerRoot = characterParts()
     if not playerRoot then return false end
 
-    local anchor = ensureFarmAnchor(anchorKey, fallbackAnchor or root.CFrame)
+    -- A combat anchor is created only from a replicated, living target. Spawn
+    -- metadata is navigation guidance, never authority for the root lock.
+    local anchor = ensureFarmAnchor(anchorKey, root.CFrame)
     if not anchor then return false end
     Runtime.CurrentTarget = target
 
@@ -1681,6 +1792,16 @@ local function combatTarget(target, anchorKey, fallbackAnchor)
     return true
 end
 
+function Movement:WaitingSpawn(playerRoot, destination)
+    if not playerRoot or typeof(destination) ~= "CFrame" then return false end
+    local goal = destination * CFrame.new(0, 5, 0)
+    if (playerRoot.Position - goal.Position).Magnitude > 12 then
+        return self:Go(goal)
+    end
+    self:Cancel("Automation")
+    return true
+end
+
 local function tickLevel(playerRoot)
     local metadata = levelMetadata()
     if not metadata then return end
@@ -1695,13 +1816,15 @@ local function tickLevel(playerRoot)
         target = findNearestByName(metadata.Enemy, playerRoot)
         Runtime.CurrentTarget = nil
     end
-    local spawnCFrame = enemySpawnCFrame(metadata.Enemy, metadata.QuestCFrame)
-        or metadata.EnemyCFrame
+    local liveSpawn = enemySpawnCFrame(metadata.Enemy, metadata.QuestCFrame)
+    local spawnCFrame = liveSpawn and Movement:SafeLevelSpawn(metadata, liveSpawn, "live " .. metadata.Enemy .. " spawn")
+        or Movement:SafeLevelSpawn(metadata, metadata.EnemyCFrame, "static " .. metadata.Enemy .. " spawn")
     if target then
-        combatTarget(target, "Level:" .. metadata.Enemy, spawnCFrame)
+        combatTarget(target, "Level:" .. metadata.Enemy)
     elseif spawnCFrame then
-        local anchor = ensureFarmAnchor("Level:" .. metadata.Enemy, spawnCFrame)
-        Movement:Go(anchor * CFrame.new(0, tonumber(Settings.Height) or 20, 0))
+        if Runtime.FarmAnchor then clearFarmAnchor(true) end
+        Runtime.AnchorReached = false
+        Movement:WaitingSpawn(playerRoot, spawnCFrame)
     end
 end
 
@@ -1712,12 +1835,17 @@ local function tickMob(playerRoot)
         target = findNearestByName(Settings.SelectedMob, playerRoot)
         Runtime.CurrentTarget = nil
     end
-    local spawnCFrame = enemySpawnCFrame(Settings.SelectedMob, playerRoot.Position)
+    local metadata = Movement:MatchingLevelMetadata(Settings.SelectedMob)
+    local reference = metadata and metadata.QuestCFrame or playerRoot.Position
+    local liveSpawn = enemySpawnCFrame(Settings.SelectedMob, reference)
+    local spawnCFrame = liveSpawn and Movement:SafeLevelSpawn(metadata, liveSpawn, "live " .. Settings.SelectedMob .. " spawn")
+        or (metadata and Movement:SafeLevelSpawn(metadata, metadata.EnemyCFrame, "static " .. Settings.SelectedMob .. " spawn"))
     if target then
-        combatTarget(target, "Mob:" .. Settings.SelectedMob, spawnCFrame)
+        combatTarget(target, "Mob:" .. Settings.SelectedMob)
     elseif spawnCFrame then
-        local anchor = ensureFarmAnchor("Mob:" .. Settings.SelectedMob, spawnCFrame)
-        Movement:Go(anchor * CFrame.new(0, tonumber(Settings.Height) or 20, 0))
+        if Runtime.FarmAnchor then clearFarmAnchor(true) end
+        Runtime.AnchorReached = false
+        Movement:WaitingSpawn(playerRoot, spawnCFrame)
     end
 end
 
@@ -1754,15 +1882,16 @@ local function tickBoss(playerRoot)
     end
 
     local target = findNearestByName(metadata.Model, playerRoot)
-    local spawnCFrame = enemySpawnCFrame(metadata.Model, metadata.QuestCFrame or metadata.BossCFrame)
+    local rawSpawn = enemySpawnCFrame(metadata.Model, metadata.QuestCFrame or metadata.BossCFrame)
         or metadata.BossCFrame
+    local spawnCFrame = rawSpawn and Movement:SafeLandDestination(rawSpawn, metadata.Model .. " boss spawn")
     if target then
-        combatTarget(target, "Boss:" .. metadata.Model, spawnCFrame)
+        combatTarget(target, "Boss:" .. metadata.Model)
         return
     end
 
     Runtime.CurrentTarget = nil
-    if spawnCFrame then Movement:Go(spawnCFrame * CFrame.new(0, 25, 0)) end
+    if spawnCFrame then Movement:WaitingSpawn(playerRoot, spawnCFrame) end
 end
 
 local function tickAllBoss(playerRoot)
@@ -1789,12 +1918,13 @@ local function tickAllBoss(playerRoot)
         enemySpawnCFrame(metadata.Model, metadata.QuestCFrame or metadata.BossCFrame)
         or metadata.BossCFrame
     )
+    if destination then destination = Movement:SafeLandDestination(destination, metadata.Model .. " all-boss spawn") end
     if not destination then
         Runtime.AllBossIndex = Runtime.AllBossIndex % #names + 1
         return
     end
-    local goal = destination * CFrame.new(0, 25, 0)
-    if (playerRoot.Position - goal.Position).Magnitude > 20 then
+    local goal = destination * CFrame.new(0, 5, 0)
+    if (playerRoot.Position - goal.Position).Magnitude > 12 then
         Runtime.AllBossArrivedAt = nil
         Movement:Go(goal)
         return
@@ -1817,10 +1947,13 @@ local function tickMaterial(playerRoot)
         Runtime.CurrentTarget = nil
     end
     if target then
-        combatTarget(target, "Material:" .. Settings.SelectedMaterial, metadata.CFrame)
+        combatTarget(target, "Material:" .. Settings.SelectedMaterial)
     elseif metadata.CFrame then
-        local anchor = ensureFarmAnchor("Material:" .. Settings.SelectedMaterial, metadata.CFrame)
-        Movement:Go(anchor * CFrame.new(0, tonumber(Settings.Height) or 20, 0))
+        local destination = Movement:SafeLandDestination(metadata.CFrame, Settings.SelectedMaterial .. " material spawn")
+        if not destination then return end
+        if Runtime.FarmAnchor then clearFarmAnchor(true) end
+        Runtime.AnchorReached = false
+        Movement:WaitingSpawn(playerRoot, destination)
     end
 end
 
@@ -1843,7 +1976,7 @@ local function tickElite(playerRoot)
     for _, name in ipairs(ELITE_NAMES) do
         local template = ReplicatedStorage:FindFirstChild(name)
         local root = template and template:FindFirstChild("HumanoidRootPart")
-        if root then Movement:Go(root.CFrame * CFrame.new(0, 25, 0)); return end
+        if root then Movement:WaitingSpawn(playerRoot, root.CFrame); return end
     end
 end
 
@@ -3304,18 +3437,30 @@ connect(RunService.Heartbeat, function(delta)
         physicsAccumulator = 0
         local manualTween = Runtime.ManualTravelInProgress
             and Runtime.MovementOwner == "ManualTravel"
+        local automationPhysics = Runtime.PickupBusy or manualTween
+            or Runtime.MovementTween ~= nil
+            or (farmEnabled() and (Runtime.CurrentTarget ~= nil or Runtime.AnchorReached))
         if os.clock() < Runtime.ForceReleaseUntil then
             restoreCharacterPhysics(true)
-        elseif (farmEnabled() or Runtime.PickupBusy or manualTween)
+        elseif automationPhysics
             and not Runtime.Respawning and (not Runtime.ManualTravelHold or manualTween)
         then
             local model, _, root = characterParts()
             if root then ensureBodyVelocity(root, "BodyClip", Vector3.new(100000, 100000, 100000)) end
             if not Runtime.PickupBusy and root and Runtime.AnchorReached and Runtime.FarmAnchor then
-                root.CFrame = Runtime.FarmAnchor
-                    * CFrame.new(0, tonumber(Settings.Height) or 20, 0)
-                    * CFrame.Angles(0, math.pi, 0)
-                root.AssemblyLinearVelocity = Vector3.zero
+                local _, targetRoot = aliveModel(Runtime.CurrentTarget)
+                if targetRoot and (targetRoot.Position - Runtime.FarmAnchor.Position).Magnitude
+                    <= math.max(120, tonumber(Settings.BringRadius) or 3000)
+                then
+                    root.CFrame = Runtime.FarmAnchor
+                        * CFrame.new(0, tonumber(Settings.Height) or 20, 0)
+                        * CFrame.Angles(0, math.pi, 0)
+                    root.AssemblyLinearVelocity = Vector3.zero
+                else
+                    Runtime.AnchorReached = false
+                    Runtime.FarmAnchor = nil
+                    Runtime.FarmAnchorKey = nil
+                end
             end
             if model then
                 for _, part in ipairs(model:GetDescendants()) do
@@ -13283,6 +13428,32 @@ return Library
                 Title = "Combat diagnostics",
                 Content = string.format("%s | token:%s | attempts:%d | damage:%d | targets:%d | batch:%d | pickup:%s", Runtime.CombatTransport, Runtime.CombatToken and "yes" or "no", Runtime.AttackAttempts, Runtime.DamageRegistrations, #Runtime.FastTargets, Runtime.LastBatchSize, Runtime.PickupKind or "none"),
                 Duration = 8,
+            })
+        end,
+    })
+    Combat:CreateButton({
+        Name = "Show navigation diagnostics",
+        Callback = function()
+            local function positionText(value)
+                local position = typeof(value) == "CFrame" and value.Position
+                    or (typeof(value) == "Vector3" and value)
+                if not position then return "none" end
+                return string.format("%.0f,%.0f,%.0f", position.X, position.Y, position.Z)
+            end
+            local _, _, root = characterParts()
+            RenLib:Notify({
+                Title = "Navigation diagnostics",
+                Content = string.format(
+                    "mode:%s | player:%s | goal:%s | anchor:%s | target:%s | rejected:%d (%s)",
+                    tostring(activeFarmMode() or "none"),
+                    positionText(root and root.Position),
+                    positionText(Runtime.MovementGoal),
+                    positionText(Runtime.FarmAnchor),
+                    Runtime.CurrentTarget and Runtime.CurrentTarget.Name or "none",
+                    Runtime.NavigationRejectCount,
+                    Runtime.LastRejectedNavigation or "none"
+                ),
+                Duration = 12,
             })
         end,
     })
