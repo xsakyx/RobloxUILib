@@ -4,7 +4,7 @@
 --[[ MODULE: 00_runtime.part.lua ]]
 -- Module fragment: runtime, services, constants, root state
 -- Generated from the working V7 baseline; edit this feature in isolation.
--- RenLib V8.2.0 beta modular compatibility bundle
+-- RenLib V9.0.0 beta modular compatibility bundle
 -- Responsive Roblox UI framework with centralized navigation, non-destructive
 -- search, mobile-first input, live theming, addons, and deterministic cleanup.
 
@@ -132,7 +132,7 @@ local ICONS = {
 
 --// ROOT LIBRARY
 local Library = {}
-Library.Version = "8.2.0-beta"
+Library.Version = "9.0.0-beta"
 Library.Architecture = "modular-bundle"
 Library.Title = "RenLib"
 Library.Connections = {}
@@ -148,6 +148,7 @@ Library.Keybinds = {}
 Library.KeybindDefaults = {}
 Library.Addons = {}
 Library.AddonOrder = {}
+Library.ESPManagers = {}
 Library.ToggleKey = Enum.KeyCode.K
 Library.IsMinimized = false
 Library.IsMobile = IsMobile
@@ -162,7 +163,7 @@ Library.ActiveTweens = {}
 Library.LayoutTweens = {}
 Library.VisibilityTweens = {}
 Library.GradientRegistry = {}
-Library.ActiveTheme = "Celestial"
+Library.ActiveTheme = "Obsidian"
 Library.ScalePreview = nil
 Library.MaterialMode = "Solid"
 Library.MaterialIntensity = 18
@@ -208,25 +209,34 @@ Library.StrategyProfilePrefix = "strategy_"
 
 -- Theme (can be changed at runtime)
 Library.Theme = {
-    Main = Color3.fromRGB(24, 26, 37),
-    Secondary = Color3.fromRGB(29, 32, 44),
-    Surface = Color3.fromRGB(36, 39, 53),
-    SurfaceAlt = Color3.fromRGB(44, 47, 63),
-    Stroke = Color3.fromRGB(82, 86, 111),
-    Divider = Color3.fromRGB(57, 60, 79),
-    Text = Color3.fromRGB(245, 245, 249),
-    SubText = Color3.fromRGB(158, 160, 178),
-    Hover = Color3.fromRGB(48, 51, 68),
-    Click = Color3.fromRGB(55, 59, 77),
-    Accent = Color3.fromRGB(157, 112, 255),
-    Accent2 = Color3.fromRGB(91, 190, 255),
-    Accent3 = Color3.fromRGB(255, 142, 216),
+    Main = Color3.fromRGB(9, 11, 16),
+    Secondary = Color3.fromRGB(14, 17, 24),
+    Surface = Color3.fromRGB(20, 24, 34),
+    SurfaceAlt = Color3.fromRGB(28, 33, 45),
+    Stroke = Color3.fromRGB(66, 74, 94),
+    Divider = Color3.fromRGB(38, 44, 58),
+    Text = Color3.fromRGB(241, 244, 249),
+    SubText = Color3.fromRGB(147, 156, 174),
+    Hover = Color3.fromRGB(31, 37, 50),
+    Click = Color3.fromRGB(39, 46, 61),
+    Accent = Color3.fromRGB(103, 151, 255),
+    Accent2 = Color3.fromRGB(69, 207, 190),
+    Accent3 = Color3.fromRGB(184, 118, 255),
     Success = Color3.fromRGB(75, 215, 155),
-    Warn = Color3.fromRGB(247, 190, 78),
-    Error = Color3.fromRGB(247, 91, 121)
+    Warn = Color3.fromRGB(242, 184, 78),
+    Error = Color3.fromRGB(241, 89, 113)
 }
 
 Library.ThemePresets = {
+    Obsidian = {
+        Main = Color3.fromRGB(9, 11, 16), Secondary = Color3.fromRGB(14, 17, 24),
+        Surface = Color3.fromRGB(20, 24, 34), SurfaceAlt = Color3.fromRGB(28, 33, 45),
+        Stroke = Color3.fromRGB(66, 74, 94), Divider = Color3.fromRGB(38, 44, 58),
+        Text = Color3.fromRGB(241, 244, 249), SubText = Color3.fromRGB(147, 156, 174),
+        Hover = Color3.fromRGB(31, 37, 50), Click = Color3.fromRGB(39, 46, 61),
+        Accent = Color3.fromRGB(103, 151, 255), Accent2 = Color3.fromRGB(69, 207, 190), Accent3 = Color3.fromRGB(184, 118, 255),
+        Success = Color3.fromRGB(75, 215, 155), Warn = Color3.fromRGB(242, 184, 78), Error = Color3.fromRGB(241, 89, 113)
+    },
     Midnight = {
         Main = Color3.fromRGB(23, 26, 36), Secondary = Color3.fromRGB(29, 32, 44),
         Surface = Color3.fromRGB(36, 40, 53), SurfaceAlt = Color3.fromRGB(44, 48, 63),
@@ -511,7 +521,7 @@ end
 function Utility:Create(class, properties)
     local instance = Instance.new(class)
     if class == "UIStroke" and properties.Transparency == nil then
-        instance.Transparency = 0.24
+        instance.Transparency = 0.56
     end
     for k, v in pairs(properties) do
         if k ~= "Parent" then
@@ -1684,6 +1694,805 @@ function Library:RelaunchRenCore(beforeRelaunch)
         if not ran then warn("[RenLib] RenCore relaunch failed: " .. tostring(runtimeError)) end
     end)
     return true
+end
+
+
+--[[ MODULE: 55_esp_runtime.part.lua ]]
+-- Reusable, executor-safe ESP renderer for players, NPCs, models, parts,
+-- attachments, pickups, and other world objects. It deliberately uses Roblox
+-- GUI instances instead of Drawing so it works in more client environments.
+local ESP_R15_JOINTS = {
+    {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
+    {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"},
+    {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"},
+    {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"},
+    {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"},
+}
+local ESP_R6_JOINTS = {
+    {"Head", "Torso"}, {"Torso", "Left Arm"}, {"Torso", "Right Arm"},
+    {"Torso", "Left Leg"}, {"Torso", "Right Leg"},
+}
+local ESP_DEFAULTS = {
+    Enabled = true,
+    IncludeLocalPlayer = false,
+    AliveOnly = true,
+    MaxDistance = 2500,
+    MaxVisible = 64,
+    NearestOnly = false,
+    UpdateRate = 0,
+    MinScreenHeight = 4,
+    Color = Color3.fromRGB(105, 190, 255),
+    HiddenColor = nil,
+    HiddenTransparency = 0.3,
+    Box = true,
+    BoxStyle = "Corners",
+    BoxThickness = 1.5,
+    BoxTransparency = 0,
+    CornerScale = 0.26,
+    Outline = true,
+    OutlineColor = Color3.fromRGB(3, 3, 5),
+    OutlineThickness = 2,
+    OutlineTransparency = 0.08,
+    ShowName = true,
+    NameColor = nil,
+    NameSize = 14,
+    NameOffset = Vector2.zero,
+    ShowDetails = true,
+    DetailsColor = Color3.fromRGB(238, 241, 247),
+    DetailsSize = 11,
+    DetailsOffset = Vector2.zero,
+    Font = Enum.Font.GothamBold,
+    TextStrokeColor = Color3.new(0, 0, 0),
+    TextStrokeTransparency = 0.12,
+    ShowDistance = true,
+    DistanceSuffix = "m",
+    HealthBar = true,
+    HealthText = true,
+    HealthBarWidth = 5,
+    HealthSide = "Left",
+    HealthBackgroundColor = Color3.fromRGB(4, 4, 5),
+    Skeleton = false,
+    SkeletonColor = nil,
+    SkeletonThickness = 1.5,
+    SkeletonMaxDistance = 350,
+    SkeletonMinScreenHeight = 28,
+    SkeletonLineLimit = 24,
+    Highlight = false,
+    HighlightColor = nil,
+    HighlightDepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+    HighlightFillTransparency = 0.88,
+    HighlightOutlineTransparency = 0.08,
+    OccludedFillTransparency = 0.72,
+    Tracer = false,
+    TracerColor = nil,
+    TracerThickness = 1,
+    TracerOrigin = "Bottom",
+    VisibilityCheck = true,
+    VisibilityInterval = 0.08,
+    DefaultObjectSize = Vector3.new(2, 2, 2),
+}
+
+local function copyEspTable(source)
+    local result = {}
+    for key, value in pairs(source or {}) do result[key] = value end
+    return result
+end
+
+local function mergeEspTables(base, override)
+    local result = copyEspTable(base)
+    for key, value in pairs(override or {}) do result[key] = value end
+    return result
+end
+
+Library.ESPDefaults = copyEspTable(ESP_DEFAULTS)
+
+local function createEspInstance(className, properties)
+    local object = Instance.new(className)
+    for key, value in pairs(properties or {}) do
+        if key ~= "Parent" then object[key] = value end
+    end
+    if properties and properties.Parent then object.Parent = properties.Parent end
+    return object
+end
+
+local function createEspLine(parent, zIndex)
+    return createEspInstance("Frame", {
+        Parent = parent,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BorderSizePixel = 0,
+        Size = UDim2.fromOffset(0, 1),
+        Visible = false,
+        ZIndex = zIndex or 22,
+    })
+end
+
+local function positionEspLine(line, a, b, thickness)
+    local delta = b - a
+    local length = delta.Magnitude
+    if length < 0.35 then line.Visible = false return false end
+    line.Position = UDim2.fromOffset((a.X + b.X) * 0.5, (a.Y + b.Y) * 0.5)
+    line.Size = UDim2.fromOffset(length, math.max(0.5, tonumber(thickness) or 1))
+    line.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+    line.Visible = true
+    return true
+end
+
+local function createEspLinePair(parent, zIndex)
+    return {
+        Shadow = createEspLine(parent, (zIndex or 22) - 1),
+        Main = createEspLine(parent, zIndex or 22),
+    }
+end
+
+local function hideEspLinePair(pair)
+    pair.Shadow.Visible = false
+    pair.Main.Visible = false
+end
+
+local function renderEspLinePair(pair, a, b, color, thickness, transparency, style)
+    local visible = positionEspLine(pair.Main, a, b, thickness)
+    if not visible then pair.Shadow.Visible = false return end
+    pair.Main.BackgroundColor3 = color
+    pair.Main.BackgroundTransparency = transparency or 0
+    if style.Outline then
+        positionEspLine(pair.Shadow, a, b, (tonumber(thickness) or 1) + (tonumber(style.OutlineThickness) or 2))
+        pair.Shadow.BackgroundColor3 = style.OutlineColor
+        pair.Shadow.BackgroundTransparency = style.OutlineTransparency
+    else
+        pair.Shadow.Visible = false
+    end
+end
+
+local function createEspText(parent, size, zIndex)
+    return createEspInstance("TextLabel", {
+        Parent = parent,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Font = Enum.Font.GothamBold,
+        Size = UDim2.fromOffset(420, 20),
+        Text = "",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = size,
+        TextStrokeColor3 = Color3.new(0, 0, 0),
+        TextStrokeTransparency = 0.12,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Visible = false,
+        ZIndex = zIndex or 30,
+    })
+end
+
+local function resolveEspInstance(target, targetOptions)
+    if type(targetOptions.GetInstance) == "function" then
+        local ok, value = pcall(targetOptions.GetInstance, target, targetOptions)
+        if ok and typeof(value) == "Instance" then return value end
+    end
+    if typeof(target) ~= "Instance" then return nil end
+    if target:IsA("Player") then return target.Character end
+    return target
+end
+
+local function resolveEspBounds(instance, style, target, targetOptions)
+    if type(targetOptions.GetBounds) == "function" then
+        local ok, cf, size = pcall(targetOptions.GetBounds, target, instance, targetOptions)
+        if ok and typeof(cf) == "CFrame" and typeof(size) == "Vector3" then return cf, size end
+    end
+    if not instance then return nil end
+    if instance:IsA("Model") then
+        local ok, cf, size = pcall(instance.GetBoundingBox, instance)
+        if ok then return cf, size end
+    elseif instance:IsA("BasePart") then
+        return instance.CFrame, instance.Size
+    elseif instance:IsA("Attachment") then
+        return instance.WorldCFrame, targetOptions.Size or style.DefaultObjectSize
+    end
+    local part = instance:FindFirstChildWhichIsA("BasePart", true)
+    if part then return part.CFrame, targetOptions.Size or part.Size end
+    return nil
+end
+
+local function projectEspBounds(camera, cf, size)
+    local half = size * 0.5
+    local left, top = math.huge, math.huge
+    local right, bottom = -math.huge, -math.huge
+    local visibleCorners = 0
+    for x = -1, 1, 2 do
+        for y = -1, 1, 2 do
+            for z = -1, 1, 2 do
+                local worldPoint = cf:PointToWorldSpace(Vector3.new(half.X * x, half.Y * y, half.Z * z))
+                local screen = camera:WorldToViewportPoint(worldPoint)
+                if screen.Z > 0.05 then
+                    visibleCorners += 1
+                    left = math.min(left, screen.X)
+                    right = math.max(right, screen.X)
+                    top = math.min(top, screen.Y)
+                    bottom = math.max(bottom, screen.Y)
+                end
+            end
+        end
+    end
+    if visibleCorners == 0 then return nil end
+    return left, top, right, bottom
+end
+
+local function getEspDistanceOrigin(style)
+    local origin = style.DistanceOrigin
+    if type(origin) == "function" then
+        local ok, value = pcall(origin)
+        if ok then origin = value end
+    end
+    if typeof(origin) == "Instance" then
+        if origin:IsA("Attachment") then return origin.WorldPosition end
+        if origin:IsA("BasePart") then return origin.Position end
+    elseif typeof(origin) == "Vector3" then
+        return origin
+    end
+    local character = Plr and Plr.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    return root and root.Position or (Camera and Camera.CFrame.Position) or Vector3.zero
+end
+
+local function resolveEspHealth(target, instance, options)
+    if type(options.GetHealth) == "function" then
+        local ok, health, maximum = pcall(options.GetHealth, target, instance, options)
+        if ok and tonumber(health) then return tonumber(health), math.max(tonumber(maximum) or 100, 1) end
+    end
+    local humanoid = instance and instance:FindFirstChildOfClass("Humanoid")
+    if humanoid then return humanoid.Health, math.max(humanoid.MaxHealth, 1), humanoid end
+    local health = instance and instance:GetAttribute("Health")
+    if tonumber(health) then return tonumber(health), math.max(tonumber(instance:GetAttribute("MaxHealth")) or 100, 1) end
+    return nil
+end
+
+local function cacheEspRigParts(instance)
+    local parts = {}
+    if not instance then return parts end
+    for _, child in ipairs(instance:GetDescendants()) do
+        if child:IsA("BasePart") and parts[child.Name] == nil then parts[child.Name] = child end
+    end
+    return parts
+end
+
+function Library:CreateESP(options)
+    options = options or {}
+    local guiParent = Capabilities:GetGuiParent()
+    assert(guiParent, "[RenLib] No supported UI parent is available for ESP")
+
+    local overlayGui = createEspInstance("ScreenGui", {
+        Name = tostring(options.GuiName or ("RenLibESP_" .. Utility:RandomString(7))),
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        DisplayOrder = tonumber(options.DisplayOrder) or 9999,
+        ZIndexBehavior = Enum.ZIndexBehavior.Global,
+    })
+    overlayGui:SetAttribute("RenLibESP", true)
+    overlayGui:SetAttribute("RenLibVersion", self.Version)
+    Capabilities:ProtectGui(overlayGui)
+    overlayGui.Parent = guiParent
+    local overlay = createEspInstance("Frame", {
+        Name = "Overlay",
+        Parent = overlayGui,
+        BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 1),
+        ZIndex = 10,
+    })
+
+    local manager = {
+        Type = "ESPManager",
+        Options = mergeEspTables(ESP_DEFAULTS, options),
+        Records = {},
+        Connections = {},
+        Tracks = {},
+        OverlayGui = overlayGui,
+        Overlay = overlay,
+        Enabled = options.Enabled ~= false,
+        Destroyed = false,
+        LastUpdate = 0,
+        VisibleCount = 0,
+    }
+    manager.Options.Enabled = manager.Enabled
+    table.insert(self.ESPManagers, manager)
+
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.IgnoreWater = options.IgnoreWater == true
+
+    local function connect(signal, callback)
+        local connection = signal:Connect(callback)
+        table.insert(manager.Connections, connection)
+        return connection
+    end
+
+    local function hideRecord(record)
+        if not record or not record.Visual then return end
+        local wasVisible = record.Visible == true
+        for _, pair in ipairs(record.Visual.BoxLines) do hideEspLinePair(pair) end
+        for _, pair in ipairs(record.Visual.SkeletonLines) do hideEspLinePair(pair) end
+        hideEspLinePair(record.Visual.Tracer)
+        record.Visual.Name.Visible = false
+        record.Visual.Details.Visible = false
+        record.Visual.HealthBack.Visible = false
+        record.Visual.HealthFill.Visible = false
+        if record.Visual.Highlight then record.Visual.Highlight.Enabled = false end
+        record.Visible = false
+        if wasVisible then Utility:SafeCall(record.Style.OnVisibilityChanged, false, record) end
+    end
+
+    local function destroyRecord(record)
+        if not record then return end
+        hideRecord(record)
+        for _, connection in ipairs(record.Connections or {}) do pcall(function() connection:Disconnect() end) end
+        if record.Visual.Highlight then record.Visual.Highlight:Destroy() end
+        record.Visual.Container:Destroy()
+        record.Destroyed = true
+    end
+
+    local function makeVisual(target, style)
+        local container = createEspInstance("Frame", {
+            Name = "ESP_" .. tostring((typeof(target) == "Instance" and target.Name) or "Target"),
+            Parent = overlay,
+            BackgroundTransparency = 1,
+            Size = UDim2.fromScale(1, 1),
+            ZIndex = 20,
+        })
+        local visual = {Container = container, BoxLines = {}, SkeletonLines = {}}
+        for index = 1, 8 do visual.BoxLines[index] = createEspLinePair(container, 22) end
+        for index = 1, math.max(14, tonumber(style.SkeletonLineLimit) or 24) do
+            visual.SkeletonLines[index] = createEspLinePair(container, 25)
+        end
+        visual.Tracer = createEspLinePair(container, 21)
+        visual.Name = createEspText(container, style.NameSize, 31)
+        visual.Details = createEspText(container, style.DetailsSize, 31)
+        visual.HealthBack = createEspInstance("Frame", {Parent = container, BackgroundColor3 = Color3.fromRGB(4, 4, 5), BorderSizePixel = 0, Visible = false, ZIndex = 27})
+        visual.HealthFill = createEspInstance("Frame", {Parent = container, AnchorPoint = Vector2.new(0, 1), BackgroundColor3 = Color3.fromRGB(80, 235, 105), BorderSizePixel = 0, Visible = false, ZIndex = 28})
+        return visual
+    end
+
+    local function ensureHighlight(record, instance)
+        if not record.Style.Highlight then
+            if record.Visual.Highlight then record.Visual.Highlight.Enabled = false end
+            return nil
+        end
+        local adornee = instance
+        if not adornee or (not adornee:IsA("Model") and not adornee:IsA("BasePart")) then
+            if record.Visual.Highlight then record.Visual.Highlight.Enabled = false end
+            return nil
+        end
+        if not record.Visual.Highlight then
+            record.Visual.Highlight = createEspInstance("Highlight", {
+                Name = "RenESPHighlight",
+                Parent = overlayGui,
+                Enabled = false,
+            })
+        end
+        record.Visual.Highlight.Adornee = adornee
+        return record.Visual.Highlight
+    end
+
+    local function resolveColor(record, instance, occluded)
+        local style = record.Style
+        local color = record.Options.Color or style.Color
+        local callback = record.Options.GetColor or style.GetColor
+        if type(callback) == "function" then
+            local ok, result = pcall(callback, record.Target, instance, record)
+            if ok and typeof(result) == "Color3" then color = result end
+        end
+        if occluded and typeof(style.HiddenColor) == "Color3" then color = style.HiddenColor end
+        return typeof(color) == "Color3" and color or ESP_DEFAULTS.Color
+    end
+
+    local function resolveName(record, instance)
+        local callback = record.Options.GetName or record.Style.GetName
+        if type(callback) == "function" then
+            local ok, result = pcall(callback, record.Target, instance, record)
+            if ok and result ~= nil then return tostring(result) end
+        end
+        if record.Options.Name ~= nil then return tostring(record.Options.Name) end
+        if typeof(record.Target) == "Instance" and record.Target:IsA("Player") then
+            local player = record.Target
+            return player.DisplayName ~= player.Name and (player.DisplayName .. "  @" .. player.Name) or ("@" .. player.Name)
+        end
+        return instance and instance.Name or "Target"
+    end
+
+    local function resolveDetail(record, instance, health, maximum, distance, occluded)
+        local callback = record.Options.GetText or record.Style.GetText
+        if type(callback) == "function" then
+            local ok, result = pcall(callback, record.Target, instance, record)
+            if ok and result ~= nil then return tostring(result) end
+        end
+        if record.Options.Text ~= nil then return tostring(record.Options.Text) end
+        local pieces = {}
+        if record.Style.HealthText and health then table.insert(pieces, string.format("HP %d/%d", math.max(0, math.floor(health + 0.5)), math.floor(maximum + 0.5))) end
+        if record.Style.ShowDistance then table.insert(pieces, tostring(math.floor(distance + 0.5)) .. tostring(record.Style.DistanceSuffix or "m")) end
+        if occluded then table.insert(pieces, "OCCLUDED") end
+        return table.concat(pieces, "  •  ")
+    end
+
+    local function renderBox(record, left, top, right, bottom, color, transparency)
+        local style = record.Style
+        local lines = record.Visual.BoxLines
+        if not style.Box or style.BoxStyle == "None" then
+            for _, pair in ipairs(lines) do hideEspLinePair(pair) end
+            return
+        end
+        local thickness = tonumber(style.BoxThickness) or 1.5
+        if tostring(style.BoxStyle):lower() == "full" then
+            local points = {
+                {Vector2.new(left, top), Vector2.new(right, top)},
+                {Vector2.new(right, top), Vector2.new(right, bottom)},
+                {Vector2.new(right, bottom), Vector2.new(left, bottom)},
+                {Vector2.new(left, bottom), Vector2.new(left, top)},
+            }
+            for index, pair in ipairs(lines) do
+                local pointsForLine = points[index]
+                if pointsForLine then renderEspLinePair(pair, pointsForLine[1], pointsForLine[2], color, thickness, transparency, style) else hideEspLinePair(pair) end
+            end
+            return
+        end
+        local width, height = right - left, bottom - top
+        local corner = math.clamp(math.min(width, height) * (tonumber(style.CornerScale) or 0.26), 4, 22)
+        local points = {
+            {Vector2.new(left, top), Vector2.new(left + corner, top)}, {Vector2.new(left, top), Vector2.new(left, top + corner)},
+            {Vector2.new(right - corner, top), Vector2.new(right, top)}, {Vector2.new(right, top), Vector2.new(right, top + corner)},
+            {Vector2.new(left, bottom - corner), Vector2.new(left, bottom)}, {Vector2.new(left, bottom), Vector2.new(left + corner, bottom)},
+            {Vector2.new(right, bottom - corner), Vector2.new(right, bottom)}, {Vector2.new(right - corner, bottom), Vector2.new(right, bottom)},
+        }
+        for index, pair in ipairs(lines) do renderEspLinePair(pair, points[index][1], points[index][2], color, thickness, transparency, style) end
+    end
+
+    local function updateRecord(record, now)
+        local style = record.Style
+        local instance = resolveEspInstance(record.Target, record.Options)
+        if not manager.Enabled or style.Enabled == false or not instance or not instance.Parent then hideRecord(record) return false end
+        if type(style.Predicate) == "function" then
+            local ok, allowed = pcall(style.Predicate, record.Target, instance, record)
+            if not ok or allowed == false then hideRecord(record) return false end
+        end
+        local cf, size = resolveEspBounds(instance, style, record.Target, record.Options)
+        if not cf or not size then hideRecord(record) return false end
+        local health, maximum, humanoid = resolveEspHealth(record.Target, instance, record.Options)
+        if style.AliveOnly and humanoid and health <= 0 then hideRecord(record) return false end
+        Camera = workspace.CurrentCamera or Camera
+        if not Camera then hideRecord(record) return false end
+        local distance = (cf.Position - getEspDistanceOrigin(style)).Magnitude
+        if tonumber(style.MaxDistance) and style.MaxDistance > 0 and distance > style.MaxDistance then hideRecord(record) return false end
+        local left, top, right, bottom = projectEspBounds(Camera, cf, size)
+        if not left then hideRecord(record) return false end
+        local width, height = right - left, bottom - top
+        local viewport = Camera.ViewportSize
+        if height < (tonumber(style.MinScreenHeight) or 4) or right < -24 or left > viewport.X + 24 or bottom < -24 or top > viewport.Y + 24 then hideRecord(record) return false end
+
+        local occluded = false
+        if style.VisibilityCheck and now >= (record.NextVisibilityUpdate or 0) then
+            record.NextVisibilityUpdate = now + math.max(0.02, tonumber(style.VisibilityInterval) or 0.08)
+            local filters = {}
+            for _, item in ipairs(style.RaycastIgnore or {}) do if typeof(item) == "Instance" then table.insert(filters, item) end end
+            if Plr and Plr.Character then table.insert(filters, Plr.Character) end
+            table.insert(filters, Camera)
+            table.insert(filters, instance)
+            rayParams.FilterDescendantsInstances = filters
+            local origin = Camera.CFrame.Position
+            record.Occluded = workspace:Raycast(origin, cf.Position - origin, rayParams) ~= nil
+        end
+        occluded = record.Occluded == true
+        local baseColor = resolveColor(record, instance, occluded)
+        local transparency = math.clamp((tonumber(style.BoxTransparency) or 0) + (occluded and (tonumber(style.HiddenTransparency) or 0.3) or 0), 0, 0.95)
+        renderBox(record, left, top, right, bottom, style.BoxColor or baseColor, transparency)
+
+        local centerX = (left + right) * 0.5
+        local nameOffset = typeof(style.NameOffset) == "Vector2" and style.NameOffset or Vector2.zero
+        record.Visual.Name.Position = UDim2.fromOffset(centerX + nameOffset.X, top - math.max(10, style.NameSize or 14) * 0.72 + nameOffset.Y)
+        record.Visual.Name.Text = resolveName(record, instance)
+        record.Visual.Name.TextColor3 = style.NameColor or baseColor
+        record.Visual.Name.TextSize = tonumber(style.NameSize) or 14
+        record.Visual.Name.Font = typeof(style.Font) == "EnumItem" and style.Font or Enum.Font.GothamBold
+        record.Visual.Name.TextStrokeColor3 = style.TextStrokeColor
+        record.Visual.Name.TextStrokeTransparency = style.TextStrokeTransparency
+        record.Visual.Name.Visible = style.ShowName == true
+
+        local details = resolveDetail(record, instance, health, maximum, distance, occluded)
+        local detailsOffset = typeof(style.DetailsOffset) == "Vector2" and style.DetailsOffset or Vector2.zero
+        record.Visual.Details.Position = UDim2.fromOffset(centerX + detailsOffset.X, bottom + math.max(9, style.DetailsSize or 11) * 0.78 + detailsOffset.Y)
+        record.Visual.Details.Text = details
+        record.Visual.Details.TextColor3 = style.DetailsColor or baseColor
+        record.Visual.Details.TextSize = tonumber(style.DetailsSize) or 11
+        record.Visual.Details.Font = typeof(style.Font) == "EnumItem" and style.Font or Enum.Font.GothamBold
+        record.Visual.Details.TextStrokeColor3 = style.TextStrokeColor
+        record.Visual.Details.TextStrokeTransparency = style.TextStrokeTransparency
+        record.Visual.Details.Visible = style.ShowDetails == true and details ~= ""
+
+        local showHealth = style.HealthBar == true and health ~= nil
+        if showHealth then
+            local ratio = math.clamp(health / math.max(maximum, 1), 0, 1)
+            local barWidth = math.max(2, tonumber(style.HealthBarWidth) or 5)
+            local healthX = tostring(style.HealthSide):lower() == "right" and right + 2 or left - barWidth - 4
+            record.Visual.HealthBack.Position = UDim2.fromOffset(healthX, top - 1)
+            record.Visual.HealthBack.Size = UDim2.fromOffset(barWidth + 2, height + 2)
+            record.Visual.HealthFill.Position = UDim2.fromOffset(healthX + 1, bottom)
+            record.Visual.HealthFill.Size = UDim2.fromOffset(barWidth, math.max(1, height * ratio))
+            local healthColor = style.HealthColor
+            if type(healthColor) == "function" then
+                local ok, resolved = pcall(healthColor, ratio, record)
+                healthColor = ok and typeof(resolved) == "Color3" and resolved or nil
+            end
+            record.Visual.HealthFill.BackgroundColor3 = healthColor or Color3.fromHSV(ratio * 0.33, 0.85, 0.98)
+            record.Visual.HealthBack.BackgroundColor3 = style.HealthBackgroundColor
+        end
+        record.Visual.HealthBack.Visible = showHealth
+        record.Visual.HealthFill.Visible = showHealth
+
+        if style.Tracer then
+            local tracerOrigin = style.TracerOrigin
+            local start
+            if typeof(tracerOrigin) == "Vector2" then start = tracerOrigin
+            elseif tostring(tracerOrigin):lower() == "center" then start = viewport * 0.5
+            elseif tostring(tracerOrigin):lower() == "top" then start = Vector2.new(viewport.X * 0.5, 0)
+            else start = Vector2.new(viewport.X * 0.5, viewport.Y) end
+            renderEspLinePair(record.Visual.Tracer, start, Vector2.new(centerX, bottom), style.TracerColor or baseColor, style.TracerThickness, transparency, style)
+        else hideEspLinePair(record.Visual.Tracer) end
+
+        local highlight = ensureHighlight(record, instance)
+        if highlight then
+            highlight.Enabled = true
+            highlight.DepthMode = style.HighlightDepthMode
+            highlight.FillColor = style.HighlightColor or baseColor
+            highlight.OutlineColor = style.HighlightOutlineColor or style.HighlightColor or baseColor
+            highlight.FillTransparency = occluded and style.OccludedFillTransparency or style.HighlightFillTransparency
+            highlight.OutlineTransparency = style.HighlightOutlineTransparency
+        end
+
+        local drawSkeleton = style.Skeleton == true and instance:IsA("Model") and height >= (style.SkeletonMinScreenHeight or 28)
+            and (not style.SkeletonMaxDistance or style.SkeletonMaxDistance <= 0 or distance <= style.SkeletonMaxDistance)
+        if drawSkeleton then
+            if now >= (record.NextRigRefresh or 0) then
+                record.NextRigRefresh = now + 0.25
+                record.RigParts = cacheEspRigParts(instance)
+            end
+            local joints = record.Options.SkeletonJoints or style.SkeletonJoints or (record.RigParts.UpperTorso and ESP_R15_JOINTS or ESP_R6_JOINTS)
+            for index, pair in ipairs(record.Visual.SkeletonLines) do
+                local joint = joints[index]
+                local a = joint and record.RigParts[joint[1]]
+                local b = joint and record.RigParts[joint[2]]
+                if a and b and a.Parent and b.Parent then
+                    local aScreen = Camera:WorldToViewportPoint(a.Position)
+                    local bScreen = Camera:WorldToViewportPoint(b.Position)
+                    if aScreen.Z > 0.05 and bScreen.Z > 0.05 then
+                        renderEspLinePair(pair, Vector2.new(aScreen.X, aScreen.Y), Vector2.new(bScreen.X, bScreen.Y), style.SkeletonColor or baseColor, style.SkeletonThickness, occluded and 0.06 or 0, style)
+                    else hideEspLinePair(pair) end
+                else hideEspLinePair(pair) end
+            end
+        else
+            for _, pair in ipairs(record.Visual.SkeletonLines) do hideEspLinePair(pair) end
+        end
+        record.Instance = instance
+        record.Distance = distance
+        record.Bounds = {Left = left, Top = top, Right = right, Bottom = bottom, Width = width, Height = height}
+        local becameVisible = not record.Visible
+        record.Visible = true
+        if becameVisible then Utility:SafeCall(style.OnVisibilityChanged, true, record) end
+        Utility:SafeCall(style.OnRender, record, {Instance = instance, Distance = distance, Occluded = occluded, Bounds = record.Bounds, Color = baseColor})
+        return true
+    end
+
+    function manager:Add(target, targetOptions)
+        targetOptions = targetOptions or {}
+        if typeof(target) ~= "Instance" then return nil, "ESP target must be a Roblox Instance" end
+        local existing = self.Records[target]
+        if existing then existing:Configure(targetOptions) return existing end
+        if target:IsA("Player") and target == Plr and not (targetOptions.IncludeLocalPlayer or self.Options.IncludeLocalPlayer) then return nil, "Local player is excluded" end
+        local style = mergeEspTables(self.Options, targetOptions)
+        local record = {
+            Type = "ESPRecord",
+            Manager = self,
+            Target = target,
+            Options = copyEspTable(targetOptions),
+            Style = style,
+            Visual = makeVisual(target, style),
+            Visible = false,
+            Destroyed = false,
+            Occluded = false,
+            Connections = {},
+        }
+        function record:Configure(values)
+            for key, value in pairs(values or {}) do
+                self.Options[key] = value
+                self.Style[key] = value
+            end
+            return self
+        end
+        function record:SetOption(name, value) self.Options[name] = value self.Style[name] = value return self end
+        function record:SetFeature(name, value) return self:SetOption(name, value == true) end
+        function record:SetColor(value) return self:SetOption("Color", value) end
+        function record:SetText(value) self.Options.Text = value return self end
+        function record:SetName(value) self.Options.Name = value return self end
+        function record:SetVisible(value) self.Style.Enabled = value == true if not value then hideRecord(self) end return self end
+        function record:ClearOverride(name)
+            self.Options[name] = nil
+            self.Style[name] = self.Manager.Options[name]
+            return self
+        end
+        function record:Remove() return self.Manager:Remove(self.Target) end
+        self.Records[target] = record
+        if not target:IsA("Player") then
+            table.insert(record.Connections, connect(target.AncestryChanged, function(_, parent)
+                if parent == nil and self.Records[target] == record then self:Remove(target) end
+            end))
+        end
+        return record
+    end
+
+    function manager:Remove(target)
+        local record = self.Records[target]
+        if not record then return false end
+        self.Records[target] = nil
+        destroyRecord(record)
+        return true
+    end
+
+    function manager:Clear()
+        local targets = {}
+        for target in pairs(self.Records) do table.insert(targets, target) end
+        for _, target in ipairs(targets) do self:Remove(target) end
+        return self
+    end
+
+    function manager:SetEnabled(value)
+        self.Enabled = value == true
+        self.Options.Enabled = self.Enabled
+        if not self.Enabled then for _, record in pairs(self.Records) do hideRecord(record) end end
+        return self
+    end
+
+    function manager:SetOption(name, value)
+        self.Options[name] = value
+        for _, record in pairs(self.Records) do
+            if record.Options[name] == nil then record.Style[name] = value end
+        end
+        if name == "Enabled" then self:SetEnabled(value) end
+        return self
+    end
+
+    function manager:SetOptions(values)
+        for name, value in pairs(values or {}) do self:SetOption(name, value) end
+        return self
+    end
+
+    function manager:SetFeature(name, value) return self:SetOption(name, value == true) end
+    function manager:GetOptions() return copyEspTable(self.Options) end
+    function manager:GetRecord(target) return self.Records[target] end
+    function manager:GetRecords() return self.Records end
+    function manager:GetStats()
+        local total = 0
+        for _ in pairs(self.Records) do total += 1 end
+        return {Total = total, Visible = self.VisibleCount, Enabled = self.Enabled, UpdateRate = self.Options.UpdateRate}
+    end
+
+    function manager:TrackPlayers(trackOptions)
+        trackOptions = trackOptions or {}
+        local track = {Targets = {}, Active = true}
+        local function add(player)
+            if not track.Active or (player == Plr and not (trackOptions.IncludeLocalPlayer or self.Options.IncludeLocalPlayer)) then return end
+            local record = self:Add(player, trackOptions)
+            if record then track.Targets[player] = true end
+        end
+        for _, player in ipairs(Players:GetPlayers()) do add(player) end
+        table.insert(track, connect(Players.PlayerAdded, add))
+        table.insert(track, connect(Players.PlayerRemoving, function(player)
+            track.Targets[player] = nil
+            self:Remove(player)
+        end))
+        function track:Stop(removeTargets)
+            if not self.Active then return false end
+            self.Active = false
+            for _, connection in ipairs(self) do pcall(function() connection:Disconnect() end) end
+            if removeTargets ~= false then
+                for target in pairs(self.Targets) do manager:Remove(target) end
+            end
+            table.clear(self.Targets)
+            return true
+        end
+        table.insert(self.Tracks, track)
+        return track
+    end
+
+    function manager:TrackContainer(container, trackOptions)
+        assert(typeof(container) == "Instance", "[RenLib] TrackContainer requires an Instance")
+        trackOptions = trackOptions or {}
+        local track = {Targets = {}, Active = true}
+        local function allowed(instance)
+            if type(trackOptions.Predicate) == "function" then
+                local ok, result = pcall(trackOptions.Predicate, instance)
+                return ok and result == true
+            end
+            return instance:IsA("Model") or instance:IsA("BasePart") or instance:IsA("Attachment")
+        end
+        local function add(instance)
+            if track.Active and allowed(instance) then
+                local record = self:Add(instance, trackOptions)
+                if record then track.Targets[instance] = true end
+            end
+        end
+        local initial = trackOptions.Recursive and container:GetDescendants() or container:GetChildren()
+        for _, instance in ipairs(initial) do add(instance) end
+        local addedSignal = trackOptions.Recursive and container.DescendantAdded or container.ChildAdded
+        local removingSignal = trackOptions.Recursive and container.DescendantRemoving or container.ChildRemoved
+        table.insert(track, connect(addedSignal, add))
+        table.insert(track, connect(removingSignal, function(instance)
+            if track.Targets[instance] then track.Targets[instance] = nil self:Remove(instance) end
+        end))
+        function track:Stop(removeTargets)
+            if not self.Active then return false end
+            self.Active = false
+            for _, connection in ipairs(self) do pcall(function() connection:Disconnect() end) end
+            if removeTargets ~= false then for target in pairs(self.Targets) do manager:Remove(target) end end
+            table.clear(self.Targets)
+            return true
+        end
+        table.insert(self.Tracks, track)
+        return track
+    end
+
+    function manager:Refresh()
+        self.LastUpdate = 0
+        return self
+    end
+
+    function manager:Destroy()
+        if self.Destroyed then return end
+        self.Destroyed = true
+        for _, track in ipairs(self.Tracks) do track:Stop(false) end
+        self:Clear()
+        for _, connection in ipairs(self.Connections) do pcall(function() connection:Disconnect() end) end
+        table.clear(self.Connections)
+        if self.OverlayGui then self.OverlayGui:Destroy() end
+        for index, candidate in ipairs(Library.ESPManagers) do
+            if candidate == self then table.remove(Library.ESPManagers, index) break end
+        end
+    end
+
+    local function approximateDistance(record)
+        local instance = resolveEspInstance(record.Target, record.Options)
+        if not instance then return math.huge end
+        local position
+        if instance:IsA("Attachment") then
+            position = instance.WorldPosition
+        elseif instance:IsA("BasePart") then
+            position = instance.Position
+        elseif instance:IsA("Model") then
+            local root = instance.PrimaryPart or instance:FindFirstChild("HumanoidRootPart") or instance:FindFirstChildWhichIsA("BasePart", true)
+            position = root and root.Position
+        else
+            local root = instance:FindFirstChildWhichIsA("BasePart", true)
+            position = root and root.Position
+        end
+        return position and (position - getEspDistanceOrigin(record.Style)).Magnitude or math.huge
+    end
+
+    connect(RunService.RenderStepped, function()
+        if manager.Destroyed or Library.Unloaded then return end
+        local now = os.clock()
+        local updateRate = math.max(0, tonumber(manager.Options.UpdateRate) or 0)
+        if updateRate > 0 and now - manager.LastUpdate < updateRate then return end
+        manager.LastUpdate = now
+        Camera = workspace.CurrentCamera or Camera
+        if not Camera then return end
+        local candidates = {}
+        for _, record in pairs(manager.Records) do
+            table.insert(candidates, {Record = record, Distance = approximateDistance(record)})
+        end
+        table.sort(candidates, function(a, b) return a.Distance < b.Distance end)
+        local limit = manager.Options.NearestOnly and 1 or math.max(1, tonumber(manager.Options.MaxVisible) or #candidates)
+        local visible = 0
+        for index, candidate in ipairs(candidates) do
+            if index <= limit and updateRecord(candidate.Record, now) then visible += 1 else hideRecord(candidate.Record) end
+        end
+        manager.VisibleCount = visible
+    end)
+
+    if options.AutoPlayers then manager.PlayerTrack = manager:TrackPlayers(options.PlayerOptions or {}) end
+    return manager
 end
 
 -- Compatibility facade for safely migrating scripts that were authored
@@ -2871,7 +3680,9 @@ function Library:CreateWindow(options)
         RecentActions = cloneFeatureValue(Library.Flags.__RenLibRecentActions or {}),
         MaxRecentActions = math.max(1, tonumber(options.MaxRecentActions) or 8),
         PhoneCompactEnabled = options.PhoneCompact == nil and true or options.PhoneCompact == true,
-        CommandPaletteEnabled = EnableCommandPalette
+        CommandPaletteEnabled = EnableCommandPalette,
+        ContentDensity = tostring(options.ContentDensity or "Compact"),
+        ContentSpacing = ({Tight = 2, Compact = 5, Comfortable = 8})[tostring(options.ContentDensity or "Compact")] or 5
     }
 
     local commandPalette, commandSearch, commandResults, commandEmpty
@@ -3145,63 +3956,63 @@ function Library:CreateWindow(options)
     function Window:CreateAutomationHUD(hudOptions)
         hudOptions = hudOptions or {}
         local phone = Library.DeviceMode == "Phone"
-        local expandedHeight = phone and 112 or 126
+        local expandedHeight = phone and 100 or 108
         local hudFrame = Utility:Create("Frame", {
             Name = tostring(hudOptions.Name or "AutomationHUD"), Parent = ScreenGui,
             AnchorPoint = Vector2.new(1, 0), Position = hudOptions.Position or UDim2.new(1, -14, 0, 76),
-            Size = UDim2.fromOffset(phone and 226 or 270, expandedHeight),
+            Size = UDim2.fromOffset(phone and 216 or 248, expandedHeight),
             BackgroundColor3 = Library.Theme.Secondary, ClipsDescendants = true,
             BorderSizePixel = 0, ZIndex = 500
         })
         Utility:RegisterProperty(hudFrame, "BackgroundColor3", "Secondary")
         Utility:RegisterMaterial(hudFrame, 0.1, 0)
-        Utility:Create("UICorner", {Parent = hudFrame, CornerRadius = UDim.new(0, 11)})
-        local hudStroke = Utility:Create("UIStroke", {Parent = hudFrame, Color = Library.Theme.Stroke, Thickness = 1})
+        Utility:Create("UICorner", {Parent = hudFrame, CornerRadius = UDim.new(0, 9)})
+        local hudStroke = Utility:Create("UIStroke", {Parent = hudFrame, Color = Library.Theme.Stroke, Thickness = 1, Transparency = 0.68})
         Utility:RegisterProperty(hudStroke, "Color", "Stroke")
         local hudHeader = Utility:Create("Frame", {
             Parent = hudFrame, BackgroundColor3 = Library.Theme.Surface,
-            Size = UDim2.new(1, 0, 0, 38), BorderSizePixel = 0, ZIndex = 501
+            Size = UDim2.new(1, 0, 0, 34), BorderSizePixel = 0, ZIndex = 501
         })
         Utility:RegisterProperty(hudHeader, "BackgroundColor3", "Surface")
         local statusDot = Utility:Create("Frame", {
             Name = "StatusDot", Parent = hudHeader, BackgroundColor3 = Library.Theme.SubText,
-            Position = UDim2.fromOffset(12, 15), Size = UDim2.fromOffset(8, 8),
+            Position = UDim2.fromOffset(11, 13), Size = UDim2.fromOffset(8, 8),
             BorderSizePixel = 0, ZIndex = 503
         })
         Utility:RegisterProperty(statusDot, "BackgroundColor3", "SubText")
         Utility:Create("UICorner", {Parent = statusDot, CornerRadius = UDim.new(1, 0)})
         local hudTitle = Utility:Create("TextLabel", {
-            Parent = hudHeader, BackgroundTransparency = 1, Position = UDim2.fromOffset(28, 0),
-            Size = UDim2.new(1, -70, 1, 0), Text = tostring(hudOptions.Title or "Automation"),
-            TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 12,
+            Parent = hudHeader, BackgroundTransparency = 1, Position = UDim2.fromOffset(27, 0),
+            Size = UDim2.new(1, -62, 1, 0), Text = tostring(hudOptions.Title or "Automation"),
+            TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11,
             TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 502
         })
         Utility:RegisterProperty(hudTitle, "TextColor3", "Text")
         local collapse = Utility:Create("TextButton", {
-            Parent = hudHeader, BackgroundTransparency = 1, Position = UDim2.new(1, -38, 0, 0),
-            Size = UDim2.fromOffset(38, 38), Text = "−", TextColor3 = Library.Theme.SubText,
-            Font = Enum.Font.GothamBold, TextSize = 17, ZIndex = 503
+            Parent = hudHeader, BackgroundTransparency = 1, Position = UDim2.new(1, -34, 0, 0),
+            Size = UDim2.fromOffset(34, 34), Text = "−", TextColor3 = Library.Theme.SubText,
+            Font = Enum.Font.GothamBold, TextSize = 15, ZIndex = 503
         })
         Utility:RegisterProperty(collapse, "TextColor3", "SubText")
         local statusLabel = Utility:Create("TextLabel", {
             Name = "Status", Parent = hudFrame, BackgroundTransparency = 1,
-            Position = UDim2.fromOffset(12, 45), Size = UDim2.new(1, -24, 0, 18),
+            Position = UDim2.fromOffset(11, 39), Size = UDim2.new(1, -22, 0, 17),
             Text = tostring(hudOptions.StatusText or "Idle"), TextColor3 = Library.Theme.Text,
-            Font = Enum.Font.GothamMedium, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
+            Font = Enum.Font.GothamMedium, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
             TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 501
         })
         Utility:RegisterProperty(statusLabel, "TextColor3", "Text")
         local detailLabel = Utility:Create("TextLabel", {
             Name = "Detail", Parent = hudFrame, BackgroundTransparency = 1,
-            Position = UDim2.fromOffset(12, 64), Size = UDim2.new(1, -24, 0, 17),
+            Position = UDim2.fromOffset(11, 56), Size = UDim2.new(1, -22, 0, 16),
             Text = tostring(hudOptions.Detail or "No active workflow"), TextColor3 = Library.Theme.SubText,
-            Font = Enum.Font.Gotham, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
+            Font = Enum.Font.Gotham, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
             TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 501
         })
         Utility:RegisterProperty(detailLabel, "TextColor3", "SubText")
         local progressTrack = Utility:Create("Frame", {
             Name = "Progress", Parent = hudFrame, BackgroundColor3 = Library.Theme.SurfaceAlt,
-            Position = UDim2.fromOffset(12, 88), Size = UDim2.new(1, -24, 0, 5),
+            Position = UDim2.fromOffset(11, 77), Size = UDim2.new(1, -22, 0, 4),
             BorderSizePixel = 0, ZIndex = 501
         })
         Utility:RegisterProperty(progressTrack, "BackgroundColor3", "SurfaceAlt")
@@ -3215,7 +4026,7 @@ function Library:CreateWindow(options)
         Utility:Create("UICorner", {Parent = progressFill, CornerRadius = UDim.new(1, 0)})
         local metricsLabel = Utility:Create("TextLabel", {
             Name = "Metrics", Parent = hudFrame, BackgroundTransparency = 1,
-            Position = UDim2.fromOffset(12, 99), Size = UDim2.new(1, -24, 0, 17),
+            Position = UDim2.fromOffset(11, 86), Size = UDim2.new(1, -22, 0, 15),
             Text = tostring(hudOptions.Metrics or ""), TextColor3 = Library.Theme.SubText,
             Font = Enum.Font.Gotham, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
             TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 501
@@ -3270,7 +4081,7 @@ function Library:CreateWindow(options)
             self.Collapsed = value == true
             collapse.Text = self.Collapsed and "+" or "−"
             Utility:Tween(hudFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                Size = UDim2.fromOffset(hudFrame.Size.X.Offset, self.Collapsed and 38 or expandedHeight)
+                Size = UDim2.fromOffset(hudFrame.Size.X.Offset, self.Collapsed and 34 or expandedHeight)
             })
             return self
         end
@@ -4940,7 +5751,7 @@ end
             Name = "Left",
             Parent = Page,
             BackgroundTransparency = 1,
-            Size = useSingleColumn and UDim2.new(1, 0, 1, 0) or UDim2.new(0.5, -6, 1, 0),
+            Size = useSingleColumn and UDim2.new(1, 0, 1, 0) or UDim2.new(0.5, -4, 1, 0),
             Position = UDim2.new(0, 0, 0, 0),
             ZIndex = 2,
             BorderSizePixel = 0
@@ -4949,8 +5760,8 @@ end
             Name = "Right",
             Parent = Page,
             BackgroundTransparency = 1,
-            Size = UDim2.new(0.5, -6, 1, 0),
-            Position = UDim2.new(0.5, 6, 0, 0),
+            Size = UDim2.new(0.5, -4, 1, 0),
+            Position = UDim2.new(0.5, 4, 0, 0),
             Visible = not useSingleColumn,
             ZIndex = 2,
             BorderSizePixel = 0
@@ -4958,18 +5769,18 @@ end
         local LeftLayout = Utility:Create("UIListLayout", {
             Parent = LeftColumn,
             SortOrder = Enum.SortOrder.LayoutOrder,
-            Padding = UDim.new(0, useSingleColumn and 10 or 12)
+            Padding = UDim.new(0, 8)
         })
         local RightLayout = Utility:Create("UIListLayout", {
             Parent = RightColumn,
             SortOrder = Enum.SortOrder.LayoutOrder,
-            Padding = UDim.new(0, 12)
+            Padding = UDim.new(0, 8)
         })
 
         local function UpdateCanvas()
             local LeftH = LeftLayout.AbsoluteContentSize.Y
             local RightH = useSingleColumn and 0 or RightLayout.AbsoluteContentSize.Y
-            Page.CanvasSize = UDim2.new(0, 0, 0, Tab.HeaderHeight + math.max(LeftH, RightH) + 20)
+            Page.CanvasSize = UDim2.new(0, 0, 0, Tab.HeaderHeight + math.max(LeftH, RightH) + 14)
         end
         Library:Connect(LeftLayout:GetPropertyChangedSignal("AbsoluteContentSize"), UpdateCanvas)
         Library:Connect(RightLayout:GetPropertyChangedSignal("AbsoluteContentSize"), UpdateCanvas)
@@ -4977,16 +5788,16 @@ end
         function Tab:ApplyResponsiveLayout(mobile, topInset, phoneCompact)
             useSingleColumn = mobile
             local pageTop = mobile and ((topInset or 88) + 4) or 70
-            local pageMargin = phoneCompact and 5 or (mobile and 8 or 20)
+            local pageMargin = phoneCompact and 5 or (mobile and 8 or 14)
             Page.Position = UDim2.new(0, pageMargin, 0, pageTop)
             Page.Size = UDim2.new(1, -pageMargin * 2, 1, -(pageTop + (phoneCompact and 6 or 10)))
             Page.ScrollBarThickness = mobile and 3 or 2
-            LeftColumn.Size = mobile and UDim2.new(1, 0, 1, 0) or UDim2.new(0.5, -6, 1, 0)
+            LeftColumn.Size = mobile and UDim2.new(1, 0, 1, 0) or UDim2.new(0.5, -4, 1, 0)
             LeftColumn.Position = UDim2.new(0, 0, 0, Tab.HeaderHeight)
-            RightColumn.Size = UDim2.new(0.5, -6, 1, 0)
-            RightColumn.Position = UDim2.new(0.5, 6, 0, Tab.HeaderHeight)
+            RightColumn.Size = UDim2.new(0.5, -4, 1, 0)
+            RightColumn.Position = UDim2.new(0.5, 4, 0, Tab.HeaderHeight)
             RightColumn.Visible = not mobile
-            LeftLayout.Padding = UDim.new(0, mobile and 10 or 12)
+            LeftLayout.Padding = UDim.new(0, mobile and 7 or 8)
             for _, section in ipairs(Tab.Sections) do
                 if mobile then
                     section.SectionFrame.Parent = LeftColumn
@@ -5107,29 +5918,31 @@ end
             local SectionFrame = Utility:Create("Frame", {
                 Name = SectionName,
                 Parent = ParentCol,
-                BackgroundColor3 = Library.Theme.Surface,
+                BackgroundColor3 = Library.Theme.Secondary,
                 Size = UDim2.new(1, 0, 0, 50),
                 -- Allow expanded controls to render above the section frame.
                 ClipsDescendants = false,
                 ZIndex = 3,
                 BorderSizePixel = 0
             })
-            Utility:RegisterProperty(SectionFrame, "BackgroundColor3", "Surface")
-            Utility:RegisterMaterial(SectionFrame, 0.24, 0)
-            Utility:Create("UICorner", {CornerRadius = UDim.new(0, 12), Parent = SectionFrame})
+            Utility:RegisterProperty(SectionFrame, "BackgroundColor3", "Secondary")
+            Utility:RegisterMaterial(SectionFrame, 0.16, 0)
+            Utility:Create("UICorner", {CornerRadius = UDim.new(0, 9), Parent = SectionFrame})
             local sectionStroke = Utility:Create("UIStroke", {
                 Parent = SectionFrame,
                 Color = Library.Theme.Stroke,
-                Thickness = 1
+                Thickness = 1,
+                Transparency = 0.72,
+                Enabled = options.Outline == true
             })
             Utility:RegisterProperty(sectionStroke, "Color", "Stroke")
             local sectionGradient = Utility:Create("UIGradient", {Parent = SectionFrame, Rotation = 105})
-            Utility:RegisterGradient(sectionGradient, "SurfaceAlt", "Surface")
+            Utility:RegisterGradient(sectionGradient, "Surface", "Secondary")
             local sectionAccent = Utility:Create("Frame", {
                 Parent = SectionFrame,
                 BackgroundColor3 = Library.Theme.Accent,
-                Position = UDim2.fromOffset(12, 12),
-                Size = UDim2.fromOffset(3, 16),
+                Position = UDim2.fromOffset(10, 11),
+                Size = UDim2.fromOffset(3, 14),
                 BorderSizePixel = 0,
                 ZIndex = 5
             })
@@ -5139,7 +5952,7 @@ end
                 sectionAccent.Visible = false
                 local sectionIcon = Utility:Create("ImageLabel", {
                     Parent = SectionFrame, BackgroundTransparency = 1,
-                    Position = UDim2.fromOffset(10, 9), Size = UDim2.fromOffset(20, 20),
+                    Position = UDim2.fromOffset(9, 8), Size = UDim2.fromOffset(19, 19),
                     Image = SectionIcon, ImageColor3 = Library.Theme.Accent,
                     ScaleType = Enum.ScaleType.Fit, ZIndex = 5
                 })
@@ -5150,12 +5963,12 @@ end
             local Head = Utility:Create("TextLabel", {
                 Parent = SectionFrame,
                 BackgroundTransparency = 1,
-                Position = UDim2.new(0, SectionIcon and 38 or 22, 0, 10),
-                Size = UDim2.new(1, SectionIcon and -50 or -34, 0, 20),
+                Position = UDim2.new(0, SectionIcon and 35 or 20, 0, 8),
+                Size = UDim2.new(1, SectionIcon and -45 or -30, 0, 20),
                 Font = Enum.Font.GothamBold,
                 Text = SectionName,
                 TextColor3 = Library.Theme.Text,
-                TextSize = IsMobile and 12 or 13,
+                TextSize = IsMobile and 11 or 12,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 ZIndex = 4
             })
@@ -5163,40 +5976,52 @@ end
 
             local ContentContainer = Utility:Create("Frame", {
                 Parent = SectionFrame,
-                BackgroundColor3 = Library.Theme.Main,
-                BackgroundTransparency = 0.12,
-                Position = UDim2.new(0, 8, 0, IsMobile and 34 or 36),
-                Size = UDim2.new(1, -16, 0, 0),
+                BackgroundColor3 = Library.Theme.Secondary,
+                BackgroundTransparency = 1,
+                Position = UDim2.new(0, 10, 0, IsMobile and 31 or 32),
+                Size = UDim2.new(1, -20, 0, 0),
                 ZIndex = 4,
                 BorderSizePixel = 0
             })
-            Utility:RegisterProperty(ContentContainer, "BackgroundColor3", "Main")
-            Utility:RegisterMaterial(ContentContainer, 0.4, 0.12)
-            Utility:Create("UICorner", {CornerRadius = UDim.new(0, 9), Parent = ContentContainer})
-            local contentStroke = Utility:Create("UIStroke", {Parent = ContentContainer, Color = Library.Theme.Divider, Thickness = 1, Transparency = 0.2})
-            Utility:RegisterProperty(contentStroke, "Color", "Divider")
+            Utility:RegisterProperty(ContentContainer, "BackgroundColor3", "Secondary")
             Utility:Create("UIPadding", {
                 Parent = ContentContainer,
-                PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8),
-                PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8)
+                PaddingLeft = UDim.new(0, 0), PaddingRight = UDim.new(0, 0),
+                PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 8)
             })
             Section.ContentContainer = ContentContainer
 
             local ContentLayout = Utility:Create("UIListLayout", {
                 Parent = ContentContainer,
                 SortOrder = Enum.SortOrder.LayoutOrder,
-                Padding = UDim.new(0, IsMobile and 6 or 8)
+                Padding = UDim.new(0, IsMobile and math.min(4, Window.ContentSpacing) or Window.ContentSpacing)
             })
 
             local function RefreshLayout()
-                ContentContainer.Size = UDim2.new(1, -16, 0, ContentLayout.AbsoluteContentSize.Y + 16)
-                SectionFrame.Size = UDim2.new(1, 0, 0, ContentLayout.AbsoluteContentSize.Y + (IsMobile and 58 or 60))
+                ContentContainer.Size = UDim2.new(1, -20, 0, ContentLayout.AbsoluteContentSize.Y + 10)
+                SectionFrame.Size = UDim2.new(1, 0, 0, ContentLayout.AbsoluteContentSize.Y + (IsMobile and 43 or 44))
+            end
+
+            Section.ContentLayout = ContentLayout
+            Section.Outline = sectionStroke
+            function Section:SetSpacing(value)
+                ContentLayout.Padding = UDim.new(0, math.clamp(tonumber(value) or 5, 0, 24))
+                RefreshLayout()
+                return self
+            end
+            function Section:SetOutlineVisible(value)
+                sectionStroke.Enabled = value == true
+                return self
+            end
+            function Section:SetSurfaceTransparency(value)
+                SectionFrame.BackgroundTransparency = math.clamp(tonumber(value) or 0, 0, 1)
+                return self
             end
 
             Library:Connect(ContentLayout:GetPropertyChangedSignal("AbsoluteContentSize"), function()
-                ContentContainer.Size = UDim2.new(1, -16, 0, ContentLayout.AbsoluteContentSize.Y + 16)
+                ContentContainer.Size = UDim2.new(1, -20, 0, ContentLayout.AbsoluteContentSize.Y + 10)
                 Utility:Tween(SectionFrame, TweenInfo.new(0.2), {
-                    Size = UDim2.new(1, 0, 0, ContentLayout.AbsoluteContentSize.Y + (IsMobile and 58 or 60))
+                    Size = UDim2.new(1, 0, 0, ContentLayout.AbsoluteContentSize.Y + (IsMobile and 43 or 44))
                 })
             end)
 
@@ -6958,6 +7783,7 @@ end
                 function group:CreateBossCard(value) return attach("CreateBossCard", value) end
                 function group:CreateIslandCard(value) return attach("CreateIslandCard", value) end
                 function group:CreateESPPresets(value) return attach("CreateESPPresets", value) end
+                function group:CreateESPControls(value) return attach("CreateESPControls", value) end
                 function group:CreateWorkflowPresets(value) return attach("CreateWorkflowPresets", value) end
                 function group:CreateStrategyProfiles(value) return attach("CreateStrategyProfiles", value) end
                 function group:CreateProgressCard(value) return attach("CreateProgressCard", value) end
@@ -7454,7 +8280,7 @@ end
                 options = options or {}
                 local context = {}
                 for key, value in pairs(options) do context[key] = value end
-                local height = Library.DeviceMode == "Phone" and 126 or 118
+                local height = Library.DeviceMode == "Phone" and 112 or 104
                 local card = Utility:Create("Frame", {
                     Name = "BossCard_" .. tostring(context.Name or "Boss"), Parent = ContentContainer,
                     BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, height),
@@ -7462,23 +8288,23 @@ end
                 })
                 Utility:RegisterProperty(card, "BackgroundColor3", "Surface")
                 Utility:RegisterMaterial(card, 0.3, 0)
-                Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 8)})
-                local accent = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.Error, Size = UDim2.new(0, 4, 1, 0), BorderSizePixel = 0, ZIndex = 6})
+                Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 7)})
+                local accent = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.Error, Size = UDim2.new(0, 3, 1, 0), BorderSizePixel = 0, ZIndex = 6})
                 Utility:RegisterProperty(accent, "BackgroundColor3", "Error")
-                local dot = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.Warn, Position = UDim2.fromOffset(13, 13), Size = UDim2.fromOffset(8, 8), BorderSizePixel = 0, ZIndex = 7})
+                local dot = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.Warn, Position = UDim2.fromOffset(12, 12), Size = UDim2.fromOffset(7, 7), BorderSizePixel = 0, ZIndex = 7})
                 Utility:RegisterProperty(dot, "BackgroundColor3", "Warn")
                 Utility:Create("UICorner", {Parent = dot, CornerRadius = UDim.new(1, 0)})
-                local title = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(28, 6), Size = UDim2.new(1, -40, 0, 20), Text = "Boss", TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                local title = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(25, 4), Size = UDim2.new(1, -36, 0, 21), Text = "Boss", TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
                 Utility:RegisterProperty(title, "TextColor3", "Text")
-                local subtitle = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(13, 27), Size = UDim2.new(1, -26, 0, 17), Text = "", TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 9, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                local subtitle = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 24), Size = UDim2.new(1, -24, 0, 16), Text = "", TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 9, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
                 Utility:RegisterProperty(subtitle, "TextColor3", "SubText")
-                local badges = Utility:Create("Frame", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 48), Size = UDim2.new(1, -24, 0, 18), ZIndex = 7})
+                local badges = Utility:Create("Frame", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 43), Size = UDim2.new(1, -24, 0, 18), ZIndex = 7})
                 Utility:Create("UIListLayout", {Parent = badges, FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder})
-                local primary = Utility:Create("TextButton", {Parent = card, BackgroundColor3 = Library.Theme.Accent, Position = UDim2.new(1, -108, 1, -38), Size = UDim2.fromOffset(96, 28), Text = "Track", TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 10, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 8})
+                local primary = Utility:Create("TextButton", {Parent = card, BackgroundColor3 = Library.Theme.Accent, Position = UDim2.new(1, -102, 1, -34), Size = UDim2.fromOffset(90, 24), Text = "Track", TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 9, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 8})
                 Utility:RegisterProperty(primary, "BackgroundColor3", "Accent")
                 Utility:RegisterProperty(primary, "TextColor3", "Text")
                 Utility:Create("UICorner", {Parent = primary, CornerRadius = UDim.new(0, 6)})
-                local secondary = Utility:Create("TextButton", {Parent = card, BackgroundColor3 = Library.Theme.SurfaceAlt, Position = UDim2.fromOffset(12, height - 38), Size = UDim2.fromOffset(82, 28), Text = "Details", TextColor3 = Library.Theme.SubText, Font = Enum.Font.GothamBold, TextSize = 9, AutoButtonColor = false, BorderSizePixel = 0, Visible = false, ZIndex = 8})
+                local secondary = Utility:Create("TextButton", {Parent = card, BackgroundColor3 = Library.Theme.SurfaceAlt, Position = UDim2.fromOffset(12, height - 34), Size = UDim2.fromOffset(76, 24), Text = "Details", TextColor3 = Library.Theme.SubText, Font = Enum.Font.GothamBold, TextSize = 9, AutoButtonColor = false, BorderSizePixel = 0, Visible = false, ZIndex = 8})
                 Utility:RegisterProperty(secondary, "BackgroundColor3", "SurfaceAlt")
                 Utility:RegisterProperty(secondary, "TextColor3", "SubText")
                 Utility:Create("UICorner", {Parent = secondary, CornerRadius = UDim.new(0, 6)})
@@ -7521,18 +8347,18 @@ end
                 options = options or {}
                 local state = {}
                 for key, value in pairs(options) do state[key] = value end
-                local card = Utility:Create("Frame", {Name = "IslandCard_" .. tostring(state.Name or "Island"), Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, Library.DeviceMode == "Phone" and 82 or 76), BorderSizePixel = 0, ZIndex = 5})
+                local card = Utility:Create("Frame", {Name = "IslandCard_" .. tostring(state.Name or "Island"), Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, Library.DeviceMode == "Phone" and 74 or 68), BorderSizePixel = 0, ZIndex = 5})
                 Utility:RegisterProperty(card, "BackgroundColor3", "Surface")
-                Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 8)})
-                local stripe = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.Accent2, Size = UDim2.new(0, 5, 1, 0), BorderSizePixel = 0, ZIndex = 6})
+                Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 7)})
+                local stripe = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.Accent2, Size = UDim2.new(0, 3, 1, 0), BorderSizePixel = 0, ZIndex = 6})
                 Utility:RegisterProperty(stripe, "BackgroundColor3", "Accent2")
-                local title = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(14, 8), Size = UDim2.new(1, -108, 0, 20), Text = "Island", TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                local title = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 6), Size = UDim2.new(1, -102, 0, 20), Text = "Island", TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
                 Utility:RegisterProperty(title, "TextColor3", "Text")
-                local detail = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(14, 30), Size = UDim2.new(1, -112, 0, 30), Text = "", TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 9, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 7})
+                local detail = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 27), Size = UDim2.new(1, -104, 0, 27), Text = "", TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 8, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 7})
                 Utility:RegisterProperty(detail, "TextColor3", "SubText")
                 local kindBadge = createBadge(card, "PERMANENT", "Accent2", 1)
-                kindBadge.Position = UDim2.new(1, -92, 0, 8)
-                local action = Utility:Create("TextButton", {Parent = card, BackgroundColor3 = Library.Theme.SurfaceAlt, Position = UDim2.new(1, -94, 1, -32), Size = UDim2.fromOffset(82, 24), Text = "Travel", TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 9, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 8})
+                kindBadge.Position = UDim2.new(1, -88, 0, 6)
+                local action = Utility:Create("TextButton", {Parent = card, BackgroundColor3 = Library.Theme.SurfaceAlt, Position = UDim2.new(1, -88, 1, -29), Size = UDim2.fromOffset(76, 22), Text = "Travel", TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 8, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 8})
                 Utility:RegisterProperty(action, "BackgroundColor3", "SurfaceAlt")
                 Utility:RegisterProperty(action, "TextColor3", "Text")
                 Utility:Create("UICorner", {Parent = action, CornerRadius = UDim.new(0, 6)})
@@ -7568,24 +8394,122 @@ end
             function Section:CreateESPPresets(options)
                 options = options or {}
                 local presets = options.Presets or {
-                    Low = {MaxLabels = 12, UpdateRate = 0.35, Description = "Sparse labels for low-end devices"},
-                    Balanced = {MaxLabels = 32, UpdateRate = 0.18, Description = "Balanced visibility and performance"},
-                    High = {MaxLabels = 80, UpdateRate = 0.08, Description = "Dense labels for nearby world objects"}
+                    Low = {MaxVisible = 12, UpdateRate = 1 / 20, Skeleton = false, Highlight = false, Description = "20 FPS updates, 12 nearest targets, expensive effects disabled"},
+                    Balanced = {MaxVisible = 32, UpdateRate = 1 / 30, Skeleton = false, Highlight = false, Description = "30 FPS updates and up to 32 targets"},
+                    High = {MaxVisible = 80, UpdateRate = 0, Skeleton = false, Description = "Frame-synced boxes for up to 80 targets"}
                 }
                 local names = {}
                 for presetName in pairs(presets) do table.insert(names, presetName) end
                 table.sort(names)
                 local defaultPreset = options.Default or (presets.Balanced and "Balanced" or names[1])
                 local group = self:CreateGroup({Name = options.Name or "ESP visibility", Expanded = options.Expanded ~= false, Tooltip = options.Tooltip})
-                local density = group:CreateDropdown({Name = "Density preset", Values = names, Default = defaultPreset, Flag = options.DensityFlag or "ESPDensity", Callback = function(value) Utility:SafeCall(options.Callback, value, presets[value]) end})
-                local nearest = group:CreateToggle({Name = "Nearest only", Default = options.NearestOnly == true, Flag = options.NearestFlag or "ESPNearestOnly", Callback = function(value) Utility:SafeCall(options.NearestCallback, value) end})
+                local function applyPreset(value)
+                    local definition = presets[value]
+                    if options.Engine and definition and options.Engine.SetOptions then options.Engine:SetOptions(definition) end
+                    Utility:SafeCall(options.Callback, value, definition)
+                end
+                local function applyNearest(value)
+                    if options.Engine and options.Engine.SetOption then options.Engine:SetOption("NearestOnly", value) end
+                    Utility:SafeCall(options.NearestCallback, value)
+                end
+                local density = group:CreateDropdown({Name = "Density preset", Values = names, Default = defaultPreset, Flag = options.DensityFlag or "ESPDensity", Callback = applyPreset})
+                local nearest = group:CreateToggle({Name = "Nearest only", Default = options.NearestOnly == true, Flag = options.NearestFlag or "ESPNearestOnly", Callback = applyNearest})
                 local info = group:CreateParagraph({Title = "Preset behavior", Content = presets[defaultPreset] and presets[defaultPreset].Description or ""})
                 density:OnChanged(function(value) if presets[value] then info:SetContent(presets[value].Description or "") end end)
-                local controller = {Type = "ESPPresets", Holder = group.Holder, Group = group, Density = density, NearestOnly = nearest}
+                local controller = {Type = "ESPPresets", Holder = group.Holder, Group = group, Density = density, NearestOnly = nearest, Engine = options.Engine}
                 function controller:SetPreset(value) density:Set(value) return self end
                 function controller:SetNearestOnly(value) nearest:Set(value) return self end
                 function controller:Get() return {Preset = density:Get(), NearestOnly = nearest:Get(), Definition = presets[density:Get()]} end
                 function controller:Reset() density:Reset(); nearest:Reset(); return true end
+                applyPreset(defaultPreset)
+                applyNearest(options.NearestOnly == true)
+                return controller
+            end
+
+            function Section:CreateESPControls(options)
+                options = options or {}
+                local engine = options.Engine
+                local prefix = tostring(options.FlagPrefix or "RenESP")
+                local defaults = engine and engine.Options or mergeEspTables(ESP_DEFAULTS, options.Defaults)
+                local group = self:CreateGroup({Name = options.Name or "ESP renderer", Expanded = options.Expanded ~= false, Tooltip = options.Tooltip})
+                local controls = {}
+                local function apply(name, value)
+                    if engine and engine.SetOption then engine:SetOption(name, value) end
+                    Utility:SafeCall(options.Callback, name, value, engine)
+                end
+                local function toggle(name, label, default, tooltip)
+                    local control = group:CreateToggle({Name = label, Default = default == true, Flag = prefix .. name, Tooltip = tooltip, Callback = function(value) apply(name, value) end})
+                    controls[name] = control
+                    return control
+                end
+                local function slider(name, label, minimum, maximum, step, default, tooltip, transform)
+                    local control = group:CreateSlider({Name = label, Min = minimum, Max = maximum, Step = step, Default = default, Flag = prefix .. name, Tooltip = tooltip, Callback = function(value) apply(name, transform and transform(value) or value) end})
+                    controls[name] = control
+                    return control
+                end
+                local function color(name, label, default)
+                    local control = group:CreateColorPicker({Name = label, Default = default, Flag = prefix .. name, Callback = function(value) apply(name, value) end})
+                    controls[name] = control
+                    return control
+                end
+
+                controls.Enabled = toggle("Enabled", "ESP enabled", defaults.Enabled, "Master renderer switch")
+                controls.Box = toggle("Box", "Bounding box", defaults.Box, "Works on players, NPCs, models, parts, and attachments")
+                controls.BoxStyle = group:CreateDropdown({Name = "Box style", Values = {"Corners", "Full", "None"}, Default = defaults.BoxStyle or "Corners", Flag = prefix .. "BoxStyle", Callback = function(value) apply("BoxStyle", value) end})
+                controls.HealthSide = group:CreateDropdown({Name = "Health bar side", Values = {"Left", "Right"}, Default = defaults.HealthSide or "Left", Flag = prefix .. "HealthSide", Callback = function(value) apply("HealthSide", value) end})
+                controls.TracerOrigin = group:CreateDropdown({Name = "Tracer origin", Values = {"Bottom", "Center", "Top"}, Default = defaults.TracerOrigin or "Bottom", Flag = prefix .. "TracerOrigin", Callback = function(value) apply("TracerOrigin", value) end})
+                controls.Outline = toggle("Outline", "Box and line outlines", defaults.Outline)
+                controls.ShowName = toggle("ShowName", "Name label", defaults.ShowName)
+                controls.ShowDetails = toggle("ShowDetails", "Detail label", defaults.ShowDetails)
+                controls.ShowDistance = toggle("ShowDistance", "Distance", defaults.ShowDistance)
+                controls.HealthBar = toggle("HealthBar", "Health bar", defaults.HealthBar, "Uses Humanoid health, attributes, or a custom GetHealth callback")
+                controls.HealthText = toggle("HealthText", "Health text", defaults.HealthText)
+                controls.Highlight = toggle("Highlight", "3D highlight", defaults.Highlight)
+                controls.Skeleton = toggle("Skeleton", "Skeleton", defaults.Skeleton, "Optional and only drawn when compatible rig parts or custom joints exist")
+                controls.Tracer = toggle("Tracer", "Tracer line", defaults.Tracer)
+                controls.VisibilityCheck = toggle("VisibilityCheck", "Wall detection", defaults.VisibilityCheck)
+                controls.NearestOnly = toggle("NearestOnly", "Nearest target only", defaults.NearestOnly)
+                controls.BoxThickness = slider("BoxThickness", "Box thickness", 0.5, 5, 0.1, defaults.BoxThickness or 1.5)
+                controls.CornerScale = slider("CornerScale", "Corner length", 0.1, 0.5, 0.01, defaults.CornerScale or 0.26)
+                controls.BoxTransparency = slider("BoxTransparency", "Box transparency", 0, 0.9, 0.05, defaults.BoxTransparency or 0)
+                controls.HiddenTransparency = slider("HiddenTransparency", "Occluded transparency", 0, 0.9, 0.05, defaults.HiddenTransparency or 0.3)
+                controls.OutlineThickness = slider("OutlineThickness", "Outline thickness", 0.5, 5, 0.1, defaults.OutlineThickness or 2)
+                controls.OutlineTransparency = slider("OutlineTransparency", "Outline transparency", 0, 0.95, 0.05, defaults.OutlineTransparency or 0.08)
+                controls.SkeletonThickness = slider("SkeletonThickness", "Skeleton thickness", 0.5, 5, 0.1, defaults.SkeletonThickness or 1.5)
+                controls.TracerThickness = slider("TracerThickness", "Tracer thickness", 0.5, 5, 0.1, defaults.TracerThickness or 1)
+                controls.NameSize = slider("NameSize", "Name text size", 8, 24, 1, defaults.NameSize or 14)
+                controls.DetailsSize = slider("DetailsSize", "Detail text size", 8, 22, 1, defaults.DetailsSize or 11)
+                controls.HealthBarWidth = slider("HealthBarWidth", "Health bar width", 2, 12, 1, defaults.HealthBarWidth or 5)
+                controls.MaxDistance = slider("MaxDistance", "Maximum distance", 25, tonumber(options.MaxDistance) or 10000, 25, defaults.MaxDistance or 2500)
+                controls.SkeletonMaxDistance = slider("SkeletonMaxDistance", "Skeleton distance", 25, tonumber(options.MaxSkeletonDistance) or 2500, 25, defaults.SkeletonMaxDistance or 350)
+                controls.MaxVisible = slider("MaxVisible", "Maximum targets", 1, tonumber(options.MaxTargets) or 200, 1, defaults.MaxVisible or 64)
+                local initialFps = defaults.UpdateRate and defaults.UpdateRate > 0 and math.clamp(math.floor(1 / defaults.UpdateRate + 0.5), 5, 144) or 60
+                controls.UpdateRate = slider("UpdateRate", "Update FPS", 5, 144, 1, initialFps, "60 is smooth; lower values reduce work", function(value) return 1 / math.max(1, value) end)
+                controls.Color = color("Color", "Base color", defaults.Color or ESP_DEFAULTS.Color)
+                controls.SkeletonColor = color("SkeletonColor", "Skeleton color", defaults.SkeletonColor or defaults.Color or ESP_DEFAULTS.Color)
+                controls.HighlightColor = color("HighlightColor", "Highlight color", defaults.HighlightColor or defaults.Color or ESP_DEFAULTS.Color)
+                controls.TracerColor = color("TracerColor", "Tracer color", defaults.TracerColor or defaults.Color or ESP_DEFAULTS.Color)
+                controls.DetailsColor = color("DetailsColor", "Detail text color", defaults.DetailsColor or ESP_DEFAULTS.DetailsColor)
+                controls.NameColor = color("NameColor", "Name text color", defaults.NameColor or defaults.Color or ESP_DEFAULTS.Color)
+                controls.OutlineColor = color("OutlineColor", "Outline color", defaults.OutlineColor or ESP_DEFAULTS.OutlineColor)
+                controls.HealthBackgroundColor = color("HealthBackgroundColor", "Health background", defaults.HealthBackgroundColor or ESP_DEFAULTS.HealthBackgroundColor)
+                controls.TextStrokeColor = color("TextStrokeColor", "Text stroke color", defaults.TextStrokeColor or ESP_DEFAULTS.TextStrokeColor)
+
+                local controller = {Type = "ESPControls", Holder = group.Holder, Group = group, Controls = controls, Engine = engine}
+                function controller:SetEngine(nextEngine) self.Engine = nextEngine engine = nextEngine return self end
+                function controller:Set(name, value)
+                    local control = controls[name]
+                    if control and control.Set then control:Set(value) else apply(name, value) end
+                    return self
+                end
+                function controller:Get(name)
+                    local control = controls[name]
+                    return control and control.Get and control:Get() or (engine and engine.Options[name])
+                end
+                function controller:Reset()
+                    for _, control in pairs(controls) do if control.Reset then control:Reset() end end
+                    return true
+                end
                 return controller
             end
 
@@ -7653,13 +8577,13 @@ end
                 local status = tostring(options.Status or "Waiting")
                 local card = Utility:Create("Frame", {
                     Name = "ProgressCard_" .. name, Parent = ContentContainer,
-                    BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, 106),
+                    BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, 96),
                     BorderSizePixel = 0, ZIndex = 5
                 })
                 Utility:RegisterProperty(card, "BackgroundColor3", "Surface")
                 Utility:RegisterMaterial(card, 0.3, 0)
-                Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 8)})
-                local cardStroke = Utility:Create("UIStroke", {Parent = card, Color = Library.Theme.Divider, Thickness = 1})
+                Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 7)})
+                local cardStroke = Utility:Create("UIStroke", {Parent = card, Color = Library.Theme.Divider, Thickness = 1, Transparency = 0.72})
                 Utility:RegisterProperty(cardStroke, "Color", "Divider")
                 local dot = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.Warn, Position = UDim2.fromOffset(12, 13), Size = UDim2.fromOffset(8, 8), BorderSizePixel = 0, ZIndex = 7})
                 Utility:RegisterProperty(dot, "BackgroundColor3", "Warn")
@@ -7670,15 +8594,15 @@ end
                 Utility:RegisterProperty(percent, "TextColor3", "Accent")
                 local detail = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 29), Size = UDim2.new(1, -24, 0, 18), Text = tostring(options.Detail or "Waiting to start"), TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 9, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
                 Utility:RegisterProperty(detail, "TextColor3", "SubText")
-                local track = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.SurfaceAlt, Position = UDim2.fromOffset(12, 53), Size = UDim2.new(1, -24, 0, 7), BorderSizePixel = 0, ZIndex = 7})
+                local track = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.SurfaceAlt, Position = UDim2.fromOffset(12, 51), Size = UDim2.new(1, -24, 0, 5), BorderSizePixel = 0, ZIndex = 7})
                 Utility:RegisterProperty(track, "BackgroundColor3", "SurfaceAlt")
                 Utility:Create("UICorner", {Parent = track, CornerRadius = UDim.new(1, 0)})
                 local fill = Utility:Create("Frame", {Parent = track, BackgroundColor3 = Library.Theme.Accent, Size = UDim2.new(progress, 0, 1, 0), BorderSizePixel = 0, ZIndex = 8})
                 Utility:RegisterProperty(fill, "BackgroundColor3", "Accent")
                 Utility:Create("UICorner", {Parent = fill, CornerRadius = UDim.new(1, 0)})
-                local step = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 67), Size = UDim2.new(0.5, -12, 0, 28), Text = tostring(options.Step or "Step 0 / 0"), TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                local step = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 61), Size = UDim2.new(0.5, -12, 0, 25), Text = tostring(options.Step or "Step 0 / 0"), TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
                 Utility:RegisterProperty(step, "TextColor3", "Text")
-                local metrics = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.new(0.5, 0, 0, 67), Size = UDim2.new(0.5, -12, 0, 28), Text = tostring(options.Metrics or ""), TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Right, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 7})
+                local metrics = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.new(0.5, 0, 0, 61), Size = UDim2.new(0.5, -12, 0, 25), Text = tostring(options.Metrics or ""), TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Right, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 7})
                 Utility:RegisterProperty(metrics, "TextColor3", "SubText")
                 local controller = finishController({Type = "ProgressCard"}, card, name, options.Tooltip)
                 local statusColors = {active = "Success", waiting = "Warn", error = "Error", complete = "Success", paused = "Warn", idle = "SubText"}
@@ -8345,6 +9269,35 @@ end
         end
     end)
 
+    function Window:SetSectionSpacing(value)
+        local spacing = math.clamp(tonumber(value) or 5, 0, 24)
+        self.ContentSpacing = spacing
+        for _, tab in ipairs(self.Tabs) do
+            for _, section in ipairs(tab.Sections or {}) do
+                if section.SetSpacing then section:SetSpacing(spacing) end
+            end
+        end
+        return self
+    end
+
+    function Window:SetSectionOutlines(value)
+        for _, tab in ipairs(self.Tabs) do
+            for _, section in ipairs(tab.Sections or {}) do
+                if section.SetOutlineVisible then section:SetOutlineVisible(value) end
+            end
+        end
+        return self
+    end
+
+    function Window:SetContentDensity(value)
+        local name = tostring(value or "Compact")
+        local spacing = ({Tight = 2, Compact = 5, Comfortable = 8})[name]
+        if not spacing then return false, "Unknown density: " .. name end
+        self.ContentDensity = name
+        self:SetSectionSpacing(spacing)
+        return true
+    end
+
     Library.Window = Window
     return Window
 end
@@ -8358,6 +9311,10 @@ function Library:Unload(reason)
     if self.Unloaded then return end
     self.Unloaded = true
     self.ScalePreview = nil
+    for index = #self.ESPManagers, 1, -1 do
+        local manager = self.ESPManagers[index]
+        if manager and manager.Destroy then manager:Destroy() end
+    end
     for index = #self.AddonOrder, 1, -1 do
         self:UnregisterAddon(self.AddonOrder[index])
     end
@@ -8387,6 +9344,7 @@ function Library:Unload(reason)
     table.clear(self.KeybindList)
     table.clear(self.KeybindDefaults)
     table.clear(self.PendingAutoloadFlags)
+    table.clear(self.ESPManagers)
     table.clear(self.LayoutTweens)
     table.clear(self.VisibilityTweens)
     self.Window = nil

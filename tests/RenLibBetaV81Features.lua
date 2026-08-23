@@ -1,6 +1,6 @@
 --!nocheck
 --!nolint
--- RenLib V8.2 beta feature and regression exercise.
+-- RenLib V9.0 beta feature and regression exercise.
 -- Execute after RenLibBêta.lua for local development, or let this script load
 -- the beta from GitHub after the branch has been published.
 
@@ -24,14 +24,16 @@ local function check(name, condition, detail)
     Test.Passed = Test.Passed + (passed and 1 or 0)
     Test.Failed = Test.Failed + (passed and 0 or 1)
     table.insert(Test.Results, {Name = name, Passed = passed, Detail = detail})
-    print(string.format("[RenLib V8.2 Test] %s  %s%s", passed and "PASS" or "FAIL", name, detail and ("  --  " .. tostring(detail)) or ""))
+    print(string.format("[RenLib V9.0 Test] %s  %s%s", passed and "PASS" or "FAIL", name, detail and ("  --  " .. tostring(detail)) or ""))
     return passed
 end
 
-check("Correct beta version", RenLib.Version == "8.2.0-beta", RenLib.Version)
+check("Correct beta version", RenLib.Version == "9.0.0-beta", RenLib.Version)
+RenLib:ApplyThemePreset("Obsidian")
+check("Obsidian rework theme", RenLib.ActiveTheme == "Obsidian")
 
 local Window = RenLib:CreateWindow({
-    Name = "RenLib V8.2 QA",
+    Name = "RenLib V9.0 QA",
     Width = 940,
     Height = 620,
     EnableGlobalSearch = true,
@@ -46,11 +48,13 @@ local CatalogTab = Window:CreateTab({Name = "Catalog", Emoji = "C"})
 local AutomationTab = Window:CreateTab({Name = "Automation", Emoji = "A"})
 local WorldTab = Window:CreateTab({Name = "World", Emoji = "W"})
 local ProfilesTab = Window:CreateTab({Name = "Profiles", Emoji = "P"})
+local VisualsTab = Window:CreateTab({Name = "ESP", Emoji = "E"})
 
 CatalogTab:SetStatus("Active", "Catalog is ready")
 AutomationTab:SetStatus("Waiting", "Waiting for a target")
 WorldTab:SetStatus("Error", "Intentional QA error state")
 ProfilesTab:SetStatus("Idle")
+VisualsTab:SetStatus("Active", "Object renderer online")
 CatalogTab:SetBadge(3, "Accent")
 AutomationTab:SetBadge(1, "Warn")
 WorldTab:SetBadge(2, "Error")
@@ -62,6 +66,9 @@ check("Tab badge count", CatalogTab.BadgeValue == 3 and CatalogTab.Badge.Visible
 check("Named tab lookup", Window:GetTab("World") == WorldTab)
 check("Named tab navigation", Window:SelectTabByName("Automation") == true and Window.ActiveTab == AutomationTab)
 check("Tab navigation command", Window.Commands["tab-world"] ~= nil and Window.Commands["tab-profiles"] ~= nil)
+check("Tight content density", Window:SetContentDensity("Tight") == true and Window.ContentSpacing == 2)
+Window:SetContentDensity("Compact")
+Window:SetSectionOutlines(false)
 
 local startAutomation, pauseAutomation, resetAutomation
 local Controls = AutomationTab:CreateSection({Name = "Automation controls", Side = "Left"})
@@ -118,6 +125,86 @@ Activity:Push("Simulator initialized", "Info", "Waiting for the automatic start"
 check("Progress card created", RoundProgress.Type == "ProgressCard")
 check("Activity feed records entries", #Activity:GetEntries() == 1)
 check("Checklist reports progress", Objectives:GetProgress() == 0)
+
+local ESPDemoFolder = Instance.new("Folder")
+ESPDemoFolder.Name = "RenLibV9ESPDemo"
+ESPDemoFolder.Parent = workspace
+local camera = workspace.CurrentCamera
+local demoOrigin = camera and camera.CFrame * CFrame.new(0, 0, -34) or CFrame.new(0, 12, 0)
+
+local ObjectTarget = Instance.new("Part")
+ObjectTarget.Name = "EnergyCore"
+ObjectTarget.Anchored = true
+ObjectTarget.CanCollide = false
+ObjectTarget.Material = Enum.Material.Neon
+ObjectTarget.Color = Color3.fromRGB(72, 210, 190)
+ObjectTarget.Size = Vector3.new(3, 3, 3)
+ObjectTarget.CFrame = demoOrigin * CFrame.new(-5, 0, 0)
+ObjectTarget:SetAttribute("Health", 75)
+ObjectTarget:SetAttribute("MaxHealth", 100)
+ObjectTarget.Parent = ESPDemoFolder
+
+local RigTarget = Instance.new("Model")
+RigTarget.Name = "OptionalSkeletonRig"
+RigTarget.Parent = ESPDemoFolder
+local function rigPart(name, size, offset)
+    local part = Instance.new("Part")
+    part.Name = name
+    part.Anchored = true
+    part.CanCollide = false
+    part.Material = Enum.Material.SmoothPlastic
+    part.Color = Color3.fromRGB(103, 151, 255)
+    part.Size = size
+    part.CFrame = demoOrigin * CFrame.new(4, 0, 0) * CFrame.new(offset)
+    part.Parent = RigTarget
+    return part
+end
+local rigTorso = rigPart("Torso", Vector3.new(2, 2, 1), Vector3.new(0, 0, 0))
+rigPart("Head", Vector3.new(1.3, 1.3, 1.3), Vector3.new(0, 1.7, 0))
+rigPart("Left Arm", Vector3.new(0.8, 2, 0.8), Vector3.new(-1.45, 0, 0))
+rigPart("Right Arm", Vector3.new(0.8, 2, 0.8), Vector3.new(1.45, 0, 0))
+rigPart("Left Leg", Vector3.new(0.9, 2, 0.9), Vector3.new(-0.55, -2, 0))
+rigPart("Right Leg", Vector3.new(0.9, 2, 0.9), Vector3.new(0.55, -2, 0))
+RigTarget.PrimaryPart = rigTorso
+
+local ESP = RenLib:CreateESP({
+    Enabled = true,
+    Skeleton = false,
+    BoxStyle = "Corners",
+    Highlight = true,
+    Tracer = false,
+    MaxDistance = 5000,
+    VisibilityCheck = true,
+})
+local ObjectRecord = ESP:Add(ObjectTarget, {Name = "Energy Core", Skeleton = false, Color = Color3.fromRGB(72, 210, 190), Text = "WORLD OBJECT  •  skeleton off"})
+local RigRecord = ESP:Add(RigTarget, {Name = "Training Rig", Skeleton = true, Color = Color3.fromRGB(103, 151, 255), Text = "MODEL  •  optional skeleton on"})
+check("ESP manager created", ESP.Type == "ESPManager" and ESP.OverlayGui.Parent ~= nil)
+check("Non-player object ESP", ObjectRecord and ObjectRecord.Target == ObjectTarget and ObjectRecord.Style.Skeleton == false)
+check("Skeleton is independently optional", RigRecord and RigRecord.Style.Skeleton == true and ESP.Options.Skeleton == false)
+ESP:SetOption("BoxThickness", 2.25)
+check("ESP style updates live records", RigRecord.Style.BoxThickness == 2.25)
+
+local PickupFolder = Instance.new("Folder")
+PickupFolder.Name = "Pickups"
+PickupFolder.Parent = ESPDemoFolder
+local Pickup = Instance.new("Part")
+Pickup.Name = "RaidKey"
+Pickup.Anchored = true
+Pickup.CanCollide = false
+Pickup.Size = Vector3.new(1.5, 0.5, 2.5)
+Pickup.CFrame = demoOrigin * CFrame.new(0, -4, 0)
+Pickup.Parent = PickupFolder
+local ObjectTrack = ESP:TrackContainer(PickupFolder, {Skeleton = false, ShowDetails = true, Text = "AUTO-TRACKED PICKUP"})
+check("ESP container tracking", ESP:GetRecord(Pickup) ~= nil)
+
+local ESPSection = VisualsTab:CreateSection({Name = "ESP renderer", Side = "Left"})
+local ESPPresets = ESPSection:CreateESPPresets({Engine = ESP, Default = "High"})
+local ESPControls = ESPSection:CreateESPControls({Engine = ESP, Expanded = false, MaxTargets = 120})
+check("ESP presets control real renderer", ESPPresets.Engine == ESP)
+check("Full ESP editor created", ESPControls.Type == "ESPControls" and ESPControls.Controls.Skeleton ~= nil)
+ESPPresets:SetPreset("Low")
+check("ESP density preset applies", ESP.Options.MaxVisible == 12 and ESP.Options.Skeleton == false)
+ESPPresets:SetPreset("High")
 
 local ItemSection = CatalogTab:CreateSection({Name = "Searchable inventory", Side = "Left"})
 local Catalog = ItemSection:CreateCatalog({
@@ -183,18 +270,18 @@ check("Low-end workflow applies UI settings", lowEndOk and RenLib.ReducedMotion 
 RenLib:SetReducedMotion(false)
 
 local AutomationSection = AutomationTab:CreateSection({Name = "Visibility presets", Side = "Right"})
-local ESP = AutomationSection:CreateESPPresets({
+local VisibilityPresets = AutomationSection:CreateESPPresets({
     Name = "ESP density and focus",
     DensityFlag = "QAESPDensity",
     NearestFlag = "QAESPNearest",
     Default = "Balanced",
 })
-ESP:SetPreset("High")
-ESP:SetNearestOnly(true)
-check("ESP density preset", ESP:Get().Preset == "High")
-check("ESP nearest-only preset", ESP:Get().NearestOnly == true)
-ESP:Reset()
-check("ESP reset", ESP:Get().Preset == "Balanced" and ESP:Get().NearestOnly == false)
+VisibilityPresets:SetPreset("High")
+VisibilityPresets:SetNearestOnly(true)
+check("ESP density preset", VisibilityPresets:Get().Preset == "High")
+check("ESP nearest-only preset", VisibilityPresets:Get().NearestOnly == true)
+VisibilityPresets:Reset()
+check("ESP reset", VisibilityPresets:Get().Preset == "Balanced" and VisibilityPresets:Get().NearestOnly == false)
 
 local HUD = Window:CreateAutomationHUD({
     Title = "Leveling workflow",
@@ -219,9 +306,10 @@ local QuickActions = Window:CreateQuickActions({
         {Id = "reset", Name = "Reset", Callback = function() if resetAutomation then resetAutomation() end end},
         {Id = "world", Name = "World", Callback = function() WorldTab:Activate() end},
         {Id = "profiles", Name = "Profiles", Callback = function() ProfilesTab:Activate() end},
+        {Id = "esp", Name = "ESP", Status = "Active", Callback = function() VisualsTab:Activate() end},
     },
 })
-check("Quick-action dock created", QuickActions.Type == "QuickActions" and #QuickActions:GetActions() == 5)
+check("Quick-action dock created", QuickActions.Type == "QuickActions" and #QuickActions:GetActions() == 6)
 
 local WorldCards = WorldTab:CreateSection({Name = "Context cards", Side = "Left"})
 local Boss = WorldCards:CreateBossCard({
@@ -384,23 +472,30 @@ Test.QuickActions = QuickActions
 Test.Progress = RoundProgress
 Test.Activity = Activity
 Test.Objectives = Objectives
+Test.ESPPresets = VisibilityPresets
+Test.ObjectESPRecord = ObjectRecord
+Test.RigESPRecord = RigRecord
 Test.Cleanup = function()
     AutomationState.Token = AutomationState.Token + 1
     AutomationState.Running = false
+    if ObjectTrack then ObjectTrack:Stop() end
+    if ESP and not ESP.Destroyed then ESP:Destroy() end
+    if ESPDemoFolder and ESPDemoFolder.Parent then ESPDemoFolder:Destroy() end
     if QuickActions and QuickActions.Holder and QuickActions.Holder.Parent then QuickActions:Destroy() end
     if HUD and HUD.Holder and HUD.Holder.Parent then HUD:Destroy() end
-    RenLib:Unload("V8.2 test cleanup")
+    RenLib:Unload("V9.0 test cleanup")
 end
 runtime.__RENLIB_V81_TEST = Test
 runtime.__RENLIB_V82_TEST = Test
+runtime.__RENLIB_V90_TEST = Test
 
 local summary = string.format("%d passed, %d failed", Test.Passed, Test.Failed)
 RenLib:Notify({
-    Title = Test.Failed == 0 and "RenLib V8.2 tests passed" or "RenLib V8.2 test failures",
-    Content = summary .. ". The Automation tab is now running a live round simulator.",
+    Title = Test.Failed == 0 and "RenLib V9.0 tests passed" or "RenLib V9.0 test failures",
+    Content = summary .. ". Automation and the world-object ESP demo are live.",
     Duration = 8,
 })
-print("[RenLib V8.2 Test] " .. summary)
-print("[RenLib V8.2 Test] Manual QA: live rounds, expanded named tabs, quick actions, Ctrl+K/Ctrl+Tab, HUD docking, catalog filters, and phone rotation.")
+print("[RenLib V9.0 Test] " .. summary)
+print("[RenLib V9.0 Test] Manual QA: object/player ESP, optional skeleton, compact sections/cards, live rounds, quick actions, Ctrl+K/Ctrl+Tab, and phone rotation.")
 
 return Test
