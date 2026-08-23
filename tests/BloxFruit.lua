@@ -231,6 +231,7 @@ local Settings = {
     AutoFarmMaterial = false,
     AutoEliteHunter = false,
     AutoCollectChest = false,
+    AutoCollectBerries = false,
     AutoRaid = false,
     AutoEventEnemy = false,
     AcceptLevelQuests = true,
@@ -252,7 +253,7 @@ local Settings = {
     BringRadius = 3000,
     TargetRadius = 60,
     HitboxSize = 60,
-    HitboxTransparency = 0.82,
+    HitboxTransparency = 1,
     AttackMode = "Fast Attack",
     StatsValue = 10,
     AutoMelee = false,
@@ -266,6 +267,8 @@ local Settings = {
     AutoBuyStockFruit = false,
     FruitESP = false,
     ChestESP = false,
+    BerryESP = false,
+    IslandESP = false,
     AutoRaceV3 = false,
     AutoRaceV4 = false,
     AutoSeaBeast = false,
@@ -316,6 +319,14 @@ local Runtime = {
     EnemyMutationState = setmetatable({}, { __mode = "k" }),
     FeatureLastRun = {},
     Chests = setmetatable({}, { __mode = "k" }),
+    Berries = setmetatable({}, { __mode = "k" }),
+    Islands = setmetatable({}, { __mode = "k" }),
+    ChestCooldown = setmetatable({}, { __mode = "k" }),
+    BerryCooldown = setmetatable({}, { __mode = "k" }),
+    PickupBusy = false,
+    PickupKind = nil,
+    PickupTarget = nil,
+    PickupLastFound = 0,
     ESPObjects = setmetatable({}, { __mode = "k" }),
     RaidSummonAttempt = 0,
     UIControls = {},
@@ -326,6 +337,7 @@ local Runtime = {
     CombatTransport = "initializing",
     TokenHookInstalled = false,
     LastTokenProbe = 0,
+    LastBatchSize = 0,
 }
 
 local function connect(signal, callback)
@@ -411,17 +423,96 @@ local function chestCandidate(instance)
         or CollectionService:HasTag(instance, "_ChestTagged")
 end
 
-local function trackChest(instance)
-    if chestCandidate(instance) then Runtime.Chests[instance] = true end
+local function destroyESPEntry(instance)
+    local entry = Runtime.ESPObjects[instance]
+    if type(entry) == "table" then
+        for _, object in pairs(entry) do
+            if typeof(object) == "Instance" then pcall(object.Destroy, object) end
+        end
+    elseif typeof(entry) == "Instance" then
+        pcall(entry.Destroy, entry)
+    end
+    Runtime.ESPObjects[instance] = nil
 end
 
-for _, instance in ipairs(workspace:GetDescendants()) do trackChest(instance) end
-connect(workspace.DescendantAdded, trackChest)
+local function canonicalChest(instance)
+    local current, found = instance, nil
+    while current and current ~= workspace do
+        if chestCandidate(current) then found = current end
+        current = current.Parent
+    end
+    return found
+end
+
+local function trackChest(instance)
+    local chest = canonicalChest(instance)
+    if chest then Runtime.Chests[chest] = true end
+end
+
+local function berryCandidate(instance)
+    if CollectionService:HasTag(instance, "BerryBush") then return true end
+    if not (instance:IsA("Model") or instance:IsA("BasePart")) then return false end
+    return string.find(string.lower(instance.Name), "berry", 1, true) ~= nil
+end
+
+local function canonicalBerry(instance)
+    local current, found, tagged = instance, nil, nil
+    while current and current ~= workspace do
+        if CollectionService:HasTag(current, "BerryBush") then tagged = current end
+        if berryCandidate(current) then found = current end
+        current = current.Parent
+    end
+    return tagged or found
+end
+
+local function trackBerry(instance)
+    local berry = canonicalBerry(instance)
+    if berry then Runtime.Berries[berry] = true end
+end
+
+local function trackIsland(instance)
+    local parent = instance.Parent
+    if parent and parent.Name == "Locations"
+        and parent.Parent and parent.Parent.Name == "_WorldOrigin"
+        and (instance:IsA("Model") or instance:IsA("BasePart"))
+    then
+        Runtime.Islands[instance] = true
+    end
+end
+
+for _, instance in ipairs(workspace:GetDescendants()) do
+    trackChest(instance)
+    trackBerry(instance)
+    trackIsland(instance)
+end
+for _, bush in ipairs(CollectionService:GetTagged("BerryBush")) do trackBerry(bush) end
+connect(CollectionService:GetInstanceAddedSignal("BerryBush"), trackBerry)
+connect(CollectionService:GetInstanceRemovedSignal("BerryBush"), function(instance)
+    Runtime.Berries[instance] = nil
+    destroyESPEntry(instance)
+end)
+connect(workspace.DescendantAdded, function(instance)
+    trackChest(instance)
+    trackBerry(instance)
+    trackIsland(instance)
+end)
 connect(workspace.DescendantRemoving, function(instance)
-    Runtime.Chests[instance] = nil
-    local highlight = Runtime.ESPObjects[instance]
-    if highlight then pcall(highlight.Destroy, highlight) end
-    Runtime.ESPObjects[instance] = nil
+    for chest in pairs(Runtime.Chests) do
+        if chest == instance or chest:IsDescendantOf(instance) then
+            Runtime.Chests[chest] = nil
+            Runtime.ChestCooldown[chest] = nil
+            destroyESPEntry(chest)
+        end
+    end
+    for berry in pairs(Runtime.Berries) do
+        if berry == instance or berry:IsDescendantOf(instance) then
+            Runtime.Berries[berry] = nil
+            Runtime.BerryCooldown[berry] = nil
+            destroyESPEntry(berry)
+        end
+    end
+    Runtime.Islands[instance] = nil
+    destroyESPEntry(instance)
 end)
 
 local Remotes = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:WaitForChild("Remotes", 15)
@@ -563,7 +654,6 @@ local function activeFarmMode()
     if Settings.AutoEventEnemy then return "Event" end
     if Settings.AutoEliteHunter then return "Elite" end
     if Settings.AutoFarmMaterial then return "Material" end
-    if Settings.AutoCollectChest then return "Chest" end
     if Settings.AutoFarmBoss then return "Boss" end
     if Settings.AutoFarmAllBoss then return "AllBoss" end
     if Settings.AutoKillMob then return "Mob" end
@@ -761,7 +851,8 @@ local function mutateEnemy(model, humanoid, root, destination)
 
     local size = math.clamp(tonumber(Settings.HitboxSize) or 60, 8, 100)
     root.Size = Vector3.new(size, size, size)
-    root.Transparency = math.clamp(tonumber(Settings.HitboxTransparency) or 0.82, 0, 1)
+    -- The expanded server hitbox is intentionally never rendered to the user.
+    root.Transparency = 1
     root.CanCollide = false
     humanoid.WalkSpeed = 0
     humanoid.JumpPower = 0
@@ -959,23 +1050,48 @@ local function currentHitModel(targetModels)
     return nil
 end
 
+local function hitPartFor(model)
+    if not model or not model:IsA("Model") then return nil end
+    return model:FindFirstChild("LeftHand")
+        or model:FindFirstChild("RightHand")
+        or model:FindFirstChild("Head")
+        or model:FindFirstChild("HumanoidRootPart")
+end
+
 local function netTokenAttack(targetModels)
     if not RegisterAttack or not RegisterHit then return false end
     if not Runtime.CombatToken then
         probeCombatToken()
         return false
     end
-    local enemy = currentHitModel(targetModels)
-    if not enemy then return false end
-    local part = enemy:FindFirstChild("LeftHand")
-        or enemy:FindFirstChild("RightHand")
-        or enemy:FindFirstChild("Head")
-        or enemy:FindFirstChild("HumanoidRootPart")
-    if not part then return false end
+    local ordered, seen = {}, {}
+    local current = currentHitModel(targetModels)
+    if current then
+        ordered[#ordered + 1] = current
+        seen[current] = true
+    end
+    for _, model in ipairs(targetModels or {}) do
+        if model:IsA("Model") and not seen[model] and aliveModel(model) then
+            ordered[#ordered + 1] = model
+            seen[model] = true
+        end
+    end
+    if #ordered == 0 then return false end
     local attackOk = pcall(RegisterAttack.FireServer, RegisterAttack, 0.5)
-    local hitOk = pcall(RegisterHit.FireServer, RegisterHit, part, {}, nil, Runtime.CombatToken)
-    if attackOk and hitOk then
-        Runtime.CombatTransport = "Net token attack"
+    local hitCount = 0
+    -- One attack registration, then one deduplicated hit per nearby model. This
+    -- preserves the known current packet shape instead of guessing a bulk arg.
+    for index, model in ipairs(ordered) do
+        if index > 24 then break end
+        local part = hitPartFor(model)
+        if part then
+            local hitOk = pcall(RegisterHit.FireServer, RegisterHit, part, {}, nil, Runtime.CombatToken)
+            if hitOk then hitCount += 1 end
+        end
+    end
+    Runtime.LastBatchSize = hitCount
+    if attackOk and hitCount > 0 then
+        Runtime.CombatTransport = string.format("Net multi-hit (%d)", hitCount)
         return true
     end
     return false
@@ -1018,7 +1134,7 @@ Runtime.AttackTransport = defaultAttackTransport
 
 local function attackTick()
     if not Settings.FastAttack then return end
-    if activeFarmMode() == "Chest" then return end
+    if Runtime.PickupBusy then return end
     collectFastTargets()
     if not farmEnabled() or not Runtime.PrimaryTarget then return end
     for _, target in ipairs(Runtime.FastTargets) do
@@ -1246,39 +1362,113 @@ local function objectPart(instance)
     if instance:IsA("Model") then
         return instance.PrimaryPart or instance:FindFirstChildWhichIsA("BasePart", true)
     end
+    return instance:FindFirstChildWhichIsA("BasePart", true)
 end
 
-local function findNearestChest(playerRoot)
+local function findNearestCached(playerRoot, cache, cooldowns)
     local nearest, nearestPart, nearestDistance
-    for chest in pairs(Runtime.Chests) do
-        local part = objectPart(chest)
+    local now = os.clock()
+    for object in pairs(cache) do
+        local part = objectPart(object)
         if part and part.Parent then
-            local distance = (part.Position - playerRoot.Position).Magnitude
-            if not nearestDistance or distance < nearestDistance then
-                nearest, nearestPart, nearestDistance = chest, part, distance
+            local retryAt = cooldowns[object] or 0
+            if retryAt <= now then
+                local distance = (part.Position - playerRoot.Position).Magnitude
+                if not nearestDistance or distance < nearestDistance then
+                    nearest, nearestPart, nearestDistance = object, part, distance
+                end
             end
         else
-            Runtime.Chests[chest] = nil
+            cache[object] = nil
+            cooldowns[object] = nil
         end
     end
     return nearest, nearestPart, nearestDistance
 end
 
-local function tickChest(playerRoot)
-    Runtime.CurrentTarget = nil
-    local chest, part, distance = findNearestChest(playerRoot)
-    if not chest or not part then return end
+local function interactPickup(playerRoot, object, primaryPart)
+    local touched, prompted = 0, 0
+    local function touch(part)
+        if touched >= 64 or not part:IsA("BasePart") then return end
+        touched += 1
+        if type(firetouchinterest) == "function" then
+            pcall(firetouchinterest, playerRoot, part, 0)
+            pcall(firetouchinterest, playerRoot, part, 1)
+        end
+    end
+    touch(primaryPart)
+    for _, descendant in ipairs(object:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            touch(descendant)
+        elseif descendant:IsA("ProximityPrompt") and type(fireproximityprompt) == "function" then
+            prompted += 1
+            pcall(fireproximityprompt, descendant)
+        elseif descendant:IsA("ClickDetector") and type(fireclickdetector) == "function" then
+            prompted += 1
+            pcall(fireclickdetector, descendant)
+        end
+    end
+    if touched == 0 and prompted == 0 then
+        pcall(function() playerRoot.CFrame = primaryPart.CFrame * CFrame.new(0, 2, 0) end)
+    end
+end
+
+local function finishPickupOverlay()
+    if not Runtime.PickupBusy then return end
+    Runtime.PickupBusy = false
+    Runtime.PickupKind = nil
+    Runtime.PickupTarget = nil
+    Movement:Cancel()
+    clearFarmAnchor(true)
+end
+
+local function choosePickup(playerRoot)
+    if Settings.AutoCollectChest then
+        local chest, part, distance = findNearestCached(playerRoot, Runtime.Chests, Runtime.ChestCooldown)
+        if chest then return "Chest", chest, part, distance end
+    end
+    if Settings.AutoCollectBerries then
+        local berry, part, distance = findNearestCached(playerRoot, Runtime.Berries, Runtime.BerryCooldown)
+        if berry then return "Berry", berry, part, distance end
+    end
+    return nil
+end
+
+local function tickPickupOverlay(playerRoot)
+    if not Settings.AutoCollectChest and not Settings.AutoCollectBerries then
+        finishPickupOverlay()
+        return
+    end
+
+    local kind, object, part, distance = choosePickup(playerRoot)
+    if not object or not part then
+        if Runtime.PickupBusy and os.clock() - Runtime.PickupLastFound >= 0.3 then
+            finishPickupOverlay()
+        end
+        return
+    end
+
+    Runtime.PickupLastFound = os.clock()
+    if not Runtime.PickupBusy then
+        Runtime.PickupBusy = true
+        Runtime.CurrentTarget = nil
+        Movement:Cancel()
+        clearFarmAnchor(true)
+    end
+    Runtime.PickupKind = kind
+    Runtime.PickupTarget = object
     if distance > 7 then
         Movement:Go(part.CFrame * CFrame.new(0, 3, 0))
         return
     end
     Movement:Cancel()
-    if type(firetouchinterest) == "function" then
-        pcall(firetouchinterest, playerRoot, part, 0)
-        pcall(firetouchinterest, playerRoot, part, 1)
+    interactPickup(playerRoot, object, part)
+    if kind == "Chest" then
+        Runtime.ChestCooldown[object] = os.clock() + 8
     else
-        pcall(function() playerRoot.CFrame = part.CFrame * CFrame.new(0, 2, 0) end)
+        Runtime.BerryCooldown[object] = os.clock() + 20
     end
+    Runtime.PickupTarget = nil
 end
 
 local function raidIslandCFrame()
@@ -1357,7 +1547,7 @@ local function tickSeaBeast(playerRoot)
     Movement:Go(root.CFrame * CFrame.new(0, math.max(30, tonumber(Settings.Height) or 20), 20))
 end
 
-local MODE_INTERVALS = { Level = 0.2, Mob = 0.03, Nearest = 0.05, Boss = 0.2, AllBoss = 0.1, Material = 0.06, Elite = 0.12, Chest = 0.1, Raid = 0.08, SeaBeast = 0.12, Event = 0.06 }
+local MODE_INTERVALS = { Level = 0.2, Mob = 0.03, Nearest = 0.05, Boss = 0.2, AllBoss = 0.1, Material = 0.06, Elite = 0.12, Raid = 0.08, SeaBeast = 0.12, Event = 0.06 }
 
 task.spawn(function()
     local lastMode, lastRun = nil, 0
@@ -1370,7 +1560,7 @@ task.spawn(function()
             lastMode = mode
         end
 
-        if mode and os.clock() - lastRun >= MODE_INTERVALS[mode] then
+        if mode and not Runtime.PickupBusy and os.clock() - lastRun >= MODE_INTERVALS[mode] then
             lastRun = os.clock()
             local _, humanoid, playerRoot = characterParts()
             if humanoid and playerRoot and humanoid.Health > 0 then
@@ -1383,17 +1573,30 @@ task.spawn(function()
                     elseif mode == "AllBoss" then tickAllBoss(playerRoot)
                     elseif mode == "Material" then tickMaterial(playerRoot)
                     elseif mode == "Elite" then tickElite(playerRoot)
-                    elseif mode == "Chest" then tickChest(playerRoot)
                     elseif mode == "Raid" then tickRaid(playerRoot)
                     elseif mode == "SeaBeast" then tickSeaBeast(playerRoot)
                     elseif mode == "Event" then tickEvent(playerRoot) end
                 end)
                 if not ok then warn("RenBanana farm tick:", err) end
             end
-        elseif not mode and Runtime.MovementTween then
+        elseif not mode and not Runtime.PickupBusy and Runtime.MovementTween then
             Movement:Cancel()
         end
         task.wait(0.03)
+    end
+end)
+
+-- Chest and berry collection are overlays, not farm modes. They temporarily
+-- borrow movement, drain every cached pickup, then release control without
+-- changing whichever farming toggle the user enabled.
+task.spawn(function()
+    while Runtime.Alive do
+        local _, humanoid, playerRoot = characterParts()
+        if humanoid and playerRoot and humanoid.Health > 0 then
+            local ok, err = pcall(tickPickupOverlay, playerRoot)
+            if not ok then warn("RenBanana pickup tick:", err) end
+        end
+        task.wait(0.08)
     end
 end)
 
@@ -1469,34 +1672,99 @@ local function espAdornee(instance)
         return instance:FindFirstChild("Handle") or instance:FindFirstChildWhichIsA("BasePart")
     end
     if instance:IsA("Model") or instance:IsA("BasePart") then return instance end
+    return instance:FindFirstChildWhichIsA("BasePart", true)
 end
 
-local function setESP(instance, enabled, color)
+local function espPart(instance)
+    local adornee = espAdornee(instance)
+    if not adornee then return nil end
+    if adornee:IsA("BasePart") then return adornee end
+    if adornee:IsA("Model") then
+        return adornee.PrimaryPart or adornee:FindFirstChildWhichIsA("BasePart", true)
+    end
+    return nil
+end
+
+local function setESP(instance, enabled, color, displayName, useHighlight)
     local existing = Runtime.ESPObjects[instance]
     if not enabled then
-        if existing then pcall(existing.Destroy, existing) end
-        Runtime.ESPObjects[instance] = nil
+        destroyESPEntry(instance)
         return
     end
     local adornee = espAdornee(instance)
-    if not adornee then return end
-    if not existing or not existing.Parent then
-        existing = Instance.new("Highlight")
-        existing.Name = "RenBananaESP"
-        existing.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        existing.FillTransparency = 0.72
-        existing.OutlineTransparency = 0.08
-        existing.Parent = adornee
+    local part = espPart(instance)
+    if not adornee or not part then return end
+    if type(existing) ~= "table" then
+        destroyESPEntry(instance)
+        existing = {}
         Runtime.ESPObjects[instance] = existing
     end
-    existing.Adornee = adornee
-    existing.FillColor = color
-    existing.OutlineColor = color
+
+    if useHighlight ~= false then
+        local highlight = existing.Highlight
+        if not highlight or not highlight.Parent then
+            highlight = Instance.new("Highlight")
+            highlight.Name = "RenBananaESP"
+            highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            highlight.FillTransparency = 0.78
+            highlight.OutlineTransparency = 0.08
+            highlight.Parent = adornee
+            existing.Highlight = highlight
+        end
+        highlight.Adornee = adornee
+        highlight.FillColor = color
+        highlight.OutlineColor = color
+    elseif existing.Highlight then
+        pcall(existing.Highlight.Destroy, existing.Highlight)
+        existing.Highlight = nil
+    end
+
+    local billboard = existing.Billboard
+    if not billboard or not billboard.Parent then
+        billboard = Instance.new("BillboardGui")
+        billboard.Name = "RenBananaESPLabel"
+        billboard.AlwaysOnTop = true
+        billboard.LightInfluence = 0
+        billboard.MaxDistance = 100000
+        billboard.Size = UDim2.fromOffset(240, 34)
+        billboard.StudsOffset = Vector3.new(0, 3, 0)
+        billboard.Parent = part
+        existing.Billboard = billboard
+
+        local label = Instance.new("TextLabel")
+        label.Name = "Label"
+        label.BackgroundTransparency = 1
+        label.Size = UDim2.fromScale(1, 1)
+        label.Font = Enum.Font.GothamBold
+        label.TextScaled = false
+        label.TextSize = 14
+        label.TextStrokeTransparency = 0.25
+        label.Parent = billboard
+        existing.Label = label
+    end
+    billboard.Adornee = part
+    local _, _, playerRoot = characterParts()
+    local distance = playerRoot and math.floor((part.Position - playerRoot.Position).Magnitude + 0.5)
+    local label = existing.Label or billboard:FindFirstChild("Label")
+    if label then
+        label.TextColor3 = color
+        label.Text = string.format("%s%s", displayName or instance.Name, distance and string.format(" [%dm]", distance) or "")
+    end
 end
 
 local function updateESPs()
-    for fruit in pairs(WorldFruits) do setESP(fruit, Settings.FruitESP, Color3.fromRGB(255, 80, 220)) end
-    for chest in pairs(Runtime.Chests) do setESP(chest, Settings.ChestESP, Color3.fromRGB(255, 210, 70)) end
+    for fruit in pairs(WorldFruits) do
+        setESP(fruit, Settings.FruitESP, Color3.fromRGB(255, 80, 220), fruitIdentity(fruit) or fruit.Name, true)
+    end
+    for chest in pairs(Runtime.Chests) do
+        setESP(chest, Settings.ChestESP, Color3.fromRGB(255, 210, 70), chest.Name, true)
+    end
+    for berry in pairs(Runtime.Berries) do
+        setESP(berry, Settings.BerryESP, Color3.fromRGB(80, 175, 255), berry.Name, true)
+    end
+    for island in pairs(Runtime.Islands) do
+        setESP(island, Settings.IslandESP, Color3.fromRGB(100, 255, 155), island.Name, false)
+    end
 end
 
 local function optimizeVisualInstance(instance)
@@ -1622,10 +1890,10 @@ connect(RunService.Heartbeat, function(delta)
     physicsAccumulator += delta
     if physicsAccumulator >= 0.12 then
         physicsAccumulator = 0
-        if farmEnabled() then
+        if farmEnabled() or Runtime.PickupBusy then
             local model, _, root = characterParts()
             if root then ensureBodyVelocity(root, "BodyClip", Vector3.new(100000, 100000, 100000)) end
-            if root and Runtime.AnchorReached and Runtime.FarmAnchor then
+            if not Runtime.PickupBusy and root and Runtime.AnchorReached and Runtime.FarmAnchor then
                 root.CFrame = Runtime.FarmAnchor
                     * CFrame.new(0, tonumber(Settings.Height) or 20, 0)
                     * CFrame.Angles(0, math.pi, 0)
@@ -1665,7 +1933,6 @@ function API.Set(name, value)
         AutoFarmAllBoss = true,
         AutoFarmMaterial = true,
         AutoEliteHunter = true,
-        AutoCollectChest = true,
         AutoRaid = true,
         AutoSeaBeast = true,
         AutoEventEnemy = true,
@@ -1689,8 +1956,12 @@ function API.Set(name, value)
         clearFarmAnchor(true)
     elseif name == "BringMobs" and value == false then
         restoreEnemies()
-    elseif (name == "FruitESP" or name == "ChestESP") and value == false then
+    elseif (name == "FruitESP" or name == "ChestESP" or name == "BerryESP" or name == "IslandESP") and value == false then
         updateESPs()
+    elseif (name == "AutoCollectChest" or name == "AutoCollectBerries") and value == false
+        and not Settings.AutoCollectChest and not Settings.AutoCollectBerries
+    then
+        finishPickupOverlay()
     end
     return value
 end
@@ -1726,6 +1997,7 @@ function API.StopAll()
         end
     end
     Runtime.CurrentTarget = nil
+    finishPickupOverlay()
     Movement:Cancel()
     clearFarmAnchor(true)
     restoreCharacterPhysics()
@@ -8566,7 +8838,7 @@ return Library
         Callback = function()
             RenLib:Notify({
                 Title = "Combat diagnostics",
-                Content = string.format("%s | token:%s | attempts:%d | damage:%d | targets:%d", Runtime.CombatTransport, Runtime.CombatToken and "yes" or "no", Runtime.AttackAttempts, Runtime.DamageRegistrations, #Runtime.FastTargets),
+                Content = string.format("%s | token:%s | attempts:%d | damage:%d | targets:%d | batch:%d | pickup:%s", Runtime.CombatTransport, Runtime.CombatToken and "yes" or "no", Runtime.AttackAttempts, Runtime.DamageRegistrations, #Runtime.FastTargets, Runtime.LastBatchSize, Runtime.PickupKind or "none"),
                 Duration = 8,
             })
         end,
@@ -8605,7 +8877,6 @@ return Library
     toggle(FruitSection, "Auto collect nearby fruits", "AutoCollectFruit", "Uses touch interest when available, with a local proximity fallback.")
     toggle(FruitSection, "Auto store held fruits", "AutoStoreFruit")
     toggle(FruitSection, "Auto buy random fruit", "AutoRandomFruit", "Requests the fruit cousin once per minute.")
-    toggle(FruitSection, "Fruit ESP", "FruitESP", "Adds lightweight client Highlights to replicated world fruit tools.")
     local FruitStock = Fruits:CreateSection({Name = "Fruit stock", Side = "Right"})
     FruitStock:CreateDropdown({
         Name = "Selected stock fruit",
@@ -8619,8 +8890,9 @@ return Library
 
     local Items = Window:CreateTab({Name = "Items & raids", Icon = "6031225818"})
     local ChestSection = Items:CreateSection({Name = "Chests", Side = "Left"})
-    toggle(ChestSection, "Auto collect chests", "AutoCollectChest", "Uses an event-maintained chest cache; no full-workspace scan loop.")
-    toggle(ChestSection, "Chest ESP", "ChestESP")
+    toggle(ChestSection, "Auto collect every chest", "AutoCollectChest", "Background overlay: pauses movement only while cached chests exist, collects all of them, then resumes the enabled farm.")
+    local BerrySection = Items:CreateSection({Name = "Berries", Side = "Left"})
+    toggle(BerrySection, "Auto collect berries", "AutoCollectBerries", "Uses Nana's BerryBush CollectionService tag plus direct berry instances; sweeps every replicated bush and returns to farming.")
     if Sea >= 2 then
         local RaidSection = Items:CreateSection({Name = "Raids", Side = "Right"})
         RaidSection:CreateDropdown({
@@ -8632,6 +8904,15 @@ return Library
         })
         toggle(RaidSection, "Auto raid", "AutoRaid", "Selects the chip, uses replicated raid summon controls, follows the highest active island, and farms raid enemies.")
     end
+
+    local ESPTab = Window:CreateTab({Name = "ESP", Icon = "6031075938"})
+    local WorldESP = ESPTab:CreateSection({Name = "World ESP", Side = "Left"})
+    toggle(WorldESP, "Island ESP", "IslandESP", "Labels current _WorldOrigin/Locations entries with live distance.")
+    toggle(WorldESP, "Fruit ESP", "FruitESP", "Labels and highlights every replicated world fruit.")
+    toggle(WorldESP, "Chest ESP", "ChestESP", "Labels and highlights every cached chest, not only the current pickup.")
+    toggle(WorldESP, "Berry ESP", "BerryESP", "Labels Nana-compatible BerryBush-tagged objects and direct berry instances.")
+    local ESPInfo = ESPTab:CreateSection({Name = "Scanner behavior", Side = "Right"})
+    ESPInfo:CreateParagraph({Title = "Event maintained", Content = "Fruit, chest, berry, and island caches update from spawn/removal signals. ESP refreshes labels and distances without repeatedly scanning the whole workspace."})
 
     local Shops = Window:CreateTab({Name = "Shops & travel", Icon = "6031260781"})
     local Styles = Shops:CreateSection({Name = "Fighting styles", Side = "Left"})
@@ -8767,9 +9048,7 @@ function API.Destroy()
     for body in pairs(Runtime.OwnedBodyMovers) do
         if body and body.Parent then pcall(body.Destroy, body) end
     end
-    for _, highlight in pairs(Runtime.ESPObjects) do
-        if highlight and highlight.Parent then pcall(highlight.Destroy, highlight) end
-    end
+    for instance in pairs(Runtime.ESPObjects) do destroyESPEntry(instance) end
     table.clear(Runtime.ESPObjects)
     restoreCharacterPhysics()
     if Runtime.Gui then pcall(Runtime.Gui.Destroy, Runtime.Gui) end
