@@ -1,11 +1,6 @@
--- RenBanana Farming Runtime
--- Reconstructed from Gravity Hub / Banana MainV2 (commit 1970c5ed..., 2026-08-21).
--- Expanded from Nana TV selector commit 63b19e32... and pinned V1/V2 payloads
--- 3324daf2... / 7dfc3af7... (inspected 2026-08-23; protected payloads were not executed).
--- Self-contained: no mutable HTTP dependencies. The old 2024 validator remote is not used.
--- The recovered current Fast Attack path contains target collection but no observable
--- damage remote. This build uses close-range normal M1 input unless the caller supplies
--- a verified experience-specific transport with SetAttackTransport().
+-- BloxFruitScript
+-- Self-contained multi-sea automation runtime with adaptive combat transport,
+-- event-maintained world caches, persistent settings, and responsive UI.
 
 if not game:IsLoaded() then game.Loaded:Wait() end
 
@@ -18,13 +13,14 @@ local VirtualUser = game:GetService("VirtualUser")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local Lighting = game:GetService("Lighting")
 local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
 local CollectionService = game:GetService("CollectionService")
 local LocalPlayer = Players.LocalPlayer
 local Environment = (getgenv and getgenv()) or _G
 
-if Environment.RenBanana and type(Environment.RenBanana.Destroy) == "function" then
-    pcall(Environment.RenBanana.Destroy)
+if Environment.BloxFruitScript and type(Environment.BloxFruitScript.Destroy) == "function" then
+    pcall(Environment.BloxFruitScript.Destroy)
 end
 
 local PLACE_TO_SEA = {
@@ -34,7 +30,7 @@ local PLACE_TO_SEA = {
 }
 
 local Sea = PLACE_TO_SEA[game.PlaceId]
-assert(Sea, "RenBanana: unsupported PlaceId " .. tostring(game.PlaceId))
+assert(Sea, "BloxFruitScript: unsupported PlaceId " .. tostring(game.PlaceId))
 
 local LEVEL_DATA = {
     [1] = {
@@ -230,6 +226,9 @@ local Settings = {
     AutoFarmAllBoss = false,
     AutoFarmMaterial = false,
     AutoEliteHunter = false,
+    AutoRefreshBossList = true,
+    AutoObservation = false,
+    AutoFarmObservation = false,
     AutoCollectChest = false,
     AutoCollectBerries = false,
     AutoRaid = false,
@@ -246,6 +245,19 @@ local Settings = {
     SelectedStockFruit = "Light-Light",
     RedeemCode = "",
     SelectedEventEnemy = "Terrorshark",
+    SelectedIsland = "",
+    SelectedFishingRod = "Fishing Rod",
+    SelectedBait = "Basic Bait",
+    AutoFishing = false,
+    AutoBuyBait = false,
+    AutoFishingQuest = false,
+    AutoDojoTrainer = false,
+    AutoFarmMastery = false,
+    MasteryType = "Blox Fruit",
+    LockWalkSpeed = false,
+    LockJumpPower = false,
+    WalkSpeed = 16,
+    JumpPower = 50,
     WeaponCategory = "Melee",
     ExactToolName = nil,
     Height = 20,
@@ -255,7 +267,7 @@ local Settings = {
     HitboxSize = 60,
     HitboxTransparency = 1,
     AttackMode = "Fast Attack",
-    StatsValue = 10,
+    StatsValue = 2,
     AutoMelee = false,
     AutoDefense = false,
     AutoSword = false,
@@ -293,7 +305,7 @@ local ATTACK_DELAYS = {
     ["Normal Attack"] = 0.3,
     ["Fast Attack"] = 0.2,
     ["Super Fast Attack"] = 0.1,
-    ["Gravity hub"] = 0.05,
+    ["Instant"] = 0.05,
 }
 
 local Runtime = {
@@ -311,6 +323,11 @@ local Runtime = {
     LastSimulationRadius = 0,
     MovementTween = nil,
     MovementGoal = nil,
+    MovementStarted = 0,
+    MovementLastProgress = 0,
+    MovementLastPosition = nil,
+    LastLandCFrame = nil,
+    RecoveryCount = 0,
     FarmAnchor = nil,
     FarmAnchorKey = nil,
     AnchorReached = false,
@@ -323,6 +340,7 @@ local Runtime = {
     Islands = setmetatable({}, { __mode = "k" }),
     ChestCooldown = setmetatable({}, { __mode = "k" }),
     BerryCooldown = setmetatable({}, { __mode = "k" }),
+    FruitCooldown = setmetatable({}, { __mode = "k" }),
     PickupBusy = false,
     PickupKind = nil,
     PickupTarget = nil,
@@ -338,6 +356,11 @@ local Runtime = {
     TokenHookInstalled = false,
     LastTokenProbe = 0,
     LastBatchSize = 0,
+    BossDropdown = nil,
+    IslandDropdown = nil,
+    StatusCards = {},
+    VisualState = setmetatable({}, { __mode = "k" }),
+    FPSWorldState = nil,
 }
 
 local function connect(signal, callback)
@@ -393,7 +416,7 @@ local function rebuildEnemyCache()
 end
 
 local EnemyFolder = enemiesFolder() or workspace:WaitForChild("Enemies", 15)
-assert(EnemyFolder, "RenBanana: workspace.Enemies was not found")
+assert(EnemyFolder, "BloxFruitScript: workspace.Enemies was not found")
 rebuildEnemyCache()
 connect(EnemyFolder.ChildAdded, addEnemy)
 connect(EnemyFolder.ChildRemoved, removeEnemy)
@@ -414,7 +437,10 @@ local function trackWorldFruit(instance)
 end
 for _, instance in ipairs(workspace:GetDescendants()) do trackWorldFruit(instance) end
 connect(workspace.DescendantAdded, trackWorldFruit)
-connect(workspace.DescendantRemoving, function(instance) WorldFruits[instance] = nil end)
+connect(workspace.DescendantRemoving, function(instance)
+    WorldFruits[instance] = nil
+    Runtime.FruitCooldown[instance] = nil
+end)
 
 local function chestCandidate(instance)
     if not (instance:IsA("Model") or instance:IsA("BasePart")) then return false end
@@ -523,6 +549,10 @@ local Modules = ReplicatedStorage:FindFirstChild("Modules")
 local Net = Modules and Modules:FindFirstChild("Net")
 local RegisterAttack = Net and Net:FindFirstChild("RE/RegisterAttack")
 local RegisterHit = Net and Net:FindFirstChild("RE/RegisterHit")
+local FishingRequest = (Net and Net:FindFirstChild("RF/FishingRequest"))
+    or (Remotes and Remotes:FindFirstChild("FishingRequest", true))
+local DragonHunterRemote = (Net and Net:FindFirstChild("RF/DragonHunter"))
+local DragonQuestRemote = (Net and Net:FindFirstChild("RF/InteractDragonQuest"))
 local LegacyRigController = ReplicatedStorage:FindFirstChild("RigControllerEvent")
 
 local function invokeComm(...)
@@ -652,6 +682,8 @@ local function activeFarmMode()
     if Settings.AutoRaid then return "Raid" end
     if Settings.AutoSeaBeast then return "SeaBeast" end
     if Settings.AutoEventEnemy then return "Event" end
+    if Settings.AutoFarmObservation then return "Observation" end
+    if Settings.AutoFarmMastery then return "Mastery" end
     if Settings.AutoEliteHunter then return "Elite" end
     if Settings.AutoFarmMaterial then return "Material" end
     if Settings.AutoFarmBoss then return "Boss" end
@@ -797,14 +829,84 @@ function Movement:Go(destination)
 
     self:Cancel()
     Runtime.MovementGoal = destination
-    local speed = math.max(tonumber(Settings.TweenSpeed) or 200, 25)
+    Runtime.MovementStarted = os.clock()
+    Runtime.MovementLastProgress = os.clock()
+    Runtime.MovementLastPosition = root.Position
+    local speed = math.clamp(tonumber(Settings.TweenSpeed) or 200, 5, 300)
     local tween = TweenService:Create(root, TweenInfo.new(distance / speed, Enum.EasingStyle.Linear), {
         CFrame = destination,
     })
     Runtime.MovementTween = tween
+    local completion
+    completion = tween.Completed:Connect(function(playbackState)
+        if completion then completion:Disconnect(); completion = nil end
+        if Runtime.MovementTween == tween then
+            Runtime.MovementTween = nil
+            Runtime.MovementGoal = nil
+            if playbackState == Enum.PlaybackState.Completed then Runtime.MovementLastProgress = os.clock() end
+        end
+    end)
     tween:Play()
     return true
 end
+
+local function landBelow(root)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local model = character()
+    params.FilterDescendantsInstances = model and {model} or {}
+    local result = workspace:Raycast(root.Position + Vector3.new(0, 3, 0), Vector3.new(0, -140, 0), params)
+    return result and result.Material ~= Enum.Material.Water
+end
+
+task.spawn(function()
+    local strandedSince = nil
+    while Runtime.Alive do
+        local _, humanoid, root = characterParts()
+        if humanoid and root and humanoid.Health > 0 then
+            if humanoid.FloorMaterial ~= Enum.Material.Air
+                and humanoid.FloorMaterial ~= Enum.Material.Water
+                and landBelow(root)
+            then
+                Runtime.LastLandCFrame = root.CFrame
+            end
+
+            local goal = Runtime.MovementGoal
+            if Runtime.MovementTween and goal then
+                local previous = Runtime.MovementLastPosition
+                if not previous or (root.Position - previous).Magnitude >= 2 then
+                    Runtime.MovementLastPosition = root.Position
+                    Runtime.MovementLastProgress = os.clock()
+                elseif os.clock() - Runtime.MovementLastProgress > 2.5
+                    and (root.Position - goal.Position).Magnitude > 10
+                then
+                    local retry = goal
+                    Runtime.RecoveryCount += 1
+                    Movement:Cancel()
+                    Movement:Go(retry)
+                end
+                strandedSince = nil
+            elseif farmEnabled() and not Runtime.PickupBusy and not Runtime.AnchorReached
+                and not Runtime.CurrentTarget and not landBelow(root)
+            then
+                strandedSince = strandedSince or os.clock()
+                if os.clock() - strandedSince > 2.5 then
+                    local levelRow = levelMetadata()
+                    local fallback = Runtime.LastLandCFrame
+                        or (levelRow and (levelRow.EnemyCFrame or levelRow.QuestCFrame))
+                    if fallback then
+                    Runtime.RecoveryCount += 1
+                    Movement:Go(fallback * CFrame.new(0, 5, 0))
+                    end
+                    strandedSince = nil
+                end
+            else
+                strandedSince = nil
+            end
+        end
+        task.wait(0.35)
+    end
+end)
 
 local function ensureBodyVelocity(root, name, force)
     local body = root:FindFirstChild(name)
@@ -1135,6 +1237,7 @@ Runtime.AttackTransport = defaultAttackTransport
 local function attackTick()
     if not Settings.FastAttack then return end
     if Runtime.PickupBusy then return end
+    if activeFarmMode() == "Observation" then return end
     collectFastTargets()
     if not farmEnabled() or not Runtime.PrimaryTarget then return end
     for _, target in ipairs(Runtime.FastTargets) do
@@ -1423,6 +1526,10 @@ local function finishPickupOverlay()
 end
 
 local function choosePickup(playerRoot)
+    if Settings.AutoCollectFruit then
+        local fruit, part, distance = findNearestCached(playerRoot, WorldFruits, Runtime.FruitCooldown)
+        if fruit then return "Fruit", fruit, part, distance end
+    end
     if Settings.AutoCollectChest then
         local chest, part, distance = findNearestCached(playerRoot, Runtime.Chests, Runtime.ChestCooldown)
         if chest then return "Chest", chest, part, distance end
@@ -1435,7 +1542,7 @@ local function choosePickup(playerRoot)
 end
 
 local function tickPickupOverlay(playerRoot)
-    if not Settings.AutoCollectChest and not Settings.AutoCollectBerries then
+    if not Settings.AutoCollectFruit and not Settings.AutoCollectChest and not Settings.AutoCollectBerries then
         finishPickupOverlay()
         return
     end
@@ -1463,7 +1570,9 @@ local function tickPickupOverlay(playerRoot)
     end
     Movement:Cancel()
     interactPickup(playerRoot, object, part)
-    if kind == "Chest" then
+    if kind == "Fruit" then
+        Runtime.FruitCooldown[object] = os.clock() + 12
+    elseif kind == "Chest" then
         Runtime.ChestCooldown[object] = os.clock() + 8
     else
         Runtime.BerryCooldown[object] = os.clock() + 20
@@ -1547,7 +1656,37 @@ local function tickSeaBeast(playerRoot)
     Movement:Go(root.CFrame * CFrame.new(0, math.max(30, tonumber(Settings.Height) or 20), 20))
 end
 
-local MODE_INTERVALS = { Level = 0.2, Mob = 0.03, Nearest = 0.05, Boss = 0.2, AllBoss = 0.1, Material = 0.06, Elite = 0.12, Raid = 0.08, SeaBeast = 0.12, Event = 0.06 }
+local function enableObservation()
+    fireComm("Ken", true)
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+        task.wait(0.04)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+    end)
+end
+
+local function tickObservation(playerRoot)
+    if os.clock() - (Runtime.FeatureLastRun.ObservationPulse or 0) >= 1.5 then
+        Runtime.FeatureLastRun.ObservationPulse = os.clock()
+        enableObservation()
+    end
+    local target = findNearestEnemy(playerRoot)
+    Runtime.CurrentTarget = nil
+    clearFarmAnchor(true)
+    if not target then return end
+    local humanoid, root = aliveModel(target)
+    if humanoid and root then
+        Movement:Go(root.CFrame * CFrame.new(0, 0, 4))
+    end
+end
+
+local function tickMastery(playerRoot)
+    Settings.WeaponCategory = Settings.MasteryType
+    local target = findNearestEnemy(playerRoot)
+    if target then combatTarget(target, "Mastery:" .. target.Name) end
+end
+
+local MODE_INTERVALS = { Level = 0.2, Mob = 0.03, Nearest = 0.05, Boss = 0.2, AllBoss = 0.1, Material = 0.06, Elite = 0.12, Raid = 0.08, SeaBeast = 0.12, Event = 0.06, Observation = 0.12, Mastery = 0.06 }
 
 task.spawn(function()
     local lastMode, lastRun = nil, 0
@@ -1575,9 +1714,11 @@ task.spawn(function()
                     elseif mode == "Elite" then tickElite(playerRoot)
                     elseif mode == "Raid" then tickRaid(playerRoot)
                     elseif mode == "SeaBeast" then tickSeaBeast(playerRoot)
+                    elseif mode == "Observation" then tickObservation(playerRoot)
+                    elseif mode == "Mastery" then tickMastery(playerRoot)
                     elseif mode == "Event" then tickEvent(playerRoot) end
                 end)
-                if not ok then warn("RenBanana farm tick:", err) end
+                if not ok then warn("BloxFruitScript farm tick:", err) end
             end
         elseif not mode and not Runtime.PickupBusy and Runtime.MovementTween then
             Movement:Cancel()
@@ -1586,7 +1727,7 @@ task.spawn(function()
     end
 end)
 
--- Chest and berry collection are overlays, not farm modes. They temporarily
+-- Fruit, chest, and berry collection are overlays, not farm modes. They temporarily
 -- borrow movement, drain every cached pickup, then release control without
 -- changing whichever farming toggle the user enabled.
 task.spawn(function()
@@ -1594,7 +1735,7 @@ task.spawn(function()
         local _, humanoid, playerRoot = characterParts()
         if humanoid and playerRoot and humanoid.Health > 0 then
             local ok, err = pcall(tickPickupOverlay, playerRoot)
-            if not ok then warn("RenBanana pickup tick:", err) end
+            if not ok then warn("BloxFruitScript pickup tick:", err) end
         end
         task.wait(0.08)
     end
@@ -1616,24 +1757,6 @@ local function addStats()
     if Settings.AutoFruitStats then invokeComm("AddPoint", "Demon Fruit", amount) end
 end
 
-local function collectWorldFruits()
-    local _, _, root = characterParts()
-    if not root then return end
-    for tool in pairs(WorldFruits) do
-        if tool and tool.Parent then
-            local handle = tool:FindFirstChild("Handle") or tool:FindFirstChildWhichIsA("BasePart")
-            if handle then
-                if type(firetouchinterest) == "function" then
-                    pcall(firetouchinterest, root, handle, 0)
-                    pcall(firetouchinterest, root, handle, 1)
-                elseif (handle.Position - root.Position).Magnitude <= 120 then
-                    pcall(function() handle.CFrame = root.CFrame end)
-                end
-            end
-        end
-    end
-end
-
 local function storeHeldFruits()
     local function scan(container)
         if not container then return end
@@ -1644,6 +1767,128 @@ local function storeHeldFruits()
     end
     scan(character())
     scan(LocalPlayer:FindFirstChildOfClass("Backpack"))
+end
+
+local function findOwnedTool(name)
+    local model = character()
+    local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+    return (model and model:FindFirstChild(name)) or (backpack and backpack:FindFirstChild(name))
+end
+
+local function fishingTick()
+    local model, humanoid = characterParts()
+    if not model or not humanoid then return end
+    local rod = findOwnedTool(Settings.SelectedFishingRod)
+    if not rod then
+        for _, container in ipairs({model, LocalPlayer:FindFirstChildOfClass("Backpack")}) do
+            if container then
+                for _, tool in ipairs(container:GetChildren()) do
+                    if tool:IsA("Tool") and string.find(string.lower(tool.Name), "rod", 1, true) then rod = tool; break end
+                end
+            end
+            if rod then break end
+        end
+    end
+    if not rod then return end
+    if rod.Parent ~= model then pcall(humanoid.EquipTool, humanoid, rod) end
+    pcall(rod.Activate, rod)
+    if FishingRequest then
+        if FishingRequest:IsA("RemoteFunction") then pcall(FishingRequest.InvokeServer, FishingRequest, "Catch")
+        elseif FishingRequest:IsA("RemoteEvent") then pcall(FishingRequest.FireServer, FishingRequest, "Catch") end
+    end
+end
+
+local function interactFishingNPC()
+    for _, descendant in ipairs(workspace:GetDescendants()) do
+        if descendant:IsA("ProximityPrompt") then
+            local fullName = string.lower(descendant:GetFullName())
+            if string.find(fullName, "fishing", 1, true) or string.find(fullName, "fisher", 1, true) then
+                if type(fireproximityprompt) == "function" then pcall(fireproximityprompt, descendant) end
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function invokeDojoRemote(remote)
+    if not remote then return false end
+    if remote:IsA("RemoteFunction") then return pcall(remote.InvokeServer, remote) end
+    if remote:IsA("RemoteEvent") then return pcall(remote.FireServer, remote) end
+    return false
+end
+
+local function currentBossNames()
+    local values, seen = {}, {}
+    for _, name in ipairs(BOSS_LISTS[Sea] or {}) do
+        local repaired = BOSS_ALIASES[name] or name
+        if not seen[repaired] then seen[repaired] = true; values[#values + 1] = repaired end
+    end
+    for _, model in ipairs(EnemyFolder:GetChildren()) do
+        local humanoid = model:FindFirstChildOfClass("Humanoid")
+        local lower = string.lower(model.Name)
+        if humanoid and (string.find(lower, "boss", 1, true) or BOSS_DATA[model.Name]) and not seen[model.Name] then
+            seen[model.Name] = true
+            values[#values + 1] = model.Name
+        end
+    end
+    table.sort(values)
+    return values
+end
+
+local function currentIslandNames()
+    local values, seen = {}, {}
+    for island in pairs(Runtime.Islands) do
+        if island and island.Parent and not seen[island.Name] then
+            seen[island.Name] = true
+            values[#values + 1] = island.Name
+        end
+    end
+    table.sort(values)
+    return values
+end
+
+local function selectedIslandObject()
+    for island in pairs(Runtime.Islands) do
+        if island and island.Parent and island.Name == Settings.SelectedIsland then return island end
+    end
+end
+
+local function travelToSelectedIsland(instant)
+    local island = selectedIslandObject()
+    local destination = island and (island:IsA("BasePart") and island.CFrame or island:GetPivot())
+    if not destination then return false end
+    destination = destination * CFrame.new(0, 8, 0)
+    if instant then
+        local _, _, root = characterParts()
+        if root then Movement:Cancel(); root.CFrame = destination; return true end
+        return false
+    end
+    return Movement:Go(destination)
+end
+
+local function hopServer(preferLowestPing)
+    local ok, response = pcall(function()
+        return game:HttpGet(string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100", game.PlaceId))
+    end)
+    if not ok then return false, response end
+    local decodedOk, data = pcall(HttpService.JSONDecode, HttpService, response)
+    if not decodedOk or type(data) ~= "table" then return false, "Invalid server response" end
+    local servers = {}
+    for _, server in ipairs(data.data or {}) do
+        if server.id ~= game.JobId and tonumber(server.playing) and tonumber(server.maxPlayers)
+            and server.playing < server.maxPlayers
+        then
+            servers[#servers + 1] = server
+        end
+    end
+    table.sort(servers, function(a, b)
+        if preferLowestPing then return (a.ping or math.huge) < (b.ping or math.huge) end
+        return a.playing < b.playing
+    end)
+    if not servers[1] then return false, "No open server found" end
+    TeleportService:TeleportToPlaceInstance(game.PlaceId, servers[1].id, LocalPlayer)
+    return true
 end
 
 local function sendCombatKey(keyName)
@@ -1693,7 +1938,7 @@ local function setESP(instance, enabled, color, displayName, useHighlight)
     end
     local adornee = espAdornee(instance)
     local part = espPart(instance)
-    if not adornee or not part then return end
+    if not adornee or not part then return nil end
     if type(existing) ~= "table" then
         destroyESPEntry(instance)
         existing = {}
@@ -1704,7 +1949,7 @@ local function setESP(instance, enabled, color, displayName, useHighlight)
         local highlight = existing.Highlight
         if not highlight or not highlight.Parent then
             highlight = Instance.new("Highlight")
-            highlight.Name = "RenBananaESP"
+            highlight.Name = "BloxFruitESP"
             highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
             highlight.FillTransparency = 0.78
             highlight.OutlineTransparency = 0.08
@@ -1722,24 +1967,27 @@ local function setESP(instance, enabled, color, displayName, useHighlight)
     local billboard = existing.Billboard
     if not billboard or not billboard.Parent then
         billboard = Instance.new("BillboardGui")
-        billboard.Name = "RenBananaESPLabel"
+        billboard.Name = "BloxFruitESPLabel"
         billboard.AlwaysOnTop = true
         billboard.LightInfluence = 0
-        billboard.MaxDistance = 100000
-        billboard.Size = UDim2.fromOffset(240, 34)
-        billboard.StudsOffset = Vector3.new(0, 3, 0)
+        billboard.MaxDistance = 25000
+        billboard.Size = UDim2.fromOffset(150, 22)
+        billboard.StudsOffset = Vector3.new(0, 2.4, 0)
+        billboard.Enabled = false
         billboard.Parent = part
         existing.Billboard = billboard
 
         local label = Instance.new("TextLabel")
         label.Name = "Label"
-        label.BackgroundTransparency = 1
+        label.BackgroundColor3 = Color3.fromRGB(8, 10, 14)
+        label.BackgroundTransparency = 0.28
         label.Size = UDim2.fromScale(1, 1)
         label.Font = Enum.Font.GothamBold
         label.TextScaled = false
-        label.TextSize = 14
-        label.TextStrokeTransparency = 0.25
+        label.TextSize = 11
+        label.TextStrokeTransparency = 0.6
         label.Parent = billboard
+        Instance.new("UICorner", label).CornerRadius = UDim.new(0, 5)
         existing.Label = label
     end
     billboard.Adornee = part
@@ -1750,20 +1998,57 @@ local function setESP(instance, enabled, color, displayName, useHighlight)
         label.TextColor3 = color
         label.Text = string.format("%s%s", displayName or instance.Name, distance and string.format(" [%dm]", distance) or "")
     end
+    existing.Part = part
+    existing.Distance = distance or math.huge
+    return existing
 end
 
 local function updateESPs()
+    local candidates = {}
+    local function add(instance, enabled, color, name, highlight, category, maxDistance)
+        local entry = setESP(instance, enabled, color, name, highlight)
+        if entry then
+            candidates[#candidates + 1] = {
+                Entry = entry,
+                Category = category,
+                MaxDistance = maxDistance,
+            }
+        end
+    end
     for fruit in pairs(WorldFruits) do
-        setESP(fruit, Settings.FruitESP, Color3.fromRGB(255, 80, 220), fruitIdentity(fruit) or fruit.Name, true)
+        add(fruit, Settings.FruitESP, Color3.fromRGB(255, 95, 220), fruitIdentity(fruit) or fruit.Name, true, "Fruit", 8000)
     end
     for chest in pairs(Runtime.Chests) do
-        setESP(chest, Settings.ChestESP, Color3.fromRGB(255, 210, 70), chest.Name, true)
+        add(chest, Settings.ChestESP, Color3.fromRGB(255, 210, 70), chest.Name, true, "Chest", 6000)
     end
     for berry in pairs(Runtime.Berries) do
-        setESP(berry, Settings.BerryESP, Color3.fromRGB(80, 175, 255), berry.Name, true)
+        add(berry, Settings.BerryESP, Color3.fromRGB(80, 175, 255), berry.Name, true, "Berry", 5000)
     end
     for island in pairs(Runtime.Islands) do
-        setESP(island, Settings.IslandESP, Color3.fromRGB(100, 255, 155), island.Name, false)
+        add(island, Settings.IslandESP, Color3.fromRGB(110, 255, 165), island.Name, false, "Island", 16000)
+    end
+
+    table.sort(candidates, function(a, b) return a.Entry.Distance < b.Entry.Distance end)
+    local camera = workspace.CurrentCamera
+    local occupied, categoryCount, shown = {}, {}, 0
+    local categoryLimit = {Island = 5, Fruit = 8, Chest = 10, Berry = 8}
+    for _, candidate in ipairs(candidates) do
+        local entry = candidate.Entry
+        local point, onScreen = camera:WorldToViewportPoint(entry.Part.Position)
+        local xCell = math.floor(point.X / 160)
+        local yCell = math.floor(point.Y / 28)
+        local cell = tostring(xCell) .. ":" .. tostring(yCell)
+        local count = categoryCount[candidate.Category] or 0
+        local visible = onScreen and point.Z > 0 and entry.Distance <= candidate.MaxDistance
+            and shown < 20 and count < (categoryLimit[candidate.Category] or 8)
+            and not occupied[cell]
+        if visible then
+            occupied[cell] = true
+            categoryCount[candidate.Category] = count + 1
+            shown += 1
+        end
+        if entry.Billboard then entry.Billboard.Enabled = visible end
+        if entry.Highlight then entry.Highlight.Enabled = visible end
     end
 end
 
@@ -1771,6 +2056,14 @@ local function optimizeVisualInstance(instance)
     if instance:IsDescendantOf(LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer) then return end
     pcall(function()
         if instance:IsA("BasePart") then
+            if not Runtime.VisualState[instance] then
+                Runtime.VisualState[instance] = {
+                    Kind = "Part", CastShadow = instance.CastShadow,
+                    Reflectance = instance.Reflectance, Material = instance.Material,
+                    TextureID = instance:IsA("MeshPart") and instance.TextureID or nil,
+                    RenderFidelity = instance:IsA("MeshPart") and instance.RenderFidelity or nil,
+                }
+            end
             instance.CastShadow = false
             instance.Reflectance = 0
             instance.Material = Enum.Material.SmoothPlastic
@@ -1779,15 +2072,19 @@ local function optimizeVisualInstance(instance)
                 instance.RenderFidelity = Enum.RenderFidelity.Performance
             end
         elseif instance:IsA("Decal") or instance:IsA("Texture") then
+            if not Runtime.VisualState[instance] then Runtime.VisualState[instance] = {Kind = "Transparency", Transparency = instance.Transparency} end
             instance.Transparency = 1
         elseif instance:IsA("ParticleEmitter") or instance:IsA("Trail")
             or instance:IsA("Beam") or instance:IsA("Smoke")
             or instance:IsA("Fire") or instance:IsA("Sparkles")
         then
+            if not Runtime.VisualState[instance] then Runtime.VisualState[instance] = {Kind = "Enabled", Enabled = instance.Enabled} end
             instance.Enabled = false
         elseif instance:IsA("PostEffect") or instance:IsA("Light") then
+            if not Runtime.VisualState[instance] then Runtime.VisualState[instance] = {Kind = "Enabled", Enabled = instance.Enabled} end
             instance.Enabled = false
         elseif instance:IsA("Explosion") then
+            if not Runtime.VisualState[instance] then Runtime.VisualState[instance] = {Kind = "Explosion", Visible = instance.Visible, BlastPressure = instance.BlastPressure} end
             instance.Visible = false
             instance.BlastPressure = 0
         end
@@ -1797,7 +2094,20 @@ end
 local function applyAggressiveFPSBoost()
     if Runtime.FPSApplied then return end
     Runtime.FPSApplied = true
-    Settings.AggressiveFPSBoost = true
+    local terrain = workspace.Terrain
+    Runtime.FPSWorldState = {
+        WaterWaveSize = terrain.WaterWaveSize,
+        WaterWaveSpeed = terrain.WaterWaveSpeed,
+        WaterReflectance = terrain.WaterReflectance,
+        WaterTransparency = terrain.WaterTransparency,
+        GlobalShadows = Lighting.GlobalShadows,
+        FogEnd = Lighting.FogEnd,
+        Brightness = Lighting.Brightness,
+        EnvironmentDiffuseScale = Lighting.EnvironmentDiffuseScale,
+        EnvironmentSpecularScale = Lighting.EnvironmentSpecularScale,
+    }
+    pcall(function() Runtime.FPSWorldState.QualityLevel = settings().Rendering.QualityLevel end)
+    pcall(function() Runtime.FPSWorldState.MeshPartDetailLevel = settings().Rendering.MeshPartDetailLevel end)
 
     if type(setfpscap) == "function" then pcall(setfpscap, 60) end
     pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
@@ -1821,6 +2131,53 @@ local function applyAggressiveFPSBoost()
     for _, instance in ipairs(workspace:GetDescendants()) do optimizeVisualInstance(instance) end
     for _, instance in ipairs(Lighting:GetDescendants()) do optimizeVisualInstance(instance) end
     pcall(function() collectgarbage("collect") end)
+end
+
+local function restoreAggressiveFPSBoost()
+    if not Runtime.FPSApplied then return end
+    Runtime.FPSApplied = false
+    if type(setfpscap) == "function" then pcall(setfpscap, 0) end
+    for instance, state in pairs(Runtime.VisualState) do
+        if instance and instance.Parent then
+            pcall(function()
+                if state.Kind == "Part" then
+                    instance.CastShadow = state.CastShadow
+                    instance.Reflectance = state.Reflectance
+                    instance.Material = state.Material
+                    if instance:IsA("MeshPart") then
+                        instance.TextureID = state.TextureID
+                        instance.RenderFidelity = state.RenderFidelity
+                    end
+                elseif state.Kind == "Transparency" then
+                    instance.Transparency = state.Transparency
+                elseif state.Kind == "Enabled" then
+                    instance.Enabled = state.Enabled
+                elseif state.Kind == "Explosion" then
+                    instance.Visible = state.Visible
+                    instance.BlastPressure = state.BlastPressure
+                end
+            end)
+        end
+        Runtime.VisualState[instance] = nil
+    end
+    local state = Runtime.FPSWorldState
+    if state then
+        pcall(function()
+            local terrain = workspace.Terrain
+            terrain.WaterWaveSize = state.WaterWaveSize
+            terrain.WaterWaveSpeed = state.WaterWaveSpeed
+            terrain.WaterReflectance = state.WaterReflectance
+            terrain.WaterTransparency = state.WaterTransparency
+            Lighting.GlobalShadows = state.GlobalShadows
+            Lighting.FogEnd = state.FogEnd
+            Lighting.Brightness = state.Brightness
+            Lighting.EnvironmentDiffuseScale = state.EnvironmentDiffuseScale
+            Lighting.EnvironmentSpecularScale = state.EnvironmentSpecularScale
+        end)
+        if state.QualityLevel then pcall(function() settings().Rendering.QualityLevel = state.QualityLevel end) end
+        if state.MeshPartDetailLevel then pcall(function() settings().Rendering.MeshPartDetailLevel = state.MeshPartDetailLevel end) end
+    end
+    Runtime.FPSWorldState = nil
 end
 
 connect(workspace.DescendantAdded, function(instance)
@@ -1850,13 +2207,35 @@ task.spawn(function()
         if Settings.AutoRandomFruit and featureReady("RandomFruit", 60) then
             pcall(invokeComm, "Cousin", "Buy")
         end
-        if Settings.AutoCollectFruit and featureReady("CollectFruit", 0.35) then pcall(collectWorldFruits) end
         if Settings.AutoStoreFruit and featureReady("StoreFruit", 1) then pcall(storeHeldFruits) end
         if Settings.AutoBuyStockFruit and featureReady("StockFruit", 4) then
             pcall(invokeComm, "PurchaseRawFruit", Settings.SelectedStockFruit)
         end
         if Settings.AutoRaceV3 and featureReady("RaceV3", 2) then pcall(fireComm, "ActivateAbility") end
         if Settings.AutoRaceV4 and featureReady("RaceV4", 2) then pcall(fireComm, "ActivateAbility") end
+        if Settings.AutoObservation and featureReady("Observation", 1.5) then pcall(enableObservation) end
+        if Settings.AutoFishing and featureReady("Fishing", 1.1) then pcall(fishingTick) end
+        if (Settings.AutoBuyBait or Settings.AutoFishingQuest) and featureReady("FishingNPC", 3) then pcall(interactFishingNPC) end
+        if Settings.AutoDojoTrainer and featureReady("Dojo", 2) then
+            pcall(invokeDojoRemote, DragonQuestRemote)
+            pcall(invokeDojoRemote, DragonHunterRemote)
+        end
+        if Settings.AutoRefreshBossList and featureReady("DropdownRefresh", 2) then
+            if Runtime.BossDropdown then pcall(Runtime.BossDropdown.Refresh, Runtime.BossDropdown, currentBossNames()) end
+            if Runtime.IslandDropdown then
+                local islands = currentIslandNames()
+                pcall(Runtime.IslandDropdown.Refresh, Runtime.IslandDropdown, islands)
+                if Settings.SelectedIsland == "" and islands[1] then
+                    Settings.SelectedIsland = islands[1]
+                    pcall(Runtime.IslandDropdown.Set, Runtime.IslandDropdown, islands[1])
+                end
+            end
+        end
+        local _, humanoid = characterParts()
+        if humanoid then
+            if Settings.LockWalkSpeed then humanoid.WalkSpeed = math.clamp(tonumber(Settings.WalkSpeed) or 16, 0, 500) end
+            if Settings.LockJumpPower then humanoid.JumpPower = math.clamp(tonumber(Settings.JumpPower) or 50, 0, 500) end
+        end
         if Settings.AutoCombatSkills and featureReady("CombatSkills", 0.7) then pcall(castEnabledSkills) end
         if featureReady("ESP", 0.75) then pcall(updateESPs) end
         task.wait(0.12)
@@ -1884,7 +2263,7 @@ connect(RunService.Heartbeat, function(delta)
     if fastAccumulator >= delay then
         fastAccumulator = 0
         local ok, err = pcall(attackTick)
-        if not ok then warn("RenBanana target tick:", err) end
+        if not ok then warn("BloxFruitScript target tick:", err) end
     end
 
     physicsAccumulator += delta
@@ -1923,8 +2302,10 @@ API.MaterialData = MATERIAL_DATA
 API.MaterialLists = MATERIAL_LISTS
 
 function API.Set(name, value)
-    assert(Settings[name] ~= nil, "Unknown RenBanana setting: " .. tostring(name))
+    assert(Settings[name] ~= nil, "Unknown BloxFruitScript setting: " .. tostring(name))
     if name == "Height" then value = math.max(16, tonumber(value) or 20) end
+    if name == "TweenSpeed" then value = math.clamp(tonumber(value) or 200, 5, 300) end
+    if name == "StatsValue" then value = math.clamp(math.floor(tonumber(value) or 2), 1, 1000) end
     local exclusive = {
         AutoFarmLevel = true,
         AutoFarmNearest = true,
@@ -1933,6 +2314,8 @@ function API.Set(name, value)
         AutoFarmAllBoss = true,
         AutoFarmMaterial = true,
         AutoEliteHunter = true,
+        AutoFarmObservation = true,
+        AutoFarmMastery = true,
         AutoRaid = true,
         AutoSeaBeast = true,
         AutoEventEnemy = true,
@@ -1948,7 +2331,9 @@ function API.Set(name, value)
         end
     end
     Settings[name] = value
-    if name == "AggressiveFPSBoost" and value == true then applyAggressiveFPSBoost() end
+    if name == "AggressiveFPSBoost" then
+        if value == true then applyAggressiveFPSBoost() else restoreAggressiveFPSBoost() end
+    end
     if exclusive[name] or name == "SelectedMob" or name == "SelectedBoss"
         or name == "SelectedMaterial" or name == "SelectedEventEnemy"
     then
@@ -1958,8 +2343,8 @@ function API.Set(name, value)
         restoreEnemies()
     elseif (name == "FruitESP" or name == "ChestESP" or name == "BerryESP" or name == "IslandESP") and value == false then
         updateESPs()
-    elseif (name == "AutoCollectChest" or name == "AutoCollectBerries") and value == false
-        and not Settings.AutoCollectChest and not Settings.AutoCollectBerries
+    elseif (name == "AutoCollectFruit" or name == "AutoCollectChest" or name == "AutoCollectBerries") and value == false
+        and not Settings.AutoCollectFruit and not Settings.AutoCollectChest and not Settings.AutoCollectBerries
     then
         finishPickupOverlay()
     end
@@ -1989,7 +2374,7 @@ end
 
 function API.StopAll()
     for key in pairs(Settings) do
-        if string.sub(key, 1, 4) == "Auto" then
+        if string.sub(key, 1, 4) == "Auto" and key ~= "AutoRefreshBossList" then
             Settings[key] = false
             for _, control in ipairs(Runtime.UIControls[key] or {}) do
                 pcall(control.Set, control, false)
@@ -2014,11 +2399,11 @@ end
 
 local function makeUI()
     local parent = uiParent()
-    local old = parent:FindFirstChild("RenBananaUI")
+    local old = parent:FindFirstChild("BloxFruitScriptUI")
     if old then old:Destroy() end
 
     local gui = Instance.new("ScreenGui")
-    gui.Name = "RenBananaUI"
+    gui.Name = "BloxFruitScriptUI"
     gui.ResetOnSpawn = false
     gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     gui.Parent = parent
@@ -2042,7 +2427,7 @@ local function makeUI()
     title.Position = UDim2.fromOffset(8, 4)
     title.BackgroundTransparency = 1
     title.Font = Enum.Font.GothamBold
-    title.Text = "RENBANANA  •  FARMING RUNTIME"
+    title.Text = "BLOX FRUIT SCRIPT"
     title.TextColor3 = Color3.fromRGB(255, 240, 250)
     title.TextSize = 16
     title.TextXAlignment = Enum.TextXAlignment.Left
@@ -2190,7 +2575,7 @@ end
 
 local function makeRenLibUI()
     local RenLib = (function()
--- RenLib V7.0.0
+-- RenLib V7.1.0
 -- Responsive Roblox UI framework with centralized navigation, non-destructive
 -- search, mobile-first input, live theming, addons, and deterministic cleanup.
 
@@ -2297,7 +2682,7 @@ local ICONS = {
 
 --// ROOT LIBRARY
 local Library = {}
-Library.Version = "7.0.0"
+Library.Version = "7.1.0"
 Library.Title = "RenLib"
 Library.Connections = {}
 Library.Tasks = {}
@@ -3042,6 +3427,86 @@ function Library:SaveConfig(name)
     end)
     if ok then self.KnownConfigs[cleaned] = true end
     return ok, ok and nil or result
+end
+
+local function configPayload(library)
+    local payload = {version = library.Version, flags = {}}
+    for flag, value in pairs(library.Flags) do
+        if not CONFIG_MANAGER_FLAGS[flag] then payload.flags[flag] = encodeValue(value) end
+    end
+    return payload
+end
+
+function Library:FlushAutoSave()
+    if not self.AutoSaveConfigName then return false, "Auto-save is disabled" end
+    local payload = configPayload(self)
+    local ok, err
+    if ensureConfigFolders() then
+        ok, err = self:SaveConfig(self.AutoSaveConfigName)
+    else
+        RuntimeEnvironment.__RENLIB_AUTOSAVE_MEMORY = RuntimeEnvironment.__RENLIB_AUTOSAVE_MEMORY or {}
+        RuntimeEnvironment.__RENLIB_AUTOSAVE_MEMORY[self.AutoSaveConfigName] = payload
+        ok = true
+    end
+    if ok then
+        local encodedOk, encoded = pcall(HttpService.JSONEncode, HttpService, payload)
+        if encodedOk then self.AutoSaveSignature = encoded end
+    end
+    return ok, err
+end
+
+-- Loads one application-owned profile before its controls are created, then
+-- persists changed flags on a debounce. This removes the need for users to
+-- manually create and mark a config just to remember ordinary selections.
+function Library:EnableAutoSave(name, interval)
+    local filesystemAvailable = ensureConfigFolders()
+    local cleaned = cleanConfigName(name)
+    local path = CONFIG_FOLDER .. "/" .. cleaned .. ".json"
+    self.AutoSaveConfigName = cleaned
+    self.AutoSaveInterval = math.clamp(tonumber(interval) or 1.25, 0.5, 10)
+    self.AutoSaveGeneration = (self.AutoSaveGeneration or 0) + 1
+    local generation = self.AutoSaveGeneration
+
+    if filesystemAvailable and isfile(path) then
+        local ok, payload = pcall(function() return HttpService:JSONDecode(readfile(path)) end)
+        if ok and type(payload) == "table" then
+            for flag, rawValue in pairs(payload.flags or {}) do
+                local value = decodeValue(rawValue)
+                self.PendingAutoloadFlags[flag] = value
+                self.Flags[flag] = value
+            end
+            self.KnownConfigs[cleaned] = true
+        end
+    elseif not filesystemAvailable then
+        RuntimeEnvironment.__RENLIB_AUTOSAVE_MEMORY = RuntimeEnvironment.__RENLIB_AUTOSAVE_MEMORY or {}
+        local payload = RuntimeEnvironment.__RENLIB_AUTOSAVE_MEMORY[cleaned]
+        if type(payload) == "table" then
+            for flag, rawValue in pairs(payload.flags or {}) do
+                local value = decodeValue(rawValue)
+                self.PendingAutoloadFlags[flag] = value
+                self.Flags[flag] = value
+            end
+        end
+    end
+
+    local encodedOk, encoded = pcall(HttpService.JSONEncode, HttpService, configPayload(self))
+    self.AutoSaveSignature = encodedOk and encoded or nil
+    task.spawn(function()
+        while not self.Unloaded and self.AutoSaveConfigName == cleaned
+            and self.AutoSaveGeneration == generation
+        do
+            task.wait(self.AutoSaveInterval)
+            local ok, current = pcall(HttpService.JSONEncode, HttpService, configPayload(self))
+            if ok and current ~= self.AutoSaveSignature then self:FlushAutoSave() end
+        end
+    end)
+    return true
+end
+
+function Library:DisableAutoSave(flush)
+    if flush ~= false and self.AutoSaveConfigName then self:FlushAutoSave() end
+    self.AutoSaveConfigName = nil
+    self.AutoSaveGeneration = (self.AutoSaveGeneration or 0) + 1
 end
 
 function Library:GetConfigList()
@@ -6870,7 +7335,7 @@ end
                     TextXAlignment = Enum.TextXAlignment.Left,
                     ZIndex = 6
                 })
-                local ValueLabel = Utility:Create("TextLabel", {
+                local valueLabelProperties = {
                     Parent = SliderContainer,
                     BackgroundTransparency = 1,
                     Position = UDim2.new(0, 12, 0, IsMobile and 6 or 8),
@@ -6881,7 +7346,12 @@ end
                     TextSize = IsMobile and 12 or 13,
                     TextXAlignment = Enum.TextXAlignment.Right,
                     ZIndex = 6
-                })
+                }
+                if options.Editable then
+                    valueLabelProperties.ClearTextOnFocus = false
+                    valueLabelProperties.TextEditable = true
+                end
+                local ValueLabel = Utility:Create(options.Editable and "TextBox" or "TextLabel", valueLabelProperties)
                 local trackHeight = IsMobile and 10 or 6
                 local Track = Utility:Create("TextButton", {
                     Parent = SliderContainer,
@@ -6952,12 +7422,19 @@ end
 
                 addElement({Holder = SliderContainer, Text = Name})
                 local function SetValue(val, fire)
-                    Value = math.clamp(tonumber(val) or Min, Min, Max)
+                    local numeric = math.clamp(tonumber(val) or Value, Min, Max)
+                    Value = math.clamp(Min + math.floor(((numeric - Min) / Step) + 0.5) * Step, Min, Max)
                     ValueLabel.Text = tostring(Value)
                     Library.Flags[Flag] = Value
                     Utility:Tween(Fill, TweenInfo.new(0.1), {Size = UDim2.new((Value - Min) / math.max(0.000001, Max - Min), 0, 1, 0)})
                     pendingCallback = false
                     if fire ~= false then EmitValue() end
+                end
+                if options.Editable then
+                    Library:Connect(ValueLabel.FocusLost, function()
+                        SetValue(ValueLabel.Text, true)
+                        if options.Finished then task.defer(function() Utility:SafeCall(options.Finished, Value) end) end
+                    end)
                 end
                 local sliderObj = {
                     Type = "Slider",
@@ -8683,6 +9160,7 @@ end
 --// UNLOAD
 function Library:Unload(reason)
     if self.Unloaded then return end
+    if self.AutoSaveConfigName then self:FlushAutoSave() end
     self.Unloaded = true
     self.ScalePreview = nil
     for index = #self.AddonOrder, 1, -1 do
@@ -8741,15 +9219,16 @@ return Library
 
     end)()
     Runtime.RenLib = RenLib
+    RenLib:EnableAutoSave("BloxFruitScript-Sea" .. tostring(Sea), 1)
 
     local Window = RenLib:CreateWindow({
-        Name = "RenBanana • Sea " .. tostring(Sea),
-        Width = 900,
-        Height = 620,
+        Name = "Blox Fruit Script • Sea " .. tostring(Sea),
+        Width = 940,
+        Height = 640,
         Icon = "9080449299",
         ShowUserProfile = true,
         ProfileUserId = LocalPlayer.UserId,
-        ProfileSubtitle = "Farming runtime ready",
+        ProfileSubtitle = "Automation ready",
         EnableGlobalSearch = true,
         EnableSidebarResize = true,
         SidebarMode = "Dynamic",
@@ -8785,7 +9264,32 @@ return Library
         return control
     end
 
-    local Farming = Window:CreateTab({Name = "Farming", Icon = "9080449299"})
+    local StatusTab = Window:CreateTab({Name = "Status & Server", Icon = "6031280882"})
+    local PlayerStatus = StatusTab:CreateSection({Name = "Player status", Side = "Left"})
+    local StatusIdentity = PlayerStatus:CreateParagraph({Title = "Account", Content = LocalPlayer.Name})
+    local StatusProgress = PlayerStatus:CreateParagraph({Title = "Progress", Content = "Loading..."})
+    local StatusAutomation = PlayerStatus:CreateParagraph({Title = "Automation", Content = "Idle"})
+    local ServerStatus = StatusTab:CreateSection({Name = "Server", Side = "Right"})
+    local StatusServer = ServerStatus:CreateParagraph({Title = "Current server", Content = game.JobId})
+    ServerStatus:CreateButton({Name = "Copy server JobId", Callback = function() if type(setclipboard) == "function" then pcall(setclipboard, game.JobId) end end})
+    ServerStatus:CreateButton({Name = "Rejoin server", Callback = function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end})
+    ServerStatus:CreateButton({Name = "Hop to lowest players", Callback = function() local ok, err = hopServer(false); if not ok then RenLib:Notify({Title = "Server hop failed", Content = tostring(err), Duration = 5}) end end})
+    ServerStatus:CreateButton({Name = "Hop to lowest ping", Callback = function() local ok, err = hopServer(true); if not ok then RenLib:Notify({Title = "Server hop failed", Content = tostring(err), Duration = 5}) end end})
+    task.spawn(function()
+        local started = os.clock()
+        while Runtime.Alive do
+            local data = LocalPlayer:FindFirstChild("Data")
+            local level = data and data:FindFirstChild("Level")
+            local target = Runtime.CurrentTarget
+            pcall(StatusIdentity.SetContent, StatusIdentity, string.format("%s  •  %s", LocalPlayer.DisplayName, LocalPlayer.Name))
+            pcall(StatusProgress.SetContent, StatusProgress, string.format("Sea %d  •  Level %s  •  fruits:%d chests:%d berries:%d", Sea, level and tostring(level.Value) or "?", (function() local n=0 for _ in pairs(WorldFruits) do n+=1 end return n end)(), (function() local n=0 for _ in pairs(Runtime.Chests) do n+=1 end return n end)(), (function() local n=0 for _ in pairs(Runtime.Berries) do n+=1 end return n end)()))
+            pcall(StatusAutomation.SetContent, StatusAutomation, string.format("%s  •  target:%s  •  %s  •  recoveries:%d", Runtime.PickupKind or Runtime.CurrentMode, target and target.Name or "none", Runtime.CombatTransport, Runtime.RecoveryCount))
+            pcall(StatusServer.SetContent, StatusServer, string.format("%d/%d players  •  uptime %dm  •  %s", #Players:GetPlayers(), Players.MaxPlayers, math.floor((os.clock() - started) / 60), game.JobId))
+            task.wait(0.75)
+        end
+    end)
+
+    local Farming = Window:CreateTab({Name = "Main Farm", Icon = "9080449299"})
     local MainFarm = Farming:CreateSection({Name = "Main farming", Side = "Left"})
     toggle(MainFarm, "Auto farm level", "AutoFarmLevel", "Uses the current sea level map and quests.")
     toggle(MainFarm, "Auto farm nearest", "AutoFarmNearest", "Useful for unlabelled waves and humanoid trial enemies.")
@@ -8798,7 +9302,7 @@ return Library
     })
     MainFarm:CreateDropdown({
         Name = "Attack cadence",
-        Values = {"Normal Attack", "Fast Attack", "Super Fast Attack", "Gravity hub"},
+        Values = {"Normal Attack", "Fast Attack", "Super Fast Attack", "Instant"},
         Default = Settings.AttackMode,
         Flag = "AttackMode",
         Callback = function(value) API.Set("AttackMode", value) end,
@@ -8814,9 +9318,9 @@ return Library
         Callback = function(value) API.Set("SelectedMob", value) end,
     })
     toggle(MobFarm, "Auto kill selected mob", "AutoKillMob")
-    MobFarm:CreateDropdown({
+    Runtime.BossDropdown = MobFarm:CreateDropdown({
         Name = "Selected boss",
-        Values = BOSS_LISTS[Sea],
+        Values = currentBossNames(),
         Default = Settings.SelectedBoss,
         Flag = "SelectedBoss",
         Callback = function(value) API.Set("SelectedBoss", value) end,
@@ -8824,6 +9328,8 @@ return Library
     toggle(MobFarm, "Auto farm selected boss", "AutoFarmBoss")
     toggle(MobFarm, "Accept boss quests", "AcceptBossQuests")
     toggle(MobFarm, "Auto farm all bosses", "AutoFarmAllBoss")
+    toggle(MobFarm, "Auto refresh boss list", "AutoRefreshBossList", "Refreshes from both the sea metadata and newly spawned live boss models.")
+    MobFarm:CreateButton({Name = "Refresh boss list now", Callback = function() Runtime.BossDropdown:Refresh(currentBossNames()) end})
 
     local Combat = Farming:CreateSection({Name = "Fixed anchor and hitbox", Side = "Left"})
     toggle(Combat, "Bring mobs", "BringMobs", "Freezes and brings same-name enemies to one fixed anchor.")
@@ -8831,7 +9337,7 @@ return Library
     toggle(Combat, "Activate equipped tool", "ActivateTool")
     Combat:CreateSlider({Name = "Hitbox size", Min = 8, Max = 100, Step = 1, Default = Settings.HitboxSize, Flag = "HitboxSize", Callback = function(value) API.Set("HitboxSize", value) end})
     Combat:CreateSlider({Name = "Height above anchor", Min = 16, Max = 50, Step = 1, Default = Settings.Height, Flag = "CombatHeightV3", Tooltip = "The tokenized/legacy transports support the original above-mob farming position.", Callback = function(value) API.Set("Height", math.max(16, value)) end})
-    Combat:CreateSlider({Name = "Tween speed", Min = 25, Max = 500, Step = 5, Default = Settings.TweenSpeed, Flag = "TweenSpeed", Callback = function(value) API.Set("TweenSpeed", value) end})
+    Combat:CreateSlider({Name = "Tween speed", Min = 5, Max = 300, Step = 1, Default = Settings.TweenSpeed, Flag = "TweenSpeed", Editable = true, Tooltip = "Supported range: 5–300, default 200. Drag or type the value.", Callback = function(value) API.Set("TweenSpeed", value) end})
     Combat:CreateButton({Name = "Stop every automation", Callback = API.StopAll})
     Combat:CreateButton({
         Name = "Show combat diagnostics",
@@ -8844,7 +9350,7 @@ return Library
         end,
     })
 
-    local Skills = Farming:CreateSection({Name = "Nana combat skills", Side = "Right"})
+    local Skills = Farming:CreateSection({Name = "Combat skills", Side = "Right"})
     toggle(Skills, "Use Z/X/C/V/F skills", "AutoCombatSkills", "Rotates only the enabled keys while an automation has a live target.")
     toggle(Skills, "Skill Z", "AutoSkillZ")
     toggle(Skills, "Skill X", "AutoSkillX")
@@ -8863,18 +9369,26 @@ return Library
     toggle(Material, "Auto farm material", "AutoFarmMaterial", "Uses the current material-to-enemy map and the same fixed-anchor combat path.")
     if Sea == 3 then toggle(Material, "Auto Elite Hunter", "AutoEliteHunter", "Accepts Elite Hunter quests and farms Diablo, Deandre, or Urban when replicated.") end
 
-    local Stats = Window:CreateTab({Name = "Stats", Icon = "6031260800"})
+    local Stats = Window:CreateTab({Name = "Upgrade", Icon = "6031260800"})
     local StatsSection = Stats:CreateSection({Name = "Automatic stat allocation", Side = "Left"})
-    StatsSection:CreateSlider({Name = "Points per request", Min = 1, Max = 1000, Step = 1, Default = Settings.StatsValue, Flag = "StatsValue", Callback = function(value) API.Set("StatsValue", value) end})
+    StatsSection:CreateSlider({Name = "Points per request (drag or type)", Min = 1, Max = 1000, Step = 1, Default = Settings.StatsValue, Flag = "StatsValue", Editable = true, Callback = function(value) API.Set("StatsValue", value) end})
     toggle(StatsSection, "Auto melee", "AutoMelee")
     toggle(StatsSection, "Auto defense", "AutoDefense")
     toggle(StatsSection, "Auto sword", "AutoSword")
     toggle(StatsSection, "Auto gun", "AutoGun")
     toggle(StatsSection, "Auto Blox Fruit", "AutoFruitStats")
+    local UpgradeRace = Stats:CreateSection({Name = "Race and ability upgrades", Side = "Right"})
+    UpgradeRace:CreateButton({Name = "Upgrade race V3", Callback = function() invokeComm("UpgradeRace", "Check"); invokeComm("UpgradeRace", "Buy") end})
+    UpgradeRace:CreateButton({Name = "Buy Observation", Callback = function() invokeComm("KenTalk", "Buy") end})
+    UpgradeRace:CreateButton({Name = "Buy Aura", Callback = function() invokeComm("BuyHaki", "Buso") end})
+    UpgradeRace:CreateButton({Name = "Buy Skyjump", Callback = function() invokeComm("BuyHaki", "Geppo") end})
+    UpgradeRace:CreateButton({Name = "Buy Flash Step", Callback = function() invokeComm("BuyHaki", "Soru") end})
+    toggle(UpgradeRace, "Auto activate Observation", "AutoObservation")
+    toggle(UpgradeRace, "Auto farm Observation", "AutoFarmObservation", "Keeps Observation active and positions near a live enemy to train dodges without attacking it.")
 
-    local Fruits = Window:CreateTab({Name = "Fruits", Icon = "6034509993"})
+    local Fruits = Window:CreateTab({Name = "Raid & Fruit", Icon = "6034509993"})
     local FruitSection = Fruits:CreateSection({Name = "Fruit automation", Side = "Left"})
-    toggle(FruitSection, "Auto collect nearby fruits", "AutoCollectFruit", "Uses touch interest when available, with a local proximity fallback.")
+    toggle(FruitSection, "Auto collect spawned fruits", "AutoCollectFruit", "Physically travels to every replicated fruit as a temporary pickup overlay, then resumes the previous farm.")
     toggle(FruitSection, "Auto store held fruits", "AutoStoreFruit")
     toggle(FruitSection, "Auto buy random fruit", "AutoRandomFruit", "Requests the fruit cousin once per minute.")
     local FruitStock = Fruits:CreateSection({Name = "Fruit stock", Side = "Right"})
@@ -8888,13 +9402,13 @@ return Library
     })
     toggle(FruitStock, "Auto buy selected stock fruit", "AutoBuyStockFruit", "Uses PurchaseRawFruit every four seconds; the server decides stock and affordability.")
 
-    local Items = Window:CreateTab({Name = "Items & raids", Icon = "6031225818"})
+    local Items = Window:CreateTab({Name = "Get Items & Mastery", Icon = "6031225818"})
     local ChestSection = Items:CreateSection({Name = "Chests", Side = "Left"})
     toggle(ChestSection, "Auto collect every chest", "AutoCollectChest", "Background overlay: pauses movement only while cached chests exist, collects all of them, then resumes the enabled farm.")
     local BerrySection = Items:CreateSection({Name = "Berries", Side = "Left"})
-    toggle(BerrySection, "Auto collect berries", "AutoCollectBerries", "Uses Nana's BerryBush CollectionService tag plus direct berry instances; sweeps every replicated bush and returns to farming.")
+    toggle(BerrySection, "Auto collect berries", "AutoCollectBerries", "Uses BerryBush tags plus direct berry instances, sweeps every replicated bush, and returns to farming.")
     if Sea >= 2 then
-        local RaidSection = Items:CreateSection({Name = "Raids", Side = "Right"})
+        local RaidSection = Fruits:CreateSection({Name = "Raids", Side = "Right"})
         RaidSection:CreateDropdown({
             Name = "Raid chip",
             Values = {"Flame", "Ice", "Sand", "Dark", "Light", "Magma", "Quake", "Buddha", "Spider", "Rumble", "Phoenix", "Dough"},
@@ -8904,39 +9418,61 @@ return Library
         })
         toggle(RaidSection, "Auto raid", "AutoRaid", "Selects the chip, uses replicated raid summon controls, follows the highest active island, and farms raid enemies.")
     end
+    local ItemMaterials = Items:CreateSection({Name = "World materials", Side = "Right"})
+    ItemMaterials:CreateDropdown({Name = "Selected material", Values = MATERIAL_LISTS[Sea], Default = Settings.SelectedMaterial, Flag = "ItemSelectedMaterial", Callback = function(value) API.Set("SelectedMaterial", value) end})
+    toggle(ItemMaterials, "Auto farm selected material", "AutoFarmMaterial")
+    if Sea == 3 then toggle(ItemMaterials, "Auto Elite Hunter", "AutoEliteHunter") end
+    local Mastery = Items:CreateSection({Name = "Farm mastery", Side = "Right"})
+    Mastery:CreateDropdown({Name = "Mastery weapon", Values = {"Blox Fruit", "Sword", "Gun", "Melee"}, Default = Settings.MasteryType, Flag = "MasteryType", Callback = function(value) API.Set("MasteryType", value) end})
+    toggle(Mastery, "Auto farm mastery", "AutoFarmMastery", "Uses the selected weapon category with the normal multi-target combat pipeline.")
+    toggle(Mastery, "Use mastery skills", "AutoCombatSkills")
 
     local ESPTab = Window:CreateTab({Name = "ESP", Icon = "6031075938"})
     local WorldESP = ESPTab:CreateSection({Name = "World ESP", Side = "Left"})
     toggle(WorldESP, "Island ESP", "IslandESP", "Labels current _WorldOrigin/Locations entries with live distance.")
     toggle(WorldESP, "Fruit ESP", "FruitESP", "Labels and highlights every replicated world fruit.")
     toggle(WorldESP, "Chest ESP", "ChestESP", "Labels and highlights every cached chest, not only the current pickup.")
-    toggle(WorldESP, "Berry ESP", "BerryESP", "Labels Nana-compatible BerryBush-tagged objects and direct berry instances.")
+    toggle(WorldESP, "Berry ESP", "BerryESP", "Decluttered labels for BerryBush-tagged objects and direct berry instances.")
     local ESPInfo = ESPTab:CreateSection({Name = "Scanner behavior", Side = "Right"})
     ESPInfo:CreateParagraph({Title = "Event maintained", Content = "Fruit, chest, berry, and island caches update from spawn/removal signals. ESP refreshes labels and distances without repeatedly scanning the whole workspace."})
 
-    local Shops = Window:CreateTab({Name = "Shops & travel", Icon = "6031260781"})
-    local Styles = Shops:CreateSection({Name = "Fighting styles", Side = "Left"})
+    local Teleports = Window:CreateTab({Name = "Teleport", Icon = "6031094678"})
+    local IslandTravel = Teleports:CreateSection({Name = "Travel to island", Side = "Left"})
+    local islandValues = currentIslandNames()
+    if Settings.SelectedIsland == "" and islandValues[1] then Settings.SelectedIsland = islandValues[1] end
+    Runtime.IslandDropdown = IslandTravel:CreateDropdown({Name = "Choose island", Values = islandValues, Default = Settings.SelectedIsland, Flag = "SelectedIsland", Searchable = true, Callback = function(value) API.Set("SelectedIsland", value) end})
+    IslandTravel:CreateButton({Name = "Tween to selected island", Callback = function() if not travelToSelectedIsland(false) then RenLib:Notify({Title = "Island unavailable", Content = "Refresh after the location is replicated.", Duration = 4}) end end})
+    IslandTravel:CreateButton({Name = "Instant teleport to island", Callback = function() if not travelToSelectedIsland(true) then RenLib:Notify({Title = "Island unavailable", Content = "Refresh after the location is replicated.", Duration = 4}) end end})
+    IslandTravel:CreateButton({Name = "Refresh island list", Callback = function() Runtime.IslandDropdown:Refresh(currentIslandNames()) end})
+
+    local Shops = Window:CreateTab({Name = "Shop", Icon = "6031260781"})
+    local Styles = Shops:CreateSection({Name = "Basic fighting styles", Side = "Left"})
     local function buyButton(section, label, command)
         section:CreateButton({Name = label, Callback = function() invokeComm(command) end})
     end
     buyButton(Styles, "Buy Dark Step", "BuyBlackLeg")
     buyButton(Styles, "Buy Electric", "BuyElectro")
     buyButton(Styles, "Buy Water Kung Fu", "BuyFishmanKarate")
-    buyButton(Styles, "Buy Superhuman", "BuySuperhuman")
-    buyButton(Styles, "Buy Death Step", "BuyDeathStep")
-    buyButton(Styles, "Buy Sharkman Karate", "BuySharkmanKarate")
-    buyButton(Styles, "Buy Electric Claw", "BuyElectricClaw")
-    buyButton(Styles, "Buy Dragon Talon", "BuyDragonTalon")
-    buyButton(Styles, "Buy Godhuman", "BuyGodhuman")
-    buyButton(Styles, "Buy Sanguine Art", "BuySanguineArt")
+    local AdvancedStyles = Shops:CreateSection({Name = "Advanced fighting styles", Side = "Right"})
+    buyButton(AdvancedStyles, "Buy Superhuman", "BuySuperhuman")
+    buyButton(AdvancedStyles, "Buy Death Step", "BuyDeathStep")
+    buyButton(AdvancedStyles, "Buy Sharkman Karate", "BuySharkmanKarate")
+    buyButton(AdvancedStyles, "Buy Electric Claw", "BuyElectricClaw")
+    buyButton(AdvancedStyles, "Buy Dragon Talon", "BuyDragonTalon")
+    buyButton(AdvancedStyles, "Buy Godhuman", "BuyGodhuman")
+    buyButton(AdvancedStyles, "Buy Sanguine Art", "BuySanguineArt")
 
     local Abilities = Shops:CreateSection({Name = "Abilities", Side = "Right"})
     Abilities:CreateButton({Name = "Buy Aura / Buso", Callback = function() invokeComm("BuyHaki", "Buso") end})
     Abilities:CreateButton({Name = "Buy Skyjump", Callback = function() invokeComm("BuyHaki", "Geppo") end})
     Abilities:CreateButton({Name = "Buy Flash Step", Callback = function() invokeComm("BuyHaki", "Soru") end})
     Abilities:CreateButton({Name = "Buy Observation", Callback = function() invokeComm("KenTalk", "Buy") end})
+    local Services = Shops:CreateSection({Name = "Currency services", Side = "Left"})
+    Services:CreateButton({Name = "Buy random fruit", Callback = function() invokeComm("Cousin", "Buy") end})
+    Services:CreateButton({Name = "Race reroll", Callback = function() invokeComm("BlackbeardReward", "Reroll", "1") end})
+    Services:CreateButton({Name = "Stat refund", Callback = function() invokeComm("BlackbeardReward", "Refund", "1") end})
 
-    local Travel = Shops:CreateSection({Name = "World travel", Side = "Left"})
+    local Travel = Teleports:CreateSection({Name = "Travel between seas", Side = "Right"})
     Travel:CreateButton({Name = "Travel to Sea 1", Callback = function() invokeComm("TravelMain") end})
     Travel:CreateButton({Name = "Travel to Sea 2", Callback = function() invokeComm("TravelDressrosa") end})
     Travel:CreateButton({Name = "Travel to Sea 3", Callback = function() invokeComm("TravelZou") end})
@@ -8977,8 +9513,8 @@ return Library
         end
     end
 
+    local Events = Window:CreateTab({Name = "Sea Events", Icon = "6031094678"})
     if Sea == 3 then
-        local Events = Window:CreateTab({Name = "Sea events", Icon = "6031094678"})
         local Entity = Events:CreateSection({Name = "Fixed-anchor event enemy", Side = "Left"})
         Entity:CreateDropdown({
             Name = "Event enemy",
@@ -8988,34 +9524,65 @@ return Library
             Callback = function(value) API.Set("SelectedEventEnemy", value) end,
         })
         toggle(Entity, "Auto farm event enemy", "AutoEventEnemy")
-        toggle(Entity, "Auto position at Sea Beast", "AutoSeaBeast", "Uses the non-Humanoid Health/root model and works best with Blox Fruit plus Nana combat skills.")
+        toggle(Entity, "Auto position at Sea Beast", "AutoSeaBeast", "Uses the non-Humanoid Health/root model and works best with Blox Fruit combat skills.")
         Entity:CreateParagraph({Title = "Sea 3 scope", Content = "Humanoid event enemies keep fixed-anchor farming. Sea Beasts use separate positioning and skill casting; Leviathan boat/gate progression remains a distinct encounter."})
     elseif Sea == 2 then
-        local Events = Window:CreateTab({Name = "Sea 2 events", Icon = "6031094678"})
         local Factory = Events:CreateSection({Name = "Factory enemies", Side = "Left"})
         Factory:CreateParagraph({Title = "Sea 2", Content = "Factory Staff can use the fixed-anchor mob farm; the Factory Core is not a Humanoid and needs its own damage transport."})
         Factory:CreateButton({Name = "Farm Factory Staff", Callback = function() API.Set("SelectedMob", "Factory Staff"); API.Set("AutoKillMob", true) end})
+    else
+        local FirstSeaEvents = Events:CreateSection({Name = "First Sea events", Side = "Left"})
+        FirstSeaEvents:CreateButton({Name = "Farm The Saw", Callback = function() API.Set("SelectedBoss", "The Saw"); API.Set("AutoFarmBoss", true) end})
+        FirstSeaEvents:CreateButton({Name = "Farm Saber Expert", Callback = function() API.Set("SelectedBoss", "Saber Expert"); API.Set("AutoFarmBoss", true) end})
+        FirstSeaEvents:CreateParagraph({Title = "Sea scope", Content = "Maritime Sea Beast, terror, Leviathan, Mirage, and Prehistoric systems are only shown where those entities can exist."})
     end
 
-    local Misc = Window:CreateTab({Name = "Misc", Icon = "6031280882"})
-    local RuntimeSection = Misc:CreateSection({Name = "Runtime", Side = "Left"})
+    local Dojo = Window:CreateTab({Name = "Dojo Quest", Icon = "6034287594"})
+    local DojoQuest = Dojo:CreateSection({Name = "Dragon Dojo", Side = "Left"})
+    if Sea == 3 then
+        toggle(DojoQuest, "Auto Dojo trainer", "AutoDojoTrainer", "Polls the replicated Dragon Hunter and Dragon Quest interactions.")
+        DojoQuest:CreateButton({Name = "Talk to Dragon Hunter", Callback = function() invokeDojoRemote(DragonHunterRemote) end})
+        DojoQuest:CreateButton({Name = "Interact with Dragon Quest", Callback = function() invokeDojoRemote(DragonQuestRemote) end})
+        DojoQuest:CreateButton({Name = "Tween to Dojo Trainer", Callback = function()
+            for _, instance in ipairs(workspace:GetDescendants()) do
+                if instance.Name == "Dojo Trainer" then
+                    local destination = instance:IsA("BasePart") and instance.CFrame or (instance:IsA("Model") and instance:GetPivot())
+                    if destination then Movement:Go(destination * CFrame.new(0, 4, 0)); return end
+                end
+            end
+        end})
+    else
+        DojoQuest:CreateParagraph({Title = "Third Sea feature", Content = "Dragon Dojo progression is available after travelling to the Third Sea."})
+    end
+
+    local Fishing = Window:CreateTab({Name = "Fishing", Icon = "6031225818"})
+    local FishingMain = Fishing:CreateSection({Name = "Fishing automation", Side = "Left"})
+    FishingMain:CreateDropdown({Name = "Fishing rod", Values = {"Fishing Rod", "Shark Rod", "Shell Rod", "Gold Rod", "Treasure Rod"}, Default = Settings.SelectedFishingRod, Flag = "SelectedFishingRod", Callback = function(value) API.Set("SelectedFishingRod", value) end})
+    FishingMain:CreateDropdown({Name = "Bait", Values = {"Basic Bait", "Good Bait", "Kelp Bait", "Carnivore Bait", "Frozen Bait", "Epic Bait", "Abyssal Bait"}, Default = Settings.SelectedBait, Flag = "SelectedBait", Callback = function(value) API.Set("SelectedBait", value) end})
+    toggle(FishingMain, "Auto fishing", "AutoFishing", "Equips the selected owned rod, activates it, and uses the replicated catch request when available.")
+    toggle(FishingMain, "Auto buy selected bait", "AutoBuyBait", "Interacts with a replicated fishing NPC prompt when one is nearby.")
+    toggle(FishingMain, "Auto fishing quest", "AutoFishingQuest", "Automatically interacts with nearby fishing quest prompts.")
+    FishingMain:CreateButton({Name = "Interact with fishing NPC", Callback = interactFishingNPC})
+
+    local LocalTab = Window:CreateTab({Name = "LocalPlayer", Icon = "6031075938"})
+    local MovementLocal = LocalTab:CreateSection({Name = "Movement", Side = "Left"})
+    MovementLocal:CreateSlider({Name = "Walk speed (drag or type)", Min = 0, Max = 500, Step = 1, Default = Settings.WalkSpeed, Flag = "WalkSpeed", Editable = true, Callback = function(value) API.Set("WalkSpeed", value) end})
+    toggle(MovementLocal, "Lock walk speed", "LockWalkSpeed")
+    MovementLocal:CreateSlider({Name = "Jump power (drag or type)", Min = 0, Max = 500, Step = 1, Default = Settings.JumpPower, Flag = "JumpPower", Editable = true, Callback = function(value) API.Set("JumpPower", value) end})
+    toggle(MovementLocal, "Lock jump power", "LockJumpPower")
+    local LocalActions = LocalTab:CreateSection({Name = "Character", Side = "Right"})
+    LocalActions:CreateButton({Name = "Reset character", Callback = function() local model = character(); if model then model:BreakJoints() end end})
+    toggle(LocalActions, "Anti AFK", "AntiAFK")
+
+    local Misc = Window:CreateTab({Name = "Settings", Icon = "6031280882"})
+    local RuntimeSection = Misc:CreateSection({Name = "Runtime and persistence", Side = "Left"})
     toggle(RuntimeSection, "Auto Buso", "AutoBuso")
-    toggle(RuntimeSection, "Anti AFK", "AntiAFK")
+    RuntimeSection:CreateParagraph({Title = "Automatic profile", Content = "Every toggle, dropdown, slider, and typed value is restored automatically. Filesystem executors persist across rejoins; lower-capability executors retain the profile for the current Roblox session."})
     RuntimeSection:CreateButton({Name = "Rejoin current server", Callback = function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end})
-    RuntimeSection:CreateButton({Name = "Unload RenBanana", Callback = API.Destroy})
+    RuntimeSection:CreateButton({Name = "Unload script", Callback = API.Destroy})
 
     local VisualSection = Misc:CreateSection({Name = "Local visuals", Side = "Right"})
-    VisualSection:CreateWarningBox({
-        Title = "Ultra FPS mode",
-        Text = "One-way for this session: removes textures, materials, shadows, particles, post effects, lights, water effects, and caps rendering at 60 FPS. Rejoin to restore visuals.",
-    })
-    VisualSection:CreateButton({
-        Name = "APPLY ULTRA FPS BOOST",
-        Callback = function()
-            API.Set("AggressiveFPSBoost", true)
-            RenLib:Notify({Title = "Ultra FPS mode", Content = "Aggressive client visuals were reduced. Rejoin to restore them.", Duration = 6})
-        end,
-    })
+    toggle(VisualSection, "Aggressive FPS boost", "AggressiveFPSBoost", "Fully toggleable: caches and restores modified local visual properties when switched off.")
     VisualSection:CreateToggle({
         Name = "Full bright",
         Flag = "FullBright",
@@ -9036,13 +9603,13 @@ return Library
         end,
     })
 
-    RenLib:ApplyThemePreset("Nebula")
 end
 
 function API.Destroy()
     if not Runtime.Alive then return end
     Runtime.Alive = false
     API.StopAll()
+    restoreAggressiveFPSBoost()
     for _, connection in ipairs(Runtime.Connections) do pcall(connection.Disconnect, connection) end
     table.clear(Runtime.Connections)
     for body in pairs(Runtime.OwnedBodyMovers) do
@@ -9053,12 +9620,12 @@ function API.Destroy()
     restoreCharacterPhysics()
     if Runtime.Gui then pcall(Runtime.Gui.Destroy, Runtime.Gui) end
     if Runtime.RenLib then pcall(Runtime.RenLib.Unload, Runtime.RenLib) end
-    if Environment.RenBanana == API then Environment.RenBanana = nil end
+    if Environment.BloxFruitScript == API then Environment.BloxFruitScript = nil end
 end
 
-Environment.RenBanana = API
+Environment.BloxFruitScript = API
 if Settings.CreateUI then
     local ok, err = pcall(makeRenLibUI)
-    if not ok then warn("RenBanana RenLib UI:", err) end
+    if not ok then warn("BloxFruitScript UI:", err) end
 end
 return API
