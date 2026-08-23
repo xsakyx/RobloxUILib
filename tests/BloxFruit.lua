@@ -273,6 +273,29 @@ local ISLAND_DATA = {
 local ISLAND_LOOKUP = {}
 for _, island in ipairs(ISLAND_DATA[Sea] or {}) do ISLAND_LOOKUP[island.Name] = island end
 
+-- Current canonical inventory/shop identifiers. Physical tools use display
+-- names such as "Rocket Fruit", while CommF_ StoreFruit expects Rocket-Rocket.
+local FRUIT_NAMES = {
+    "Rocket-Rocket", "Spin-Spin", "Blade-Blade", "Spring-Spring", "Bomb-Bomb",
+    "Smoke-Smoke", "Spike-Spike", "Flame-Flame", "Ice-Ice", "Sand-Sand",
+    "Dark-Dark", "Eagle-Eagle", "Diamond-Diamond", "Light-Light", "Rubber-Rubber",
+    "Ghost-Ghost", "Magma-Magma", "Quake-Quake", "Buddha-Buddha", "Love-Love",
+    "Creation-Creation", "Spider-Spider", "Sound-Sound", "Phoenix-Phoenix",
+    "Portal-Portal", "Lightning-Lightning", "Pain-Pain", "Blizzard-Blizzard",
+    "Gravity-Gravity", "T-Rex-T-Rex", "Mammoth-Mammoth", "Dough-Dough",
+    "Shadow-Shadow", "Venom-Venom", "Gas-Gas", "Control-Control", "Spirit-Spirit",
+    "Leopard-Leopard", "Yeti-Yeti", "Kitsune-Kitsune", "Dragon-Dragon",
+}
+
+local FRUIT_NAME_LOOKUP = {}
+for _, name in ipairs(FRUIT_NAMES) do FRUIT_NAME_LOOKUP[string.lower(name)] = name end
+local FRUIT_BASE_ALIASES = {
+    chop = "Blade",
+    falcon = "Eagle",
+    barrier = "Creation",
+    rumble = "Lightning",
+}
+
 local Settings = {
     ProfileVersion = 2,
     AutoFarmLevel = false,
@@ -300,6 +323,7 @@ local Settings = {
     SelectedMaterial = MATERIAL_LISTS[Sea][1],
     SelectedRaidChip = "Flame",
     SelectedStockFruit = "Light-Light",
+    SelectedStoreFruit = "All Fruits",
     RedeemCode = "",
     JoinJobId = "",
     SelectedEventEnemy = "Terrorshark",
@@ -419,6 +443,20 @@ local function savePersistentSettings(immediate)
 end
 
 local loadedProfileVersion = loadPersistentSettings()
+local RETIRED_FRUIT_IDS = {
+    ["Chop-Chop"] = "Blade-Blade",
+    ["Falcon-Falcon"] = "Eagle-Eagle",
+    ["Barrier-Barrier"] = "Creation-Creation",
+    ["Rumble-Rumble"] = "Lightning-Lightning",
+}
+Settings.SelectedStockFruit = RETIRED_FRUIT_IDS[Settings.SelectedStockFruit] or Settings.SelectedStockFruit
+Settings.SelectedStoreFruit = RETIRED_FRUIT_IDS[Settings.SelectedStoreFruit] or Settings.SelectedStoreFruit
+if not FRUIT_NAME_LOOKUP[string.lower(Settings.SelectedStockFruit)] then Settings.SelectedStockFruit = "Light-Light" end
+if Settings.SelectedStoreFruit ~= "All Fruits"
+    and not FRUIT_NAME_LOOKUP[string.lower(Settings.SelectedStoreFruit)]
+then
+    Settings.SelectedStoreFruit = "All Fruits"
+end
 if loadedProfileVersion < 2 then
     -- Existing profiles predate the requested instant-by-default cadence.
     Settings.AttackMode = "Instant"
@@ -470,6 +508,7 @@ local Runtime = {
     MovementLastPosition = nil,
     LastLandCFrame = nil,
     RecoveryCount = 0,
+    ForceReleaseUntil = 0,
     ManualTravelHold = false,
     ManualTravelInProgress = false,
     Respawning = false,
@@ -527,6 +566,10 @@ local Runtime = {
     SkillAimbotHookInstalled = false,
     SoruClosures = nil,
     LastFruitSpinResult = nil,
+    LastFruitStoreResult = nil,
+    LastFruitStockResult = nil,
+    FruitStoreDropdown = nil,
+    FruitStockDropdown = nil,
 }
 
 local function connect(signal, callback)
@@ -587,12 +630,37 @@ rebuildEnemyCache()
 connect(EnemyFolder.ChildAdded, addEnemy)
 connect(EnemyFolder.ChildRemoved, removeEnemy)
 
+local function canonicalFruitName(value)
+    local raw = string.match(tostring(value or ""), "^%s*(.-)%s*$")
+    if raw == "" then return nil end
+    local exact = FRUIT_NAME_LOOKUP[string.lower(raw)]
+    if exact then return exact end
+
+    local bracketed = string.match(raw, "[Ff]ruit%s*%[([^%]]+)%]")
+    local base = bracketed or raw
+    base = string.gsub(base, "%s+[Ff]ruit$", "")
+    base = string.gsub(base, "^[Ff]ruit%s+", "")
+    base = string.match(base, "^%s*(.-)%s*$")
+    local alias = FRUIT_BASE_ALIASES[string.lower(base)]
+    if alias then base = alias end
+    local canonical = base .. "-" .. base
+    return FRUIT_NAME_LOOKUP[string.lower(canonical)] or canonical
+end
+
 local function fruitIdentity(tool)
     if not tool or not tool:IsA("Tool") then return nil end
-    local original = tool:GetAttribute("OriginalName") or tool:GetAttribute("FruitName")
-    local name = type(original) == "string" and original or tool.Name
-    if string.find(string.lower(name), "fruit", 1, true) then return name end
-    return nil
+    local original = tool:GetAttribute("OriginalName")
+        or tool:GetAttribute("FruitName")
+        or tool:GetAttribute("FruitId")
+    local tooltip = string.lower(tostring(tool.ToolTip or ""))
+    local raw = type(original) == "string" and original or tool.Name
+    if type(original) ~= "string"
+        and not string.find(string.lower(raw), "fruit", 1, true)
+        and not string.find(tooltip, "fruit", 1, true)
+    then
+        return nil
+    end
+    return canonicalFruitName(raw)
 end
 
 local WorldFruits = setmetatable({}, { __mode = "k" })
@@ -769,9 +837,17 @@ local DragonHunterRemote = (Net and Net:FindFirstChild("RF/DragonHunter"))
 local DragonQuestRemote = (Net and Net:FindFirstChild("RF/InteractDragonQuest"))
 local LegacyRigController = ReplicatedStorage:FindFirstChild("RigControllerEvent")
 
+local function resolveCommF()
+    if CommF and CommF.Parent then return CommF end
+    Remotes = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:WaitForChild("Remotes", 5)
+    CommF = Remotes and (Remotes:FindFirstChild("CommF_") or Remotes:WaitForChild("CommF_", 5))
+    return CommF
+end
+
 local function invokeComm(...)
-    if not CommF then return false end
-    local ok, result = pcall(CommF.InvokeServer, CommF, ...)
+    local remote = resolveCommF()
+    if not remote then return false, "CommF_ unavailable" end
+    local ok, result = pcall(remote.InvokeServer, remote, ...)
     return ok, result
 end
 
@@ -1991,7 +2067,7 @@ local function choosePickup(playerRoot)
 end
 
 local function tickPickupOverlay(playerRoot)
-    if Runtime.Respawning or Runtime.ManualTravelHold then
+    if Runtime.Respawning or Runtime.ManualTravelHold or os.clock() < Runtime.ForceReleaseUntil then
         finishPickupOverlay()
         return
     end
@@ -2211,21 +2287,86 @@ local function addStats()
     if Settings.AutoFruitStats then invokeComm("AddPoint", "Demon Fruit", amount) end
 end
 
-local function storeHeldFruits()
+local function remoteResultText(ok, result)
+    if not ok then return "transport failed: " .. tostring(result or "unknown error") end
+    if result == nil then return "request accepted" end
+    if type(result) == "table" then
+        local okEncode, encoded = pcall(HttpService.JSONEncode, HttpService, result)
+        return okEncode and encoded or "server returned a table"
+    end
+    return tostring(result)
+end
+
+local function heldFruitEntries()
+    local entries, seen = {}, {}
     local function scan(container)
         if not container then return end
         for _, tool in ipairs(container:GetChildren()) do
-            local name = fruitIdentity(tool)
-            if name then pcall(invokeComm, "StoreFruit", name, tool) end
+            if tool:IsA("Tool") and not seen[tool] then
+                local canonical = fruitIdentity(tool)
+                if canonical then
+                    seen[tool] = true
+                    entries[#entries + 1] = {Tool = tool, Name = canonical}
+                end
+            end
         end
     end
-    scan(character())
+    -- StoreFruit is most reliable with the actual Backpack tool instance.
     scan(LocalPlayer:FindFirstChildOfClass("Backpack"))
+    scan(character())
+    return entries
+end
+
+local function storeHeldFruits()
+    local selected = Settings.SelectedStoreFruit
+    local entries = heldFruitEntries()
+    local hasEquippedMatch = false
+    local model, humanoid = characterParts()
+    for _, entry in ipairs(entries) do
+        if (selected == "All Fruits" or entry.Name == selected) and entry.Tool.Parent == model then
+            hasEquippedMatch = true
+            break
+        end
+    end
+    if hasEquippedMatch and humanoid then
+        pcall(humanoid.UnequipTools, humanoid)
+        task.wait(0.08)
+        entries = heldFruitEntries()
+    end
+
+    local matched, requested = 0, 0
+    local lastResult = nil
+    for _, entry in ipairs(entries) do
+        if selected == "All Fruits" or entry.Name == selected then
+            matched += 1
+            local ok, result = invokeComm("StoreFruit", entry.Name, entry.Tool)
+            lastResult = remoteResultText(ok, result)
+            if ok then requested += 1 end
+            task.wait(0.05)
+        end
+    end
+    if matched == 0 then
+        Runtime.LastFruitStoreResult = selected == "All Fruits"
+            and "No held fruit tool was found"
+            or ("Selected fruit is not held: " .. tostring(selected))
+    else
+        Runtime.LastFruitStoreResult = string.format("%d/%d store request(s) sent • %s",
+            requested, matched, lastResult or "no response")
+    end
+    return requested > 0, Runtime.LastFruitStoreResult
 end
 
 local function spinRandomFruit()
     local ok, result = invokeComm("Cousin", "Buy")
-    Runtime.LastFruitSpinResult = ok and (result == nil and "request sent" or tostring(result)) or "remote unavailable"
+    Runtime.LastFruitSpinResult = remoteResultText(ok, result)
+    return ok, result
+end
+
+local function buySelectedStockFruit()
+    -- The current transport keeps the third boolean argument used by the game
+    -- dealer path; omitting it makes some server revisions reject silently.
+    local ok, result = invokeComm("PurchaseRawFruit", Settings.SelectedStockFruit, false)
+    Runtime.LastFruitStockResult = remoteResultText(ok, result)
     return ok, result
 end
 
@@ -2969,6 +3110,7 @@ connect(LocalPlayer.CharacterAdded, function(addedCharacter)
     Runtime.CurrentTarget = nil
     Runtime.ManualTravelHold = false
     Runtime.ManualTravelInProgress = false
+    Runtime.ForceReleaseUntil = 0
     Movement:Cancel()
     clearFarmAnchor(true)
     if Runtime.WaterPart then pcall(Runtime.WaterPart.Destroy, Runtime.WaterPart); Runtime.WaterPart = nil end
@@ -3030,7 +3172,7 @@ task.spawn(function()
         end
         if Settings.AutoStoreFruit and featureReady("StoreFruit", 1) then pcall(storeHeldFruits) end
         if Settings.AutoBuyStockFruit and featureReady("StockFruit", 4) then
-            pcall(invokeComm, "PurchaseRawFruit", Settings.SelectedStockFruit)
+            pcall(buySelectedStockFruit)
         end
         if Settings.AutoRaceV3 and featureReady("RaceV3", 2) then pcall(fireComm, "ActivateAbility") end
         if Settings.AutoRaceV4 and featureReady("RaceV4", 2) then pcall(fireComm, "ActivateAbility") end
@@ -3074,8 +3216,8 @@ task.spawn(function()
     end
 end)
 
-local function restoreCharacterPhysics()
-    local released = next(Runtime.CollisionState) ~= nil
+local function restoreCharacterPhysics(aggressive)
+    local released = aggressive == true or next(Runtime.CollisionState) ~= nil
     for part, original in pairs(Runtime.CollisionState) do
         if part and part.Parent then pcall(function() part.CanCollide = original end) end
         Runtime.CollisionState[part] = nil
@@ -3087,7 +3229,22 @@ local function restoreCharacterPhysics()
             if body.Parent then pcall(body.Destroy, body) end
         end
     end
-    local _, humanoid, root = characterParts()
+    local model, humanoid, root = characterParts()
+    if model and aggressive then
+        for _, object in ipairs(model:GetDescendants()) do
+            if object:IsA("BasePart") then
+                object.Anchored = false
+            elseif (object:IsA("BodyVelocity") or object:IsA("BodyPosition")
+                or object:IsA("BodyGyro") or object:IsA("LinearVelocity")
+                or object:IsA("AngularVelocity") or object:IsA("VectorForce")
+                or object:IsA("AlignPosition") or object:IsA("AlignOrientation"))
+                and (object.Name == "BodyClip" or object:GetAttribute("BloxFruitOwned") == true)
+            then
+                Runtime.OwnedBodyMovers[object] = nil
+                pcall(object.Destroy, object)
+            end
+        end
+    end
     local staleBodyClip = root and root:FindFirstChild("BodyClip")
     if staleBodyClip and staleBodyClip:IsA("BodyVelocity") then
         released = true
@@ -3101,20 +3258,34 @@ local function restoreCharacterPhysics()
     if released and root then
         -- A small downward velocity guarantees that a character released over
         -- open air falls normally instead of remaining suspended after a farm.
-        root.AssemblyLinearVelocity = Vector3.new(0, -2, 0)
+        root.AssemblyLinearVelocity = Vector3.new(0, -8, 0)
         root.AssemblyAngularVelocity = Vector3.zero
     end
     if released and humanoid then
         humanoid.PlatformStand = false
         humanoid.Sit = false
         humanoid.AutoRotate = true
-        pcall(humanoid.ChangeState, humanoid, Enum.HumanoidStateType.GettingUp)
+        local releaseState = humanoid.FloorMaterial == Enum.Material.Air
+            and Enum.HumanoidStateType.Freefall or Enum.HumanoidStateType.Running
+        pcall(humanoid.ChangeState, humanoid, releaseState)
         task.defer(function()
             if humanoid.Parent and humanoid.Health > 0 then
-                pcall(humanoid.ChangeState, humanoid, Enum.HumanoidStateType.Running)
+                local state = humanoid.FloorMaterial == Enum.Material.Air
+                    and Enum.HumanoidStateType.Freefall or Enum.HumanoidStateType.Running
+                pcall(humanoid.ChangeState, humanoid, state)
             end
         end)
     end
+end
+
+local function forceReleaseAutomation()
+    Runtime.ForceReleaseUntil = os.clock() + 1.25
+    Runtime.CurrentTarget = nil
+    finishPickupOverlay()
+    Movement:Cancel()
+    clearFarmAnchor(true)
+    restoreCharacterPhysics(true)
+    return true
 end
 
 local fastAccumulator, physicsAccumulator = 0, 0
@@ -3133,7 +3304,9 @@ connect(RunService.Heartbeat, function(delta)
         physicsAccumulator = 0
         local manualTween = Runtime.ManualTravelInProgress
             and Runtime.MovementOwner == "ManualTravel"
-        if (farmEnabled() or Runtime.PickupBusy or manualTween)
+        if os.clock() < Runtime.ForceReleaseUntil then
+            restoreCharacterPhysics(true)
+        elseif (farmEnabled() or Runtime.PickupBusy or manualTween)
             and not Runtime.Respawning and (not Runtime.ManualTravelHold or manualTween)
         then
             local model, _, root = characterParts()
@@ -3167,6 +3340,16 @@ API.BossLists = BOSS_LISTS
 API.MaterialData = MATERIAL_DATA
 API.MaterialLists = MATERIAL_LISTS
 
+function API.GetHeldFruits()
+    local names = {}
+    for _, entry in ipairs(heldFruitEntries()) do names[#names + 1] = entry.Name end
+    return names
+end
+
+API.SpinRandomFruit = spinRandomFruit
+API.StoreHeldFruits = storeHeldFruits
+API.ForceReleaseCharacter = forceReleaseAutomation
+
 function API.Set(name, value)
     if type(name) ~= "string" or Settings[name] == nil then
         warn("BloxFruitScript ignored unknown UI setting:", tostring(name))
@@ -3193,6 +3376,8 @@ function API.Set(name, value)
     end
     Settings[name] = value
     if name == "AutoRandomFruit" and value == true then Runtime.FeatureLastRun.RandomFruit = nil end
+    if name == "AutoStoreFruit" and value == true then Runtime.FeatureLastRun.StoreFruit = nil end
+    if name == "AutoBuyStockFruit" and value == true then Runtime.FeatureLastRun.StockFruit = nil end
     if name == "AggressiveFPSBoost" then
         if value == true then applyAggressiveFPSBoost() else restoreAggressiveFPSBoost() end
     end
@@ -3206,9 +3391,7 @@ function API.Set(name, value)
         if name == "AutoFarmAllBoss" then Runtime.AllBossIndex = 1; Runtime.AllBossArrivedAt = nil end
         clearFarmAnchor(true)
         if FARM_TOGGLE_KEYS[name] and value == false and not farmEnabled() then
-            Movement:Cancel()
-            finishPickupOverlay()
-            restoreCharacterPhysics()
+            forceReleaseAutomation()
         end
     elseif name == "BringMobs" and value == false then
         restoreEnemies()
@@ -3273,7 +3456,7 @@ function API.StopAll()
     finishPickupOverlay()
     Movement:Cancel()
     clearFarmAnchor(true)
-    restoreCharacterPhysics()
+    forceReleaseAutomation()
     savePersistentSettings(true)
 end
 
@@ -3470,7 +3653,7 @@ local function makeRenLibUI()
 --[[ MODULE: 00_runtime.part.lua ]]
 -- Module fragment: runtime, services, constants, root state
 -- Generated from the working V7 baseline; edit this feature in isolation.
--- RenLib V9.0.0 beta modular compatibility bundle
+-- RenLib V9.1.0 beta modular compatibility bundle
 -- Responsive Roblox UI framework with centralized navigation, non-destructive
 -- search, mobile-first input, live theming, addons, and deterministic cleanup.
 
@@ -3598,7 +3781,7 @@ local ICONS = {
 
 --// ROOT LIBRARY
 local Library = {}
-Library.Version = "9.0.0-beta"
+Library.Version = "9.1.0-beta"
 Library.Architecture = "modular-bundle"
 Library.Title = "RenLib"
 Library.Connections = {}
@@ -7419,234 +7602,6 @@ function Library:CreateWindow(options)
         if backwards then Window:PreviousTab() else Window:NextTab() end
     end)
 
-    function Window:CreateAutomationHUD(hudOptions)
-        hudOptions = hudOptions or {}
-        local phone = Library.DeviceMode == "Phone"
-        local expandedHeight = phone and 100 or 108
-        local hudFrame = Utility:Create("Frame", {
-            Name = tostring(hudOptions.Name or "AutomationHUD"), Parent = ScreenGui,
-            AnchorPoint = Vector2.new(1, 0), Position = hudOptions.Position or UDim2.new(1, -14, 0, 76),
-            Size = UDim2.fromOffset(phone and 216 or 248, expandedHeight),
-            BackgroundColor3 = Library.Theme.Secondary, ClipsDescendants = true,
-            BorderSizePixel = 0, ZIndex = 500
-        })
-        Utility:RegisterProperty(hudFrame, "BackgroundColor3", "Secondary")
-        Utility:RegisterMaterial(hudFrame, 0.1, 0)
-        Utility:Create("UICorner", {Parent = hudFrame, CornerRadius = UDim.new(0, 9)})
-        local hudStroke = Utility:Create("UIStroke", {Parent = hudFrame, Color = Library.Theme.Stroke, Thickness = 1, Transparency = 0.68})
-        Utility:RegisterProperty(hudStroke, "Color", "Stroke")
-        local hudHeader = Utility:Create("Frame", {
-            Parent = hudFrame, BackgroundColor3 = Library.Theme.Surface,
-            Size = UDim2.new(1, 0, 0, 34), BorderSizePixel = 0, ZIndex = 501
-        })
-        Utility:RegisterProperty(hudHeader, "BackgroundColor3", "Surface")
-        local statusDot = Utility:Create("Frame", {
-            Name = "StatusDot", Parent = hudHeader, BackgroundColor3 = Library.Theme.SubText,
-            Position = UDim2.fromOffset(11, 13), Size = UDim2.fromOffset(8, 8),
-            BorderSizePixel = 0, ZIndex = 503
-        })
-        Utility:RegisterProperty(statusDot, "BackgroundColor3", "SubText")
-        Utility:Create("UICorner", {Parent = statusDot, CornerRadius = UDim.new(1, 0)})
-        local hudTitle = Utility:Create("TextLabel", {
-            Parent = hudHeader, BackgroundTransparency = 1, Position = UDim2.fromOffset(27, 0),
-            Size = UDim2.new(1, -62, 1, 0), Text = tostring(hudOptions.Title or "Automation"),
-            TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11,
-            TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 502
-        })
-        Utility:RegisterProperty(hudTitle, "TextColor3", "Text")
-        local collapse = Utility:Create("TextButton", {
-            Parent = hudHeader, BackgroundTransparency = 1, Position = UDim2.new(1, -34, 0, 0),
-            Size = UDim2.fromOffset(34, 34), Text = "−", TextColor3 = Library.Theme.SubText,
-            Font = Enum.Font.GothamBold, TextSize = 15, ZIndex = 503
-        })
-        Utility:RegisterProperty(collapse, "TextColor3", "SubText")
-        local statusLabel = Utility:Create("TextLabel", {
-            Name = "Status", Parent = hudFrame, BackgroundTransparency = 1,
-            Position = UDim2.fromOffset(11, 39), Size = UDim2.new(1, -22, 0, 17),
-            Text = tostring(hudOptions.StatusText or "Idle"), TextColor3 = Library.Theme.Text,
-            Font = Enum.Font.GothamMedium, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 501
-        })
-        Utility:RegisterProperty(statusLabel, "TextColor3", "Text")
-        local detailLabel = Utility:Create("TextLabel", {
-            Name = "Detail", Parent = hudFrame, BackgroundTransparency = 1,
-            Position = UDim2.fromOffset(11, 56), Size = UDim2.new(1, -22, 0, 16),
-            Text = tostring(hudOptions.Detail or "No active workflow"), TextColor3 = Library.Theme.SubText,
-            Font = Enum.Font.Gotham, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 501
-        })
-        Utility:RegisterProperty(detailLabel, "TextColor3", "SubText")
-        local progressTrack = Utility:Create("Frame", {
-            Name = "Progress", Parent = hudFrame, BackgroundColor3 = Library.Theme.SurfaceAlt,
-            Position = UDim2.fromOffset(11, 77), Size = UDim2.new(1, -22, 0, 4),
-            BorderSizePixel = 0, ZIndex = 501
-        })
-        Utility:RegisterProperty(progressTrack, "BackgroundColor3", "SurfaceAlt")
-        Utility:Create("UICorner", {Parent = progressTrack, CornerRadius = UDim.new(1, 0)})
-        local progressFill = Utility:Create("Frame", {
-            Parent = progressTrack, BackgroundColor3 = Library.Theme.Accent,
-            Size = UDim2.new(math.clamp(tonumber(hudOptions.Progress) or 0, 0, 1), 0, 1, 0),
-            BorderSizePixel = 0, ZIndex = 502
-        })
-        Utility:RegisterProperty(progressFill, "BackgroundColor3", "Accent")
-        Utility:Create("UICorner", {Parent = progressFill, CornerRadius = UDim.new(1, 0)})
-        local metricsLabel = Utility:Create("TextLabel", {
-            Name = "Metrics", Parent = hudFrame, BackgroundTransparency = 1,
-            Position = UDim2.fromOffset(11, 86), Size = UDim2.new(1, -22, 0, 15),
-            Text = tostring(hudOptions.Metrics or ""), TextColor3 = Library.Theme.SubText,
-            Font = Enum.Font.Gotham, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 501
-        })
-        Utility:RegisterProperty(metricsLabel, "TextColor3", "SubText")
-        Utility:MakeDraggable(hudHeader, hudFrame)
-
-        local hud = {Holder = hudFrame, Collapsed = false, Status = "Idle"}
-        local statusKeys = {active = "Success", waiting = "Warn", error = "Error", idle = "SubText", success = "Success"}
-        function hud:SetStatus(status, text, detail)
-            local normalized = tostring(status or "Idle"):lower()
-            local colorKey = statusKeys[normalized] or "SubText"
-            self.Status = normalized
-            Library.Registry[statusDot]["BackgroundColor3"] = colorKey
-            Utility:Tween(statusDot, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme[colorKey]})
-            statusLabel.Text = tostring(text or normalized:gsub("^%l", string.upper))
-            if detail ~= nil then detailLabel.Text = tostring(detail) end
-            return self
-        end
-        function hud:SetProgress(value)
-            Utility:Tween(progressFill, TweenInfo.new(0.18), {Size = UDim2.new(math.clamp(tonumber(value) or 0, 0, 1), 0, 1, 0)})
-            return self
-        end
-        function hud:SetMetrics(metrics)
-            if type(metrics) == "table" then
-                local parts = {}
-                for key, value in pairs(metrics) do table.insert(parts, tostring(key) .. ": " .. tostring(value)) end
-                table.sort(parts)
-                metricsLabel.Text = table.concat(parts, "  •  ")
-            else
-                metricsLabel.Text = tostring(metrics or "")
-            end
-            return self
-        end
-        function hud:SetTitle(value) hudTitle.Text = tostring(value or "Automation") return self end
-        function hud:SetDetail(value) detailLabel.Text = tostring(value or "") return self end
-        function hud:SetDock(dock)
-            dock = tostring(dock or "TopRight")
-            local docks = {
-                TopRight = {Vector2.new(1, 0), UDim2.new(1, -14, 0, 76)},
-                TopLeft = {Vector2.new(0, 0), UDim2.new(0, 14, 0, 76)},
-                BottomRight = {Vector2.new(1, 1), UDim2.new(1, -14, 1, -14)},
-                BottomLeft = {Vector2.new(0, 1), UDim2.new(0, 14, 1, -14)}
-            }
-            local target = docks[dock] or docks.TopRight
-            hudFrame.AnchorPoint = target[1]
-            Utility:Tween(hudFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = target[2]})
-            self.Dock = dock
-            return self
-        end
-        function hud:SetCollapsed(value)
-            self.Collapsed = value == true
-            collapse.Text = self.Collapsed and "+" or "−"
-            Utility:Tween(hudFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                Size = UDim2.fromOffset(hudFrame.Size.X.Offset, self.Collapsed and 34 or expandedHeight)
-            })
-            return self
-        end
-        function hud:SetVisible(value) hudFrame.Visible = value == true return self end
-        function hud:Destroy() hudFrame:Destroy() end
-        Library:Connect(collapse.MouseButton1Click, function() hud:SetCollapsed(not hud.Collapsed) end)
-        hud:SetStatus(hudOptions.Status or "Idle", hudOptions.StatusText, hudOptions.Detail)
-        if hudOptions.Dock and not hudOptions.Position then hud:SetDock(hudOptions.Dock) end
-        return hud
-    end
-
-    function Window:CreateQuickActions(actionOptions)
-        actionOptions = actionOptions or {}
-        local actions, actionById, buttons = {}, {}, {}
-        local phone = Library.DeviceMode == "Phone"
-        local buttonWidth = phone and 62 or 82
-        local dock = Utility:Create("Frame", {
-            Name = tostring(actionOptions.Name or "QuickActions"), Parent = ScreenGui,
-            AnchorPoint = Vector2.new(0.5, 1), Position = actionOptions.Position or UDim2.new(0.5, 0, 1, -66),
-            Size = UDim2.fromOffset(24, phone and 48 or 52), BackgroundColor3 = Library.Theme.Secondary,
-            BorderSizePixel = 0, ZIndex = 520
-        })
-        Utility:RegisterProperty(dock, "BackgroundColor3", "Secondary")
-        Utility:RegisterMaterial(dock, 0.08, 0)
-        Utility:Create("UICorner", {Parent = dock, CornerRadius = UDim.new(1, 0)})
-        local dockStroke = Utility:Create("UIStroke", {Parent = dock, Color = Library.Theme.Stroke, Thickness = 1})
-        Utility:RegisterProperty(dockStroke, "Color", "Stroke")
-        Utility:Create("UIPadding", {Parent = dock, PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 7), PaddingBottom = UDim.new(0, 7)})
-        local layout = Utility:Create("UIListLayout", {Parent = dock, FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Center})
-        local controller = {Type = "QuickActions", Holder = dock}
-        local statusColors = {Active = "Success", Waiting = "Warn", Error = "Error", Idle = "SubText"}
-        local function resize()
-            dock.Size = UDim2.fromOffset(math.max(32, #actions * (buttonWidth + 6) + 10), phone and 48 or 52)
-        end
-        function controller:AddAction(value)
-            value = value or {}
-            local id = normalizeActionId(value.Id or value.Name)
-            if actionById[id] then return actionById[id] end
-            local action = {Id = id, Name = tostring(value.Name or id), Callback = value.Callback, Status = tostring(value.Status or "Idle")}
-            table.insert(actions, action)
-            actionById[id] = action
-            local button = Utility:Create("TextButton", {
-                Name = "QuickAction", Parent = dock, BackgroundColor3 = Library.Theme.Surface,
-                Size = UDim2.fromOffset(buttonWidth, phone and 34 or 38), Text = action.Name,
-                TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = phone and 8 or 9,
-                TextTruncate = Enum.TextTruncate.AtEnd, AutoButtonColor = false,
-                LayoutOrder = #actions, BorderSizePixel = 0, ZIndex = 521
-            })
-            Utility:RegisterProperty(button, "BackgroundColor3", "Surface")
-            Utility:RegisterProperty(button, "TextColor3", "Text")
-            Utility:Create("UICorner", {Parent = button, CornerRadius = UDim.new(1, 0)})
-            local dot = Utility:Create("Frame", {Name = "StatusDot", Parent = button, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 4), Size = UDim2.fromOffset(7, 7), BackgroundColor3 = Library.Theme.SubText, BorderSizePixel = 0, Visible = false, ZIndex = 522})
-            Utility:RegisterProperty(dot, "BackgroundColor3", "SubText")
-            Utility:Create("UICorner", {Parent = dot, CornerRadius = UDim.new(1, 0)})
-            buttons[id] = {Button = button, Dot = dot}
-            Window:RegisterCommand({Id = "quick-" .. id, Name = action.Name, Description = value.Description or "Quick action", Category = "Quick actions", Synonyms = value.Synonyms, Requirement = value.Requirement, Callback = function() Utility:SafeCall(action.Callback, action, controller) end})
-            Library:Connect(button.MouseButton1Click, function()
-                local ok, err = Window:ExecuteCommand("quick-" .. id)
-                if not ok then Library:Notify({Title = "Action unavailable", Content = tostring(err), Duration = 3}) end
-            end)
-            Library:Connect(button.MouseEnter, function() Utility:Tween(button, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Hover}) end)
-            Library:Connect(button.MouseLeave, function() Utility:Tween(button, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Surface}) end)
-            resize()
-            self:SetStatus(id, action.Status)
-            return action
-        end
-        function controller:SetStatus(id, status)
-            id = normalizeActionId(id)
-            local action, visual = actionById[id], buttons[id]
-            if not action or not visual then return false end
-            action.Status = tostring(status or "Idle"):gsub("^%l", string.upper)
-            local colorKey = statusColors[action.Status] or "SubText"
-            visual.Dot.Visible = action.Status ~= "Idle"
-            Library.Registry[visual.Dot]["BackgroundColor3"] = colorKey
-            Utility:Tween(visual.Dot, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme[colorKey]})
-            return true
-        end
-        function controller:SetVisible(value) dock.Visible = value == true return self end
-        function controller:GetActions() return actions end
-        function controller:Trigger(id) return Window:ExecuteCommand("quick-" .. normalizeActionId(id)) end
-        function controller:SetDock(position)
-            position = tostring(position or "BottomCenter")
-            local positions = {
-                BottomCenter = {Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -66)},
-                TopCenter = {Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 76)},
-                BottomRight = {Vector2.new(1, 1), UDim2.new(1, -14, 1, -66)}
-            }
-            local target = positions[position] or positions.BottomCenter
-            dock.AnchorPoint = target[1]
-            Utility:Tween(dock, TweenInfo.new(0.2), {Position = target[2]})
-            return self
-        end
-        function controller:Destroy() dock:Destroy() end
-        for _, action in ipairs(actionOptions.Actions or {}) do controller:AddAction(action) end
-        if actionOptions.Dock and not actionOptions.Position then controller:SetDock(actionOptions.Dock) end
-        resize()
-        return controller
-    end
-
     function Window:OnTabChanged(callback)
         if type(callback) == "function" then table.insert(self.NavigationListeners, callback) end
         return self
@@ -11255,6 +11210,11 @@ end
                 function group:CreateProgressCard(value) return attach("CreateProgressCard", value) end
                 function group:CreateActivityFeed(value) return attach("CreateActivityFeed", value) end
                 function group:CreateChecklist(value) return attach("CreateChecklist", value) end
+                function group:CreateStatusBanner(value) return attach("CreateStatusBanner", value) end
+                function group:CreateActionBar(value) return attach("CreateActionBar", value) end
+                function group:CreateStatGrid(value) return attach("CreateStatGrid", value) end
+                function group:CreateLeaderboard(value) return attach("CreateLeaderboard", value) end
+                function group:CreateExecutionQueue(value) return attach("CreateExecutionQueue", value) end
                 Library:Connect(header.MouseButton1Click, function() group:Toggle() end)
                 task.defer(refresh)
                 return group
@@ -12110,7 +12070,7 @@ end
                 options = options or {}
                 local name = tostring(options.Name or "Activity")
                 local maxEntries = math.max(3, tonumber(options.MaxEntries) or 40)
-                local entries = {}
+                local entries, visuals = {}, {}
                 local container = Utility:Create("Frame", {Name = "ActivityFeed_" .. name, Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, tonumber(options.Height) or 210), BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5})
                 Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
                 Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 8)})
@@ -12218,6 +12178,337 @@ end
                 function controller:Reset() for _, item in ipairs(items) do item.Status = "Pending" end render() return true end
                 addElement({Holder = container, Text = name .. " objectives steps checklist", Synonyms = options.Synonyms})
                 render()
+                return controller
+            end
+
+            function Section:CreateStatusBanner(options)
+                options = options or {}
+                local stateColors = {active = "Success", success = "Success", waiting = "Warn", warning = "Warn", error = "Error", info = "Accent2", idle = "SubText"}
+                local status = tostring(options.Status or "Info"):lower()
+                local height = options.ActionText and 72 or 62
+                local container = Utility:Create("Frame", {
+                    Name = "StatusBanner_" .. tostring(options.Title or "Status"), Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, height),
+                    BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5
+                })
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 7)})
+                local accent = Utility:Create("Frame", {Parent = container, BackgroundColor3 = Library.Theme.Accent2, Size = UDim2.new(0, 3, 1, 0), BorderSizePixel = 0, ZIndex = 6})
+                Utility:RegisterProperty(accent, "BackgroundColor3", "Accent2")
+                local dot = Utility:Create("Frame", {Parent = container, Position = UDim2.fromOffset(12, 13), Size = UDim2.fromOffset(7, 7), BackgroundColor3 = Library.Theme.Accent2, BorderSizePixel = 0, ZIndex = 7})
+                Utility:RegisterProperty(dot, "BackgroundColor3", "Accent2")
+                Utility:Create("UICorner", {Parent = dot, CornerRadius = UDim.new(1, 0)})
+                local title = Utility:Create("TextLabel", {Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(25, 5), Size = UDim2.new(1, options.ActionText and -116 or -36, 0, 22), Text = tostring(options.Title or "Status"), TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 7})
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local message = Utility:Create("TextLabel", {Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 27), Size = UDim2.new(1, options.ActionText and -116 or -24, 0, height - 34), Text = tostring(options.Content or options.Message or ""), TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 9, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 7})
+                Utility:RegisterProperty(message, "TextColor3", "SubText")
+                local action
+                if options.ActionText then
+                    action = Utility:Create("TextButton", {Parent = container, Position = UDim2.new(1, -98, 0.5, -14), Size = UDim2.fromOffset(86, 28), BackgroundColor3 = Library.Theme.SurfaceAlt, Text = tostring(options.ActionText), TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 9, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 8})
+                    Utility:RegisterProperty(action, "BackgroundColor3", "SurfaceAlt")
+                    Utility:RegisterProperty(action, "TextColor3", "Text")
+                    Utility:Create("UICorner", {Parent = action, CornerRadius = UDim.new(0, 6)})
+                end
+                local controller = finishController({Type = "StatusBanner", Status = status}, container, options.Title or "Status", options.Tooltip)
+                function controller:SetStatus(value)
+                    status = tostring(value or "Info"):lower()
+                    self.Status = status
+                    local colorKey = stateColors[status] or "Accent2"
+                    Library.Registry[accent]["BackgroundColor3"] = colorKey
+                    Library.Registry[dot]["BackgroundColor3"] = colorKey
+                    Utility:Tween(accent, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme[colorKey]})
+                    Utility:Tween(dot, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme[colorKey]})
+                    return self
+                end
+                function controller:SetTitle(value) title.Text = tostring(value or "") return self end
+                function controller:SetContent(value) message.Text = tostring(value or "") return self end
+                function controller:SetActionText(value) if action then action.Text = tostring(value or "") end return self end
+                if action then
+                    Library:Connect(action.MouseButton1Click, function() Utility:SafeCall(options.Callback, controller) end)
+                    Library:Connect(action.MouseEnter, function() Utility:Tween(action, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Hover}) end)
+                    Library:Connect(action.MouseLeave, function() Utility:Tween(action, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.SurfaceAlt}) end)
+                end
+                controller:SetStatus(status)
+                addElement({Holder = container, Text = tostring(options.Title or "Status") .. " " .. tostring(options.Content or options.Message or ""), Synonyms = options.Synonyms})
+                return controller
+            end
+
+            function Section:CreateActionBar(options)
+                options = options or {}
+                local actions, byId, visuals = {}, {}, {}
+                local container = Utility:Create("Frame", {Name = "ActionBar", Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, 42), BorderSizePixel = 0, ZIndex = 5})
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 7)})
+                local body = Utility:Create("Frame", {Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(5, 5), Size = UDim2.new(1, -10, 1, -10), ZIndex = 6})
+                local grid = Utility:Create("UIGridLayout", {Parent = body, CellPadding = UDim2.fromOffset(5, 0), CellSize = UDim2.new(1, 0, 1, 0), FillDirectionMaxCells = 1, SortOrder = Enum.SortOrder.LayoutOrder})
+                local controller = finishController({Type = "ActionBar"}, container, options.Name or "Actions", options.Tooltip)
+                local commandPrefix = "bar-" .. normalizeActionId(options.Id or options.Name or (Tab.Name .. "-" .. SectionName))
+                local statusColors = {active = "Success", waiting = "Warn", error = "Error", idle = "SubText"}
+                local function resize()
+                    local count = math.max(1, #actions)
+                    grid.FillDirectionMaxCells = count
+                    grid.CellSize = UDim2.new(1 / count, -((count - 1) * 5) / count, 1, 0)
+                end
+                function controller:AddAction(value)
+                    value = value or {}
+                    local id = normalizeActionId(value.Id or value.Name)
+                    if byId[id] then return byId[id] end
+                    local definition = {Id = id, Name = tostring(value.Name or id), Callback = value.Callback, Enabled = value.Enabled ~= false, Status = tostring(value.Status or "Idle"):lower(), CommandId = commandPrefix .. "-" .. id}
+                    table.insert(actions, definition)
+                    byId[id] = definition
+                    local button = Utility:Create("TextButton", {Name = "Action_" .. id, Parent = body, BackgroundColor3 = Library.Theme.SurfaceAlt, Text = definition.Name, TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 9, TextTruncate = Enum.TextTruncate.AtEnd, AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = #actions, ZIndex = 7})
+                    Utility:RegisterProperty(button, "BackgroundColor3", "SurfaceAlt")
+                    Utility:RegisterProperty(button, "TextColor3", "Text")
+                    Utility:Create("UICorner", {Parent = button, CornerRadius = UDim.new(0, 6)})
+                    local dot = Utility:Create("Frame", {Parent = button, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 4), Size = UDim2.fromOffset(6, 6), BackgroundColor3 = Library.Theme.SubText, BorderSizePixel = 0, Visible = false, ZIndex = 8})
+                    Utility:RegisterProperty(dot, "BackgroundColor3", "SubText")
+                    Utility:Create("UICorner", {Parent = dot, CornerRadius = UDim.new(1, 0)})
+                    visuals[id] = {Button = button, Dot = dot}
+                    Window:RegisterCommand({Id = definition.CommandId, Name = definition.Name, Description = value.Description or "Inline action", Category = options.Category or (Tab.Name .. " / " .. SectionName), Synonyms = value.Synonyms, Requirement = value.Requirement, Callback = function() if definition.Enabled then Utility:SafeCall(definition.Callback, definition, controller) end end})
+                    Library:Connect(button.MouseButton1Click, function() if definition.Enabled then Window:ExecuteCommand(definition.CommandId) end end)
+                    Library:Connect(button.MouseEnter, function() if definition.Enabled then Utility:Tween(button, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Hover}) end end)
+                    Library:Connect(button.MouseLeave, function() Utility:Tween(button, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.SurfaceAlt}) end)
+                    resize()
+                    self:SetEnabled(id, definition.Enabled)
+                    self:SetStatus(id, definition.Status)
+                    return definition
+                end
+                function controller:SetEnabled(id, value)
+                    id = normalizeActionId(id)
+                    local definition, visual = byId[id], visuals[id]
+                    if not definition then return false end
+                    definition.Enabled = value == true
+                    visual.Button.TextTransparency = definition.Enabled and 0 or 0.55
+                    visual.Button.BackgroundTransparency = definition.Enabled and 0 or 0.45
+                    return true
+                end
+                function controller:SetStatus(id, value)
+                    id = normalizeActionId(id)
+                    local definition, visual = byId[id], visuals[id]
+                    if not definition then return false end
+                    definition.Status = tostring(value or "Idle"):lower()
+                    local colorKey = statusColors[definition.Status] or "SubText"
+                    visual.Dot.Visible = definition.Status ~= "idle"
+                    Library.Registry[visual.Dot]["BackgroundColor3"] = colorKey
+                    visual.Dot.BackgroundColor3 = Library.Theme[colorKey]
+                    return true
+                end
+                function controller:Trigger(id)
+                    local definition = byId[normalizeActionId(id)]
+                    if not definition then return false, "Unknown action" end
+                    return Window:ExecuteCommand(definition.CommandId)
+                end
+                function controller:GetActions() return actions end
+                for _, action in ipairs(options.Actions or {}) do controller:AddAction(action) end
+                resize()
+                addElement({Holder = container, Text = tostring(options.Name or "Actions"), Synonyms = options.Synonyms})
+                return controller
+            end
+
+            function Section:CreateStatGrid(options)
+                options = options or {}
+                local items, byId, visuals = {}, {}, {}
+                local columns = math.clamp(tonumber(options.Columns) or 2, 1, 4)
+                local container = Utility:Create("Frame", {Name = "StatGrid", Parent = ContentContainer, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 60), ZIndex = 5})
+                local grid = Utility:Create("UIGridLayout", {Parent = container, CellPadding = UDim2.fromOffset(5, 5), CellSize = UDim2.new(1 / columns, -((columns - 1) * 5) / columns, 0, 58), FillDirectionMaxCells = columns, SortOrder = Enum.SortOrder.LayoutOrder})
+                local controller = finishController({Type = "StatGrid"}, container, options.Name or "Statistics", options.Tooltip)
+                local function resize()
+                    container.Size = UDim2.new(1, 0, 0, math.max(1, math.ceil(#items / columns)) * 63 - 5)
+                end
+                function controller:Add(value)
+                    value = value or {}
+                    local id = normalizeActionId(value.Id or value.Name or (#items + 1))
+                    if byId[id] then return byId[id] end
+                    local item = {Id = id, Name = tostring(value.Name or id), Value = value.Value, Trend = tostring(value.Trend or value.Detail or ""), Color = value.Color or "Accent"}
+                    table.insert(items, item); byId[id] = item
+                    local card = Utility:Create("Frame", {Name = "Stat_" .. id, Parent = container, BackgroundColor3 = Library.Theme.Surface, BorderSizePixel = 0, LayoutOrder = #items, ZIndex = 6})
+                    Utility:RegisterProperty(card, "BackgroundColor3", "Surface")
+                    Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 7)})
+                    local label = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 6), Size = UDim2.new(1, -20, 0, 16), Text = item.Name:upper(), TextColor3 = Library.Theme.SubText, Font = Enum.Font.GothamBold, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 7})
+                    Utility:RegisterProperty(label, "TextColor3", "SubText")
+                    local number = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 20), Size = UDim2.new(0.62, -10, 0, 28), Text = tostring(item.Value or "—"), TextColor3 = Library.Theme[item.Color] or Library.Theme.Accent, Font = Enum.Font.GothamBold, TextSize = 18, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 7})
+                    Utility:RegisterProperty(number, "TextColor3", Library.Theme[item.Color] and item.Color or "Accent")
+                    local trend = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.new(0.62, 0, 0, 25), Size = UDim2.new(0.38, -10, 0, 18), Text = item.Trend, TextColor3 = Library.Theme.SubText, Font = Enum.Font.GothamMedium, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Right, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 7})
+                    Utility:RegisterProperty(trend, "TextColor3", "SubText")
+                    visuals[id] = {Card = card, Value = number, Trend = trend}
+                    resize()
+                    return item
+                end
+                function controller:SetValue(id, value, trendText)
+                    id = normalizeActionId(id)
+                    local item, visual = byId[id], visuals[id]
+                    if not item then return false end
+                    item.Value = value; visual.Value.Text = tostring(value)
+                    if trendText ~= nil then item.Trend = tostring(trendText); visual.Trend.Text = item.Trend end
+                    return true
+                end
+                function controller:SetColor(id, colorKey)
+                    id = normalizeActionId(id)
+                    local item, visual = byId[id], visuals[id]
+                    if not item or not Library.Theme[colorKey] then return false end
+                    item.Color = colorKey; Library.Registry[visual.Value]["TextColor3"] = colorKey; visual.Value.TextColor3 = Library.Theme[colorKey]
+                    return true
+                end
+                function controller:GetItems() return items end
+                for _, item in ipairs(options.Items or {}) do controller:Add(item) end
+                resize()
+                addElement({Holder = container, Text = tostring(options.Name or "Statistics"), Synonyms = options.Synonyms})
+                return controller
+            end
+
+            function Section:CreateLeaderboard(options)
+                options = options or {}
+                local entries = {}
+                local height = tonumber(options.Height) or 210
+                local container = Utility:Create("Frame", {Name = "Leaderboard", Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, height), BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5})
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 7)})
+                local title = Utility:Create("TextLabel", {Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -20, 0, 32), Text = tostring(options.Name or "Leaderboard"), TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local body = Utility:Create("ScrollingFrame", {Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(7, 32), Size = UDim2.new(1, -14, 1, -39), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 2, ScrollBarImageColor3 = Library.Theme.Accent, BorderSizePixel = 0, ZIndex = 6})
+                Utility:RegisterProperty(body, "ScrollBarImageColor3", "Accent")
+                Utility:Create("UIListLayout", {Parent = body, Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder})
+                local controller = finishController({Type = "Leaderboard"}, container, options.Name or "Leaderboard", options.Tooltip)
+                local function render()
+                    table.sort(entries, function(a, b) return (tonumber(a.Score) or 0) > (tonumber(b.Score) or 0) end)
+                    for index, entry in ipairs(entries) do
+                        local highlighted = entry.Highlighted == true
+                        local visual = visuals[entry]
+                        if not visual then
+                            local row = Utility:Create("Frame", {Name = "LeaderboardRow", Parent = body, BackgroundColor3 = Library.Theme.Secondary, BackgroundTransparency = 0.22, Size = UDim2.new(1, -3, 0, 32), BorderSizePixel = 0, LayoutOrder = index, ZIndex = 7})
+                            Utility:RegisterProperty(row, "BackgroundColor3", "Secondary")
+                            Utility:Create("UICorner", {Parent = row, CornerRadius = UDim.new(0, 6)})
+                            local rank = Utility:Create("TextLabel", {Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(8, 0), Size = UDim2.fromOffset(24, 32), Text = tostring(index), TextColor3 = Library.Theme.Accent, Font = Enum.Font.GothamBold, TextSize = 10, ZIndex = 8})
+                            Utility:RegisterProperty(rank, "TextColor3", "Accent")
+                            local entryName = Utility:Create("TextLabel", {Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(36, 0), Size = UDim2.new(1, -126, 1, 0), Text = tostring(entry.Name or "Player"), TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 8})
+                            Utility:RegisterProperty(entryName, "TextColor3", "Text")
+                            local score = Utility:Create("TextLabel", {Parent = row, BackgroundTransparency = 1, Position = UDim2.new(1, -86, 0, 0), Size = UDim2.fromOffset(76, 32), Text = tostring(entry.Score or 0), TextColor3 = Library.Theme.Accent2, Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 8})
+                            Utility:RegisterProperty(score, "TextColor3", "Accent2")
+                            visual = {Row = row, Rank = rank, Name = entryName, Score = score}
+                            visuals[entry] = visual
+                        end
+                        local rowKey = highlighted and "Hover" or "Secondary"
+                        local rankKey = index <= 3 and "Accent" or "SubText"
+                        local scoreKey = Library.Theme[entry.Color or "Accent2"] and (entry.Color or "Accent2") or "Accent2"
+                        visual.Row.LayoutOrder = index
+                        visual.Row.BackgroundTransparency = highlighted and 0 or 0.22
+                        visual.Rank.Text = tostring(index)
+                        visual.Name.Text = tostring(entry.Name or "Player")
+                        visual.Score.Text = tostring(entry.Score or 0)
+                        Library.Registry[visual.Row]["BackgroundColor3"] = rowKey
+                        Library.Registry[visual.Rank]["TextColor3"] = rankKey
+                        Library.Registry[visual.Score]["TextColor3"] = scoreKey
+                        visual.Row.BackgroundColor3 = Library.Theme[rowKey]
+                        visual.Rank.TextColor3 = Library.Theme[rankKey]
+                        visual.Score.TextColor3 = Library.Theme[scoreKey]
+                    end
+                end
+                function controller:SetEntries(values)
+                    for _, visual in pairs(visuals) do visual.Row:Destroy() end
+                    entries = {}; visuals = {}
+                    for _, value in ipairs(values or {}) do table.insert(entries, value) end
+                    render(); return self
+                end
+                function controller:Update(name, values)
+                    local target
+                    for _, entry in ipairs(entries) do if tostring(entry.Name) == tostring(name) then target = entry break end end
+                    if not target then target = {Name = tostring(name)}; table.insert(entries, target) end
+                    for key, value in pairs(values or {}) do target[key] = value end
+                    render(); return target
+                end
+                function controller:Remove(name)
+                    for index, entry in ipairs(entries) do
+                        if tostring(entry.Name) == tostring(name) then
+                            if visuals[entry] then visuals[entry].Row:Destroy(); visuals[entry] = nil end
+                            table.remove(entries, index); render(); return true
+                        end
+                    end
+                    return false
+                end
+                function controller:GetEntries() return entries end
+                controller:SetEntries(options.Entries or {})
+                addElement({Holder = container, Text = tostring(options.Name or "Leaderboard") .. " scores ranking", Synonyms = options.Synonyms})
+                return controller
+            end
+
+            function Section:CreateExecutionQueue(options)
+                options = options or {}
+                local items, byId, visuals = {}, {}, {}
+                local height = tonumber(options.Height) or 220
+                local container = Utility:Create("Frame", {Name = "ExecutionQueue", Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, height), BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5})
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 7)})
+                local title = Utility:Create("TextLabel", {Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -20, 0, 32), Text = tostring(options.Name or "Execution queue"), TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local body = Utility:Create("ScrollingFrame", {Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(7, 32), Size = UDim2.new(1, -14, 1, -39), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 2, ScrollBarImageColor3 = Library.Theme.Accent, BorderSizePixel = 0, ZIndex = 6})
+                Utility:RegisterProperty(body, "ScrollBarImageColor3", "Accent")
+                Utility:Create("UIListLayout", {Parent = body, Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder})
+                local controller = finishController({Type = "ExecutionQueue"}, container, options.Name or "Execution queue", options.Tooltip)
+                local statusColors = {Pending = "SubText", Running = "Accent2", Done = "Success", Error = "Error", Paused = "Warn", Waiting = "Warn"}
+                local function updateVisual(item, animate)
+                    local visual = visuals[item.Id]
+                    if not visual then return end
+                    local colorKey = statusColors[item.Status] or "SubText"
+                    visual.State.Text = item.Status
+                    Library.Registry[visual.Dot]["BackgroundColor3"] = colorKey
+                    Library.Registry[visual.State]["TextColor3"] = colorKey
+                    Library.Registry[visual.Fill]["BackgroundColor3"] = colorKey
+                    visual.Dot.BackgroundColor3 = Library.Theme[colorKey]
+                    visual.State.TextColor3 = Library.Theme[colorKey]
+                    visual.Fill.BackgroundColor3 = Library.Theme[colorKey]
+                    local size = UDim2.new(math.clamp(tonumber(item.Progress) or 0, 0, 1), 0, 1, 0)
+                    if animate then Utility:Tween(visual.Fill, TweenInfo.new(0.14), {Size = size}) else visual.Fill.Size = size end
+                end
+                local function render()
+                    for _, child in ipairs(body:GetChildren()) do if child.Name == "QueueRow" then child:Destroy() end end
+                    table.clear(visuals)
+                    for index, item in ipairs(items) do
+                        local colorKey = statusColors[item.Status] or "SubText"
+                        local row = Utility:Create("TextButton", {Name = "QueueRow", Parent = body, BackgroundColor3 = Library.Theme.Secondary, BackgroundTransparency = 0.18, Size = UDim2.new(1, -3, 0, 42), Text = "", AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = index, ZIndex = 7})
+                        Utility:RegisterProperty(row, "BackgroundColor3", "Secondary")
+                        Utility:Create("UICorner", {Parent = row, CornerRadius = UDim.new(0, 6)})
+                        local dot = Utility:Create("Frame", {Parent = row, Position = UDim2.fromOffset(9, 10), Size = UDim2.fromOffset(7, 7), BackgroundColor3 = Library.Theme[colorKey], BorderSizePixel = 0, ZIndex = 8})
+                        Utility:RegisterProperty(dot, "BackgroundColor3", colorKey)
+                        Utility:Create("UICorner", {Parent = dot, CornerRadius = UDim.new(1, 0)})
+                        local name = Utility:Create("TextLabel", {Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(23, 3), Size = UDim2.new(1, -92, 0, 20), Text = tostring(item.Name), TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 8})
+                        Utility:RegisterProperty(name, "TextColor3", "Text")
+                        local state = Utility:Create("TextLabel", {Parent = row, BackgroundTransparency = 1, Position = UDim2.new(1, -66, 0, 3), Size = UDim2.fromOffset(56, 20), Text = item.Status, TextColor3 = Library.Theme[colorKey], Font = Enum.Font.GothamBold, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 8})
+                        Utility:RegisterProperty(state, "TextColor3", colorKey)
+                        local track = Utility:Create("Frame", {Parent = row, Position = UDim2.fromOffset(23, 29), Size = UDim2.new(1, -33, 0, 3), BackgroundColor3 = Library.Theme.SurfaceAlt, BorderSizePixel = 0, ZIndex = 8})
+                        Utility:RegisterProperty(track, "BackgroundColor3", "SurfaceAlt")
+                        Utility:Create("UICorner", {Parent = track, CornerRadius = UDim.new(1, 0)})
+                        local fill = Utility:Create("Frame", {Parent = track, Size = UDim2.new(math.clamp(tonumber(item.Progress) or 0, 0, 1), 0, 1, 0), BackgroundColor3 = Library.Theme[colorKey], BorderSizePixel = 0, ZIndex = 9})
+                        Utility:RegisterProperty(fill, "BackgroundColor3", colorKey)
+                        Utility:Create("UICorner", {Parent = fill, CornerRadius = UDim.new(1, 0)})
+                        visuals[item.Id] = {Dot = dot, State = state, Fill = fill}
+                        Library:Connect(row.MouseButton1Click, function() Utility:SafeCall(options.Callback, item, controller) end)
+                    end
+                end
+                function controller:Add(value)
+                    value = value or {}
+                    local id = normalizeActionId(value.Id or value.Name or (#items + 1))
+                    if byId[id] then return byId[id] end
+                    local item = {Id = id, Name = tostring(value.Name or id), Status = tostring(value.Status or "Pending"):gsub("^%l", string.upper), Progress = math.clamp(tonumber(value.Progress) or 0, 0, 1)}
+                    table.insert(items, item); byId[id] = item; render(); return item
+                end
+                function controller:SetStatus(id, status, progress)
+                    local item = byId[normalizeActionId(id)]
+                    if not item then return false end
+                    item.Status = tostring(status or "Pending"):gsub("^%l", string.upper)
+                    if progress ~= nil then item.Progress = math.clamp(tonumber(progress) or 0, 0, 1) end
+                    updateVisual(item, true); return true
+                end
+                function controller:SetProgress(id, progress) local item = byId[normalizeActionId(id)]; if not item then return false end item.Progress = math.clamp(tonumber(progress) or 0, 0, 1); updateVisual(item, true); return true end
+                function controller:Remove(id)
+                    id = normalizeActionId(id); local item = byId[id]; if not item then return false end
+                    byId[id] = nil; for index, candidate in ipairs(items) do if candidate == item then table.remove(items, index) break end end
+                    render(); return true
+                end
+                function controller:GetItems() return items end
+                function controller:Reset() for _, item in ipairs(items) do item.Status = "Pending"; item.Progress = 0; updateVisual(item, false) end return true end
+                for _, item in ipairs(options.Items or {}) do controller:Add(item) end
+                render()
+                addElement({Holder = container, Text = tostring(options.Name or "Execution queue") .. " tasks jobs", Synonyms = options.Synonyms})
                 return controller
             end
 
@@ -12984,6 +13275,7 @@ return Library
     Combat:CreateSlider({Name = "Tween speed", Min = 5, Max = 600, Step = 1, Default = Settings.TweenSpeed, Flag = "TweenSpeed", Tooltip = "Default 300 with the full proven 5–600 movement range.", Callback = function(value) API.Set("TweenSpeed", value) end})
     Combat:CreateInput({Name = "Exact tween speed", Default = tostring(Settings.TweenSpeed), Flag = "TweenSpeedExact", Numeric = true, Finished = true, Callback = function(value) API.Set("TweenSpeed", value) end})
     Combat:CreateButton({Name = "Stop every automation", Callback = API.StopAll})
+    Combat:CreateButton({Name = "Force release character", Callback = forceReleaseAutomation})
     Combat:CreateButton({
         Name = "Show combat diagnostics",
         Callback = function()
@@ -13034,27 +13326,48 @@ return Library
 
     local Fruits = Window:CreateTab({Name = "Raid & Fruit", Icon = "6034509993"})
     local FruitSection = Fruits:CreateSection({Name = "Fruit automation", Side = "Left"})
+    local storeFruitValues = {"All Fruits"}
+    for _, name in ipairs(FRUIT_NAMES) do storeFruitValues[#storeFruitValues + 1] = name end
     toggle(FruitSection, "Auto collect spawned fruits", "AutoCollectFruit", "Physically travels to every replicated fruit as a temporary pickup overlay, then resumes the previous farm.")
-    toggle(FruitSection, "Auto store held fruits", "AutoStoreFruit")
+    Runtime.FruitStoreDropdown = FruitSection:CreateDropdown({
+        Name = "Fruit to store",
+        Values = storeFruitValues,
+        Default = Settings.SelectedStoreFruit,
+        Flag = "SelectedStoreFruit",
+        Searchable = true,
+        Callback = function(value) API.Set("SelectedStoreFruit", value) end,
+    })
+    toggle(FruitSection, "Auto store selected fruit", "AutoStoreFruit", "Converts display tool names to the canonical inventory ID and sends the actual Backpack tool instance. Choose All Fruits to drain every held fruit.")
+    FruitSection:CreateButton({Name = "Store selected fruit now", Callback = storeHeldFruits})
     toggle(FruitSection, "Auto buy random fruit", "AutoRandomFruit", "Calls the exact Cousin/Buy transport immediately, then retries every two seconds while enabled; the server still controls price and cooldown.")
     FruitSection:CreateButton({Name = "Spin random fruit now", Callback = spinRandomFruit})
-    local FruitSpinStatus = FruitSection:CreateParagraph({Title = "Fruit spin transport", Content = "Waiting for a request"})
+    local FruitSpinStatus = FruitSection:CreateParagraph({Title = "Fruit spin", Content = "Waiting for a request"})
+    local FruitStoreStatus = FruitSection:CreateParagraph({Title = "Fruit storage", Content = "Waiting for a request"})
     task.spawn(function()
         while Runtime.Alive do
             pcall(FruitSpinStatus.SetContent, FruitSpinStatus, Runtime.LastFruitSpinResult or "Waiting for a request")
+            pcall(FruitStoreStatus.SetContent, FruitStoreStatus, Runtime.LastFruitStoreResult or "Waiting for a request")
             task.wait(0.5)
         end
     end)
     local FruitStock = Fruits:CreateSection({Name = "Fruit stock", Side = "Right"})
-    FruitStock:CreateDropdown({
+    Runtime.FruitStockDropdown = FruitStock:CreateDropdown({
         Name = "Selected stock fruit",
-        Values = {"Rocket-Rocket", "Spin-Spin", "Chop-Chop", "Spring-Spring", "Bomb-Bomb", "Smoke-Smoke", "Spike-Spike", "Flame-Flame", "Falcon-Falcon", "Ice-Ice", "Sand-Sand", "Dark-Dark", "Diamond-Diamond", "Light-Light", "Rubber-Rubber", "Barrier-Barrier", "Ghost-Ghost", "Magma-Magma", "Quake-Quake", "Buddha-Buddha", "Love-Love", "Spider-Spider", "Sound-Sound", "Phoenix-Phoenix", "Portal-Portal", "Rumble-Rumble", "Pain-Pain", "Blizzard-Blizzard", "Gravity-Gravity", "Mammoth-Mammoth", "T-Rex-T-Rex", "Dough-Dough", "Shadow-Shadow", "Venom-Venom", "Control-Control", "Spirit-Spirit", "Dragon-Dragon", "Leopard-Leopard", "Kitsune-Kitsune"},
+        Values = FRUIT_NAMES,
         Default = Settings.SelectedStockFruit,
         Flag = "SelectedStockFruit",
         Searchable = true,
         Callback = function(value) API.Set("SelectedStockFruit", value) end,
     })
     toggle(FruitStock, "Auto buy selected stock fruit", "AutoBuyStockFruit", "Uses PurchaseRawFruit every four seconds; the server decides stock and affordability.")
+    FruitStock:CreateButton({Name = "Buy selected stock fruit now", Callback = buySelectedStockFruit})
+    local FruitStockStatus = FruitStock:CreateParagraph({Title = "Stock purchase", Content = "Waiting for a request"})
+    task.spawn(function()
+        while Runtime.Alive do
+            pcall(FruitStockStatus.SetContent, FruitStockStatus, Runtime.LastFruitStockResult or "Waiting for a request")
+            task.wait(0.5)
+        end
+    end)
 
     local Items = Window:CreateTab({Name = "Get Items & Mastery", Icon = "6031225818"})
     local ChestSection = Items:CreateSection({Name = "Chests", Side = "Left"})
@@ -13302,7 +13615,8 @@ function API.Destroy()
     for instance in pairs(Runtime.ESPObjects) do destroyESPEntry(instance) end
     table.clear(Runtime.ESPObjects)
     clearStaticIslandParts()
-    restoreCharacterPhysics()
+    if Runtime.WaterPart then pcall(Runtime.WaterPart.Destroy, Runtime.WaterPart); Runtime.WaterPart = nil end
+    restoreCharacterPhysics(true)
     if Runtime.Gui then pcall(Runtime.Gui.Destroy, Runtime.Gui) end
     if Runtime.RenLib then pcall(Runtime.RenLib.Unload, Runtime.RenLib) end
     if Environment.BloxFruitScript == API then Environment.BloxFruitScript = nil end
