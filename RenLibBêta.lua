@@ -4,7 +4,7 @@
 --[[ MODULE: 00_runtime.part.lua ]]
 -- Module fragment: runtime, services, constants, root state
 -- Generated from the working V7 baseline; edit this feature in isolation.
--- RenLib V8.1.0 beta modular compatibility bundle
+-- RenLib V8.2.0 beta modular compatibility bundle
 -- Responsive Roblox UI framework with centralized navigation, non-destructive
 -- search, mobile-first input, live theming, addons, and deterministic cleanup.
 
@@ -132,7 +132,7 @@ local ICONS = {
 
 --// ROOT LIBRARY
 local Library = {}
-Library.Version = "8.1.0-beta"
+Library.Version = "8.2.0-beta"
 Library.Architecture = "modular-bundle"
 Library.Title = "RenLib"
 Library.Connections = {}
@@ -1790,7 +1790,7 @@ function Library:CreateRayfieldAdapter()
         local rawWindow = source:CreateWindow({
             Name = options.Name or options.LoadingTitle or "RenLib Script",
             Icon = options.Icon,
-            SidebarMode = "Dynamic",
+            SidebarMode = "Expanded",
             ShowUserProfile = true,
             ShowInfiniteYield = false,
             EnableGlobalSearch = true
@@ -1969,8 +1969,8 @@ function Library:CreateWindow(options)
     local EnableSidebarResize = options.EnableSidebarResize == nil and true or options.EnableSidebarResize
     local EnableGlobalSearch = options.EnableGlobalSearch == nil and true or options.EnableGlobalSearch
     local SidebarCompactMode = options.SidebarCompactMode or false
-    local SidebarMode = tostring(options.SidebarMode or (SidebarCompactMode and "Compact" or "Dynamic"))
-    if SidebarMode ~= "Dynamic" and SidebarMode ~= "Expanded" and SidebarMode ~= "Compact" then SidebarMode = "Dynamic" end
+    local SidebarMode = tostring(options.SidebarMode or (SidebarCompactMode and "Compact" or (DeviceMode == "Desktop" and "Expanded" or "Compact")))
+    if SidebarMode ~= "Dynamic" and SidebarMode ~= "Expanded" and SidebarMode ~= "Compact" then SidebarMode = "Expanded" end
     local WindowIcon = Utility:NormalizeAssetId(options.Icon or options.Logo)
     local SettingsIcon = Utility:NormalizeAssetId(options.SettingsIcon, ICONS.Settings)
     local ShowUserProfile = options.ShowUserProfile == nil and true or options.ShowUserProfile
@@ -3038,6 +3038,9 @@ function Library:CreateWindow(options)
         table.sort(matches, function(a, b)
             local af, bf = self.Favorites[a.Id] == true, self.Favorites[b.Id] == true
             if af ~= bf then return af end
+            local ar, br = table.find(self.RecentActions, a.Id), table.find(self.RecentActions, b.Id)
+            if (ar ~= nil) ~= (br ~= nil) then return ar ~= nil end
+            if ar and br and ar ~= br then return ar < br end
             return a.Name:lower() < b.Name:lower()
         end)
         local limit = IsMobile and 5 or 7
@@ -3132,6 +3135,12 @@ function Library:CreateWindow(options)
             end
         end)
     end
+    Library:Connect(UserInputService.InputBegan, function(input, processed)
+        if processed or input.KeyCode ~= Enum.KeyCode.Tab then return end
+        if not (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)) then return end
+        local backwards = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+        if backwards then Window:PreviousTab() else Window:NextTab() end
+    end)
 
     function Window:CreateAutomationHUD(hudOptions)
         hudOptions = hudOptions or {}
@@ -3139,7 +3148,7 @@ function Library:CreateWindow(options)
         local expandedHeight = phone and 112 or 126
         local hudFrame = Utility:Create("Frame", {
             Name = tostring(hudOptions.Name or "AutomationHUD"), Parent = ScreenGui,
-            AnchorPoint = Vector2.new(1, 0), Position = hudOptions.Position or UDim2.new(1, -12, 0, 12),
+            AnchorPoint = Vector2.new(1, 0), Position = hudOptions.Position or UDim2.new(1, -14, 0, 76),
             Size = UDim2.fromOffset(phone and 226 or 270, expandedHeight),
             BackgroundColor3 = Library.Theme.Secondary, ClipsDescendants = true,
             BorderSizePixel = 0, ZIndex = 500
@@ -3243,6 +3252,20 @@ function Library:CreateWindow(options)
         end
         function hud:SetTitle(value) hudTitle.Text = tostring(value or "Automation") return self end
         function hud:SetDetail(value) detailLabel.Text = tostring(value or "") return self end
+        function hud:SetDock(dock)
+            dock = tostring(dock or "TopRight")
+            local docks = {
+                TopRight = {Vector2.new(1, 0), UDim2.new(1, -14, 0, 76)},
+                TopLeft = {Vector2.new(0, 0), UDim2.new(0, 14, 0, 76)},
+                BottomRight = {Vector2.new(1, 1), UDim2.new(1, -14, 1, -14)},
+                BottomLeft = {Vector2.new(0, 1), UDim2.new(0, 14, 1, -14)}
+            }
+            local target = docks[dock] or docks.TopRight
+            hudFrame.AnchorPoint = target[1]
+            Utility:Tween(hudFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = target[2]})
+            self.Dock = dock
+            return self
+        end
         function hud:SetCollapsed(value)
             self.Collapsed = value == true
             collapse.Text = self.Collapsed and "+" or "−"
@@ -3255,7 +3278,96 @@ function Library:CreateWindow(options)
         function hud:Destroy() hudFrame:Destroy() end
         Library:Connect(collapse.MouseButton1Click, function() hud:SetCollapsed(not hud.Collapsed) end)
         hud:SetStatus(hudOptions.Status or "Idle", hudOptions.StatusText, hudOptions.Detail)
+        if hudOptions.Dock and not hudOptions.Position then hud:SetDock(hudOptions.Dock) end
         return hud
+    end
+
+    function Window:CreateQuickActions(actionOptions)
+        actionOptions = actionOptions or {}
+        local actions, actionById, buttons = {}, {}, {}
+        local phone = Library.DeviceMode == "Phone"
+        local buttonWidth = phone and 62 or 82
+        local dock = Utility:Create("Frame", {
+            Name = tostring(actionOptions.Name or "QuickActions"), Parent = ScreenGui,
+            AnchorPoint = Vector2.new(0.5, 1), Position = actionOptions.Position or UDim2.new(0.5, 0, 1, -66),
+            Size = UDim2.fromOffset(24, phone and 48 or 52), BackgroundColor3 = Library.Theme.Secondary,
+            BorderSizePixel = 0, ZIndex = 520
+        })
+        Utility:RegisterProperty(dock, "BackgroundColor3", "Secondary")
+        Utility:RegisterMaterial(dock, 0.08, 0)
+        Utility:Create("UICorner", {Parent = dock, CornerRadius = UDim.new(1, 0)})
+        local dockStroke = Utility:Create("UIStroke", {Parent = dock, Color = Library.Theme.Stroke, Thickness = 1})
+        Utility:RegisterProperty(dockStroke, "Color", "Stroke")
+        Utility:Create("UIPadding", {Parent = dock, PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 7), PaddingBottom = UDim.new(0, 7)})
+        local layout = Utility:Create("UIListLayout", {Parent = dock, FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Center})
+        local controller = {Type = "QuickActions", Holder = dock}
+        local statusColors = {Active = "Success", Waiting = "Warn", Error = "Error", Idle = "SubText"}
+        local function resize()
+            dock.Size = UDim2.fromOffset(math.max(32, #actions * (buttonWidth + 6) + 10), phone and 48 or 52)
+        end
+        function controller:AddAction(value)
+            value = value or {}
+            local id = normalizeActionId(value.Id or value.Name)
+            if actionById[id] then return actionById[id] end
+            local action = {Id = id, Name = tostring(value.Name or id), Callback = value.Callback, Status = tostring(value.Status or "Idle")}
+            table.insert(actions, action)
+            actionById[id] = action
+            local button = Utility:Create("TextButton", {
+                Name = "QuickAction", Parent = dock, BackgroundColor3 = Library.Theme.Surface,
+                Size = UDim2.fromOffset(buttonWidth, phone and 34 or 38), Text = action.Name,
+                TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = phone and 8 or 9,
+                TextTruncate = Enum.TextTruncate.AtEnd, AutoButtonColor = false,
+                LayoutOrder = #actions, BorderSizePixel = 0, ZIndex = 521
+            })
+            Utility:RegisterProperty(button, "BackgroundColor3", "Surface")
+            Utility:RegisterProperty(button, "TextColor3", "Text")
+            Utility:Create("UICorner", {Parent = button, CornerRadius = UDim.new(1, 0)})
+            local dot = Utility:Create("Frame", {Name = "StatusDot", Parent = button, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -4, 0, 4), Size = UDim2.fromOffset(7, 7), BackgroundColor3 = Library.Theme.SubText, BorderSizePixel = 0, Visible = false, ZIndex = 522})
+            Utility:RegisterProperty(dot, "BackgroundColor3", "SubText")
+            Utility:Create("UICorner", {Parent = dot, CornerRadius = UDim.new(1, 0)})
+            buttons[id] = {Button = button, Dot = dot}
+            Window:RegisterCommand({Id = "quick-" .. id, Name = action.Name, Description = value.Description or "Quick action", Category = "Quick actions", Synonyms = value.Synonyms, Requirement = value.Requirement, Callback = function() Utility:SafeCall(action.Callback, action, controller) end})
+            Library:Connect(button.MouseButton1Click, function()
+                local ok, err = Window:ExecuteCommand("quick-" .. id)
+                if not ok then Library:Notify({Title = "Action unavailable", Content = tostring(err), Duration = 3}) end
+            end)
+            Library:Connect(button.MouseEnter, function() Utility:Tween(button, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Hover}) end)
+            Library:Connect(button.MouseLeave, function() Utility:Tween(button, TweenInfo.new(0.12), {BackgroundColor3 = Library.Theme.Surface}) end)
+            resize()
+            self:SetStatus(id, action.Status)
+            return action
+        end
+        function controller:SetStatus(id, status)
+            id = normalizeActionId(id)
+            local action, visual = actionById[id], buttons[id]
+            if not action or not visual then return false end
+            action.Status = tostring(status or "Idle"):gsub("^%l", string.upper)
+            local colorKey = statusColors[action.Status] or "SubText"
+            visual.Dot.Visible = action.Status ~= "Idle"
+            Library.Registry[visual.Dot]["BackgroundColor3"] = colorKey
+            Utility:Tween(visual.Dot, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme[colorKey]})
+            return true
+        end
+        function controller:SetVisible(value) dock.Visible = value == true return self end
+        function controller:GetActions() return actions end
+        function controller:Trigger(id) return Window:ExecuteCommand("quick-" .. normalizeActionId(id)) end
+        function controller:SetDock(position)
+            position = tostring(position or "BottomCenter")
+            local positions = {
+                BottomCenter = {Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -66)},
+                TopCenter = {Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 76)},
+                BottomRight = {Vector2.new(1, 1), UDim2.new(1, -14, 1, -66)}
+            }
+            local target = positions[position] or positions.BottomCenter
+            dock.AnchorPoint = target[1]
+            Utility:Tween(dock, TweenInfo.new(0.2), {Position = target[2]})
+            return self
+        end
+        function controller:Destroy() dock:Destroy() end
+        for _, action in ipairs(actionOptions.Actions or {}) do controller:AddAction(action) end
+        if actionOptions.Dock and not actionOptions.Position then controller:SetDock(actionOptions.Dock) end
+        resize()
+        return controller
     end
 
     function Window:OnTabChanged(callback)
@@ -3303,6 +3415,34 @@ function Library:CreateWindow(options)
         end
         return true
     end
+
+    function Window:GetTab(name)
+        local target = tostring(name or ""):lower()
+        for _, tab in ipairs(self.Tabs) do
+            if tostring(tab.Name):lower() == target then return tab end
+        end
+        return nil
+    end
+
+    function Window:SelectTabByName(name, selectOptions)
+        local tab = self:GetTab(name)
+        if not tab then return false, "Unknown tab: " .. tostring(name) end
+        return self:SelectTab(tab, selectOptions)
+    end
+
+    function Window:CycleTab(direction)
+        local navigable = {}
+        for _, tab in ipairs(self.Tabs) do
+            if not tab.IsSettings and not tab.IsOverview then table.insert(navigable, tab) end
+        end
+        if #navigable == 0 then return false end
+        local currentIndex = table.find(navigable, self.ActiveTab) or 0
+        local nextIndex = ((currentIndex - 1 + (tonumber(direction) or 1)) % #navigable) + 1
+        return navigable[nextIndex]:Activate({ResetScroll = false, Animate = true})
+    end
+
+    function Window:NextTab() return self:CycleTab(1) end
+    function Window:PreviousTab() return self:CycleTab(-1) end
 
     local navigationSelectionToken = 0
     function Window:MoveNavigationSelection(animate)
@@ -4714,6 +4854,17 @@ end
         Tab.StatusDot = TabStatusDot
         Tab.Status = "Idle"
         Tab.StatusDetail = ""
+        local TabBadge = Utility:Create("TextLabel", {
+            Name = "Badge", Parent = Tab.TabBtn, AnchorPoint = Vector2.new(1, 1),
+            Position = UDim2.new(1, -3, 1, -3), Size = UDim2.fromOffset(17, 17),
+            BackgroundColor3 = Library.Theme.Accent, Text = "", TextColor3 = Library.Theme.Text,
+            Font = Enum.Font.GothamBold, TextSize = 8, Visible = false,
+            BorderSizePixel = 0, ZIndex = 9
+        })
+        Utility:RegisterProperty(TabBadge, "BackgroundColor3", "Accent")
+        Utility:RegisterProperty(TabBadge, "TextColor3", "Text")
+        Utility:Create("UICorner", {Parent = TabBadge, CornerRadius = UDim.new(1, 0)})
+        Tab.Badge = TabBadge
 
         function Tab:SetStatus(status, detail)
             local normalized = tostring(status or "Idle"):lower()
@@ -4726,12 +4877,28 @@ end
                 Library.Registry[TabStatusDot]["BackgroundColor3"] = colorKey
                 Utility:Tween(TabStatusDot, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme[colorKey]})
             end
-            if self._StatusTooltip then self._StatusTooltip:Set(self.StatusDetail ~= "" and self.StatusDetail or normalized) end
+            if self._StatusTooltip then
+                self._StatusTooltip:Set(self.Name .. "  •  " .. (self.StatusDetail ~= "" and self.StatusDetail or normalized))
+            end
             return self
         end
 
-        Tab._StatusTooltip = Window:AttachTooltip(Tab.TabBtn, "Status: idle")
+        function Tab:SetBadge(value, colorKey)
+            local numberValue = tonumber(value)
+            local text = value == nil and "" or tostring(value)
+            if numberValue and numberValue > 99 then text = "99+" end
+            TabBadge.Text = text
+            TabBadge.Visible = text ~= "" and text ~= "0"
+            colorKey = Library.Theme[colorKey] and colorKey or "Accent"
+            Library.Registry[TabBadge]["BackgroundColor3"] = colorKey
+            TabBadge.BackgroundColor3 = Library.Theme[colorKey]
+            self.BadgeValue = value
+            return self
+        end
+
+        Tab._StatusTooltip = Window:AttachTooltip(Tab.TabBtn, Name .. "  •  idle")
         if options.Status then Tab:SetStatus(options.Status, options.StatusDetail or options.StatusText) end
+        if options.Badge ~= nil then Tab:SetBadge(options.Badge, options.BadgeColor) end
 
         function Tab:ApplyNavigationLayout(mobile, compact, animated)
             if self.IsSettings or self.IsOverview or not self.TabBtn then return end
@@ -4899,6 +5066,14 @@ end
         end
 
         table.insert(Window.Tabs, Tab)
+        if not IsSettings and not IsOverview then
+            Window:RegisterCommand({
+                Id = "tab-" .. Name, Name = "Go to " .. Name,
+                Description = "Open the " .. Name .. " tab.", Category = "Navigation",
+                Synonyms = options.Synonyms or {Name, "open " .. Name, "show " .. Name},
+                Callback = function() Tab:Activate({ResetScroll = false, Animate = true}) end
+            })
+        end
         Tab:ApplyResponsiveLayout(IsMobile, Window.ContentTopInset)
         if not IsSettings and not IsOverview and not Window.ActiveTab then
             Tab:Activate()
@@ -6785,6 +6960,9 @@ end
                 function group:CreateESPPresets(value) return attach("CreateESPPresets", value) end
                 function group:CreateWorkflowPresets(value) return attach("CreateWorkflowPresets", value) end
                 function group:CreateStrategyProfiles(value) return attach("CreateStrategyProfiles", value) end
+                function group:CreateProgressCard(value) return attach("CreateProgressCard", value) end
+                function group:CreateActivityFeed(value) return attach("CreateActivityFeed", value) end
+                function group:CreateChecklist(value) return attach("CreateChecklist", value) end
                 Library:Connect(header.MouseButton1Click, function() group:Toggle() end)
                 task.defer(refresh)
                 return group
@@ -7100,7 +7278,12 @@ end
                 local function itemTerms(item)
                     local aliases = item.Synonyms or item.Aliases or item.Tags or {}
                     if type(aliases) == "table" then aliases = table.concat(aliases, " ") end
-                    return table.concat({item.Name or "", item.Description or "", item.Category or "", item.Cost or "", item.Requirement or "", aliases or ""}, " "):lower()
+                    local requirement = type(item.Requirement) == "function" and "dynamic requirement" or item.Requirement
+                    return table.concat({
+                        tostring(item.Name or ""), tostring(item.Description or ""),
+                        tostring(item.Category or ""), tostring(item.Cost or ""),
+                        tostring(requirement or ""), tostring(aliases or "")
+                    }, " "):lower()
                 end
                 local function resolveOwned(item)
                     if type(item.Owned) == "function" then
@@ -7127,7 +7310,10 @@ end
                     else
                         for _, item in ipairs(items) do
                             local id = item._RenCatalogId
-                            if filter ~= "Favorites" or Window.Favorites[id] then table.insert(ordered, item) end
+                            local include = filter == "All"
+                                or (filter == "Favorites" and Window.Favorites[id])
+                                or (filter == "Owned" and resolveOwned(item))
+                            if include then table.insert(ordered, item) end
                         end
                     end
                     return ordered
@@ -7203,11 +7389,11 @@ end
                     refreshFilterVisuals()
                     return shown
                 end
-                for order, label in ipairs({"All", "Favorites", "Recent"}) do
+                for order, label in ipairs({"All", "Owned", "Favorites", "Recent"}) do
                     local button = Utility:Create("TextButton", {
                         Parent = filterBar, BackgroundColor3 = Library.Theme.Accent,
                         BackgroundTransparency = label == filter and 0.18 or 0.62,
-                        Size = UDim2.fromOffset(label == "Favorites" and 78 or 58, 24), Text = label,
+                        Size = UDim2.fromOffset(label == "Favorites" and 72 or 54, 24), Text = label,
                         TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 9,
                         AutoButtonColor = false, LayoutOrder = order, BorderSizePixel = 0, ZIndex = 8
                     })
@@ -7458,6 +7644,191 @@ end
                 group.ProfilePicker = picker
                 group.RefreshProfiles = function(self) refresh() return self end
                 return group
+            end
+
+            function Section:CreateProgressCard(options)
+                options = options or {}
+                local name = tostring(options.Name or "Progress")
+                local progress = math.clamp(tonumber(options.Progress) or 0, 0, 1)
+                local status = tostring(options.Status or "Waiting")
+                local card = Utility:Create("Frame", {
+                    Name = "ProgressCard_" .. name, Parent = ContentContainer,
+                    BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, 106),
+                    BorderSizePixel = 0, ZIndex = 5
+                })
+                Utility:RegisterProperty(card, "BackgroundColor3", "Surface")
+                Utility:RegisterMaterial(card, 0.3, 0)
+                Utility:Create("UICorner", {Parent = card, CornerRadius = UDim.new(0, 8)})
+                local cardStroke = Utility:Create("UIStroke", {Parent = card, Color = Library.Theme.Divider, Thickness = 1})
+                Utility:RegisterProperty(cardStroke, "Color", "Divider")
+                local dot = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.Warn, Position = UDim2.fromOffset(12, 13), Size = UDim2.fromOffset(8, 8), BorderSizePixel = 0, ZIndex = 7})
+                Utility:RegisterProperty(dot, "BackgroundColor3", "Warn")
+                Utility:Create("UICorner", {Parent = dot, CornerRadius = UDim.new(1, 0)})
+                local title = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(28, 6), Size = UDim2.new(1, -92, 0, 20), Text = name, TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local percent = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.new(1, -64, 0, 6), Size = UDim2.fromOffset(52, 20), Text = tostring(math.floor(progress * 100 + 0.5)) .. "%", TextColor3 = Library.Theme.Accent, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 7})
+                Utility:RegisterProperty(percent, "TextColor3", "Accent")
+                local detail = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 29), Size = UDim2.new(1, -24, 0, 18), Text = tostring(options.Detail or "Waiting to start"), TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 9, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(detail, "TextColor3", "SubText")
+                local track = Utility:Create("Frame", {Parent = card, BackgroundColor3 = Library.Theme.SurfaceAlt, Position = UDim2.fromOffset(12, 53), Size = UDim2.new(1, -24, 0, 7), BorderSizePixel = 0, ZIndex = 7})
+                Utility:RegisterProperty(track, "BackgroundColor3", "SurfaceAlt")
+                Utility:Create("UICorner", {Parent = track, CornerRadius = UDim.new(1, 0)})
+                local fill = Utility:Create("Frame", {Parent = track, BackgroundColor3 = Library.Theme.Accent, Size = UDim2.new(progress, 0, 1, 0), BorderSizePixel = 0, ZIndex = 8})
+                Utility:RegisterProperty(fill, "BackgroundColor3", "Accent")
+                Utility:Create("UICorner", {Parent = fill, CornerRadius = UDim.new(1, 0)})
+                local step = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 67), Size = UDim2.new(0.5, -12, 0, 28), Text = tostring(options.Step or "Step 0 / 0"), TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(step, "TextColor3", "Text")
+                local metrics = Utility:Create("TextLabel", {Parent = card, BackgroundTransparency = 1, Position = UDim2.new(0.5, 0, 0, 67), Size = UDim2.new(0.5, -12, 0, 28), Text = tostring(options.Metrics or ""), TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Right, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 7})
+                Utility:RegisterProperty(metrics, "TextColor3", "SubText")
+                local controller = finishController({Type = "ProgressCard"}, card, name, options.Tooltip)
+                local statusColors = {active = "Success", waiting = "Warn", error = "Error", complete = "Success", paused = "Warn", idle = "SubText"}
+                function controller:SetProgress(value, nextDetail)
+                    progress = math.clamp(tonumber(value) or 0, 0, 1)
+                    percent.Text = tostring(math.floor(progress * 100 + 0.5)) .. "%"
+                    Utility:Tween(fill, TweenInfo.new(0.18), {Size = UDim2.new(progress, 0, 1, 0)})
+                    if nextDetail ~= nil then detail.Text = tostring(nextDetail) end
+                    return self
+                end
+                function controller:SetStatus(value, nextDetail)
+                    status = tostring(value or "Idle")
+                    local colorKey = statusColors[status:lower()] or "SubText"
+                    Library.Registry[dot]["BackgroundColor3"] = colorKey
+                    Utility:Tween(dot, TweenInfo.new(0.15), {BackgroundColor3 = Library.Theme[colorKey]})
+                    if nextDetail ~= nil then detail.Text = tostring(nextDetail) end
+                    return self
+                end
+                function controller:SetStep(current, total, label)
+                    step.Text = label and tostring(label) or string.format("Step %s / %s", tostring(current or 0), tostring(total or 0))
+                    return self
+                end
+                function controller:SetMetrics(value)
+                    if type(value) == "table" then
+                        local parts = {}
+                        for key, item in pairs(value) do table.insert(parts, tostring(key) .. ": " .. tostring(item)) end
+                        table.sort(parts)
+                        metrics.Text = table.concat(parts, "  •  ")
+                    else metrics.Text = tostring(value or "") end
+                    return self
+                end
+                function controller:Complete(nextDetail) self:SetProgress(1, nextDetail or "Complete"); self:SetStatus("Complete"); return self end
+                controller:SetStatus(status)
+                addElement({Holder = card, Text = name .. " " .. tostring(options.Detail or ""), Synonyms = options.Synonyms})
+                return controller
+            end
+
+            function Section:CreateActivityFeed(options)
+                options = options or {}
+                local name = tostring(options.Name or "Activity")
+                local maxEntries = math.max(3, tonumber(options.MaxEntries) or 40)
+                local entries = {}
+                local container = Utility:Create("Frame", {Name = "ActivityFeed_" .. name, Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, tonumber(options.Height) or 210), BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5})
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 8)})
+                local title = Utility:Create("TextLabel", {Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -62, 0, 34), Text = name, TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local clear = Utility:Create("TextButton", {Parent = container, BackgroundTransparency = 1, Position = UDim2.new(1, -48, 0, 0), Size = UDim2.fromOffset(44, 34), Text = "Clear", TextColor3 = Library.Theme.SubText, Font = Enum.Font.GothamBold, TextSize = 9, ZIndex = 7})
+                Utility:RegisterProperty(clear, "TextColor3", "SubText")
+                local feed = Utility:Create("ScrollingFrame", {Name = "Entries", Parent = container, BackgroundColor3 = Library.Theme.Secondary, BackgroundTransparency = 0.22, Position = UDim2.fromOffset(8, 34), Size = UDim2.new(1, -16, 1, -42), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 2, ScrollBarImageColor3 = Library.Theme.Accent, BorderSizePixel = 0, ZIndex = 6})
+                Utility:RegisterProperty(feed, "BackgroundColor3", "Secondary")
+                Utility:RegisterProperty(feed, "ScrollBarImageColor3", "Accent")
+                Utility:Create("UICorner", {Parent = feed, CornerRadius = UDim.new(0, 6)})
+                Utility:Create("UIListLayout", {Parent = feed, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 3)})
+                local controller = finishController({Type = "ActivityFeed"}, container, name, options.Tooltip)
+                local colors = {Info = "Accent2", Active = "Success", Success = "Success", Warning = "Warn", Error = "Error", Waiting = "Warn"}
+                local function render()
+                    for _, child in ipairs(feed:GetChildren()) do if child.Name == "ActivityEntry" then child:Destroy() end end
+                    for index, entry in ipairs(entries) do
+                        local row = Utility:Create("Frame", {Name = "ActivityEntry", Parent = feed, BackgroundTransparency = 1, Size = UDim2.new(1, -4, 0, entry.Detail ~= "" and 40 or 28), LayoutOrder = index, ZIndex = 7})
+                        local colorKey = colors[entry.Level] or "Accent2"
+                        local rowDot = Utility:Create("Frame", {Parent = row, BackgroundColor3 = Library.Theme[colorKey], Position = UDim2.fromOffset(7, 10), Size = UDim2.fromOffset(7, 7), BorderSizePixel = 0, ZIndex = 8})
+                        Utility:RegisterProperty(rowDot, "BackgroundColor3", colorKey)
+                        Utility:Create("UICorner", {Parent = rowDot, CornerRadius = UDim.new(1, 0)})
+                        local message = Utility:Create("TextLabel", {Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(22, 3), Size = UDim2.new(1, -82, 0, 19), Text = entry.Message, TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 9, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8})
+                        Utility:RegisterProperty(message, "TextColor3", "Text")
+                        local time = Utility:Create("TextLabel", {Parent = row, BackgroundTransparency = 1, Position = UDim2.new(1, -58, 0, 3), Size = UDim2.fromOffset(50, 19), Text = entry.Time, TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 8})
+                        Utility:RegisterProperty(time, "TextColor3", "SubText")
+                        if entry.Detail ~= "" then
+                            local detail = Utility:Create("TextLabel", {Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(22, 21), Size = UDim2.new(1, -30, 0, 15), Text = entry.Detail, TextColor3 = Library.Theme.SubText, Font = Enum.Font.Gotham, TextSize = 8, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8})
+                            Utility:RegisterProperty(detail, "TextColor3", "SubText")
+                        end
+                    end
+                    task.defer(function() if feed.Parent then feed.CanvasPosition = Vector2.new(0, math.max(0, feed.AbsoluteCanvasSize.Y)) end end)
+                end
+                function controller:Push(message, level, detail)
+                    table.insert(entries, {Message = tostring(message), Level = tostring(level or "Info"), Detail = tostring(detail or ""), Time = string.format("%.1fs", os.clock())})
+                    while #entries > maxEntries do table.remove(entries, 1) end
+                    render()
+                    return self
+                end
+                controller.Add = controller.Push
+                function controller:Clear() table.clear(entries); render(); return self end
+                function controller:GetEntries() return entries end
+                Library:Connect(clear.MouseButton1Click, function() controller:Clear() end)
+                addElement({Holder = container, Text = name .. " activity log timeline", Synonyms = options.Synonyms})
+                for _, entry in ipairs(options.Entries or {}) do controller:Push(entry.Message or entry[1] or entry, entry.Level or entry[2], entry.Detail or entry[3]) end
+                return controller
+            end
+
+            function Section:CreateChecklist(options)
+                options = options or {}
+                local name = tostring(options.Name or "Checklist")
+                local items, itemById = {}, {}
+                for index, raw in ipairs(options.Items or {}) do
+                    local item = type(raw) == "table" and raw or {Name = tostring(raw)}
+                    item.Id = normalizeActionId(item.Id or item.Name or index)
+                    item.Name = tostring(item.Name or item.Id)
+                    item.Status = tostring(item.Status or "Pending")
+                    table.insert(items, item)
+                    itemById[item.Id] = item
+                end
+                local height = 48 + math.max(1, #items) * 34
+                local container = Utility:Create("Frame", {Name = "Checklist_" .. name, Parent = ContentContainer, BackgroundColor3 = Library.Theme.Surface, Size = UDim2.new(1, 0, 0, height), BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 5})
+                Utility:RegisterProperty(container, "BackgroundColor3", "Surface")
+                Utility:Create("UICorner", {Parent = container, CornerRadius = UDim.new(0, 8)})
+                local title = Utility:Create("TextLabel", {Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -82, 0, 38), Text = name, TextColor3 = Library.Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7})
+                Utility:RegisterProperty(title, "TextColor3", "Text")
+                local progressLabel = Utility:Create("TextLabel", {Parent = container, BackgroundTransparency = 1, Position = UDim2.new(1, -72, 0, 0), Size = UDim2.fromOffset(60, 38), Text = "0 / 0", TextColor3 = Library.Theme.SubText, Font = Enum.Font.GothamBold, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 7})
+                Utility:RegisterProperty(progressLabel, "TextColor3", "SubText")
+                local body = Utility:Create("Frame", {Parent = container, BackgroundTransparency = 1, Position = UDim2.fromOffset(8, 38), Size = UDim2.new(1, -16, 0, math.max(1, #items) * 34), ZIndex = 6})
+                Utility:Create("UIListLayout", {Parent = body, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4)})
+                local controller = finishController({Type = "Checklist"}, container, name, options.Tooltip)
+                local colors = {Pending = "SubText", Active = "Accent2", Done = "Success", Error = "Error", Waiting = "Warn"}
+                local function render()
+                    for _, child in ipairs(body:GetChildren()) do if child.Name == "ChecklistItem" then child:Destroy() end end
+                    local done = 0
+                    for index, item in ipairs(items) do
+                        if item.Status == "Done" then done = done + 1 end
+                        local row = Utility:Create("TextButton", {Name = "ChecklistItem", Parent = body, BackgroundColor3 = Library.Theme.Secondary, BackgroundTransparency = 0.18, Size = UDim2.new(1, 0, 0, 30), Text = "", AutoButtonColor = false, LayoutOrder = index, BorderSizePixel = 0, ZIndex = 7})
+                        Utility:RegisterProperty(row, "BackgroundColor3", "Secondary")
+                        Utility:Create("UICorner", {Parent = row, CornerRadius = UDim.new(0, 6)})
+                        local colorKey = colors[item.Status] or "SubText"
+                        local check = Utility:Create("TextLabel", {Parent = row, BackgroundColor3 = Library.Theme[colorKey], BackgroundTransparency = item.Status == "Done" and 0.1 or 0.72, Position = UDim2.fromOffset(7, 7), Size = UDim2.fromOffset(16, 16), Text = item.Status == "Done" and "✓" or (item.Status == "Error" and "!" or ""), TextColor3 = Library.Theme[colorKey], Font = Enum.Font.GothamBold, TextSize = 9, BorderSizePixel = 0, ZIndex = 8})
+                        Utility:RegisterProperty(check, "BackgroundColor3", colorKey)
+                        Utility:RegisterProperty(check, "TextColor3", colorKey)
+                        Utility:Create("UICorner", {Parent = check, CornerRadius = UDim.new(1, 0)})
+                        local label = Utility:Create("TextLabel", {Parent = row, BackgroundTransparency = 1, Position = UDim2.fromOffset(31, 0), Size = UDim2.new(1, -96, 1, 0), Text = item.Name, TextColor3 = item.Status == "Done" and Library.Theme.SubText or Library.Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 9, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 8})
+                        Utility:RegisterProperty(label, "TextColor3", item.Status == "Done" and "SubText" or "Text")
+                        local state = Utility:Create("TextLabel", {Parent = row, BackgroundTransparency = 1, Position = UDim2.new(1, -62, 0, 0), Size = UDim2.fromOffset(54, 30), Text = item.Status, TextColor3 = Library.Theme[colorKey], Font = Enum.Font.GothamBold, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 8})
+                        Utility:RegisterProperty(state, "TextColor3", colorKey)
+                        Library:Connect(row.MouseButton1Click, function() controller:SetItemStatus(item.Id, item.Status == "Done" and "Pending" or "Done") end)
+                    end
+                    progressLabel.Text = string.format("%d / %d", done, #items)
+                    controller.Progress = #items > 0 and done / #items or 0
+                end
+                function controller:SetItemStatus(id, nextStatus)
+                    local item = itemById[normalizeActionId(id)]
+                    if not item then return false end
+                    item.Status = tostring(nextStatus or "Pending"):gsub("^%l", string.upper)
+                    render()
+                    Utility:SafeCall(options.Callback, item, self.Progress)
+                    return true
+                end
+                function controller:GetItems() return items end
+                function controller:GetProgress() return self.Progress or 0 end
+                function controller:Reset() for _, item in ipairs(items) do item.Status = "Pending" end render() return true end
+                addElement({Holder = container, Text = name .. " objectives steps checklist", Synonyms = options.Synonyms})
+                render()
+                return controller
             end
 
 
